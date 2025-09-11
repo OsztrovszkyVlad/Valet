@@ -1,0 +1,12 @@
+[package]
+name = "valet-platform"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+# Match the version family that `notify-debouncer-mini` expects to avoid type mismatches
+notify = { version = "6.1", default-features = false, features = ["macos_fsevent", "serde"] }
+notify-debouncer-mini = "0.4.1"
