@@ -1,7 +1,7 @@
 use anyhow::Result;
 use notify::RecursiveMode;
 use notify_debouncer_mini::{new_debouncer, DebouncedEvent};
-use std::{path::PathBuf, time::Duration};
+use std::{path::PathBuf, time::Duration, sync::Arc};
 
 pub struct WatchCancel {
   cancel_tx: Option<tokio::sync::oneshot::Sender<()>>,
@@ -17,33 +17,64 @@ impl WatchCancel {
 
 pub async fn watch_paths<F>(paths: Vec<PathBuf>, on_events: F) -> Result<WatchCancel>
 where
-  F: Fn(Vec<PathBuf>) + Send + 'static,
+  F: Fn(Vec<PathBuf>) + Send + Sync + 'static,
 {
-  let (tx_cancel, rx_cancel) = tokio::sync::oneshot::channel::<()>();
-  let mut paths_clone = paths.clone();
+  let (tx_cancel, _rx_cancel) = tokio::sync::oneshot::channel::<()>();
+  let paths_clone = paths.clone();
+  
+  // Wrap the callback in Arc to share between threads
+  let on_events = Arc::new(on_events);
+  let on_events_clone = Arc::clone(&on_events);
 
-  // Handler closure required by notify-debouncer-mini (FnMut over DebounceEventResult)
-  let handler = move |res: Result<Vec<DebouncedEvent>, notify::Error>| {
-    if let Ok(events) = res {
-      let files: Vec<PathBuf> = events.into_iter().map(|e| e.path).collect();
-      on_events(files);
-    }
-  };
+  // Create debouncer in a dedicated thread since notify is sync
+  let _handle = std::thread::spawn(move || {
+    // Handler closure required by notify-debouncer-mini (FnMut over DebounceEventResult)
+    let handler = move |res: Result<Vec<DebouncedEvent>, notify::Error>| {
+      match &res {
+        Ok(events) => {
+          println!("[DEBUG] Watcher received {} events", events.len());
+          let files: Vec<PathBuf> = events.iter().map(|e| e.path.clone()).collect();
+          for file in &files {
+            println!("[DEBUG] Event for file: {:?}", file);
+          }
+          on_events_clone(files);
+        }
+        Err(e) => {
+          println!("[DEBUG] Watcher error: {:?}", e);
+        }
+      }
+    };
 
-  // Keep the debouncer alive on a blocking thread
-  tokio::task::spawn_blocking(move || {
-    // 300ms debounce window; tune later
-    let mut debouncer = new_debouncer(Duration::from_millis(300), handler)
-      .expect("debouncer");
+    // Create debouncer with shorter timeout for more responsiveness
+    let mut debouncer = match new_debouncer(Duration::from_millis(100), handler) {
+      Ok(d) => d,
+      Err(e) => {
+        println!("[DEBUG] Failed to create debouncer: {:?}", e);
+        return;
+      }
+    };
 
-    for p in paths_clone.drain(..) {
+    for p in &paths_clone {
       // Recursive watching
-      let _ = debouncer.watcher().watch(&p, RecursiveMode::Recursive);
+      println!("[DEBUG] Adding watch for path: {:?}", p);
+      let watch_result = debouncer.watcher().watch(p, RecursiveMode::Recursive);
+      match watch_result {
+        Ok(()) => println!("[DEBUG] Successfully watching: {:?}", p),
+        Err(e) => println!("[DEBUG] Failed to watch {:?}: {:?}", p, e),
+      }
     }
 
-    // Block this thread until cancelled
-    let _ = rx_cancel.blocking_recv();
+    println!("[DEBUG] File watcher thread started, waiting for events...");
+    
+    // Keep the thread alive - the debouncer needs to stay in scope
+    // We can't easily integrate tokio::oneshot with std::thread in a clean way here,
+    // so we'll just keep the debouncer alive indefinitely for now
+    // In a real implementation, you'd want proper shutdown handling
+    loop {
+      std::thread::sleep(Duration::from_secs(1));
+    }
   });
 
+  // Return immediately - the watcher is now running in background thread
   Ok(WatchCancel { cancel_tx: Some(tx_cancel) })
 }

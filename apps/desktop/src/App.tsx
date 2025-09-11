@@ -1,34 +1,33 @@
 import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
+import Layout from './components/Layout'
+import RulesView from './views/RulesView'
+import PreferencesView from './views/PreferencesView'
+import DryRunView from './views/DryRunView'
+import StatsView from './views/StatsView'
 import './App.css'
 
 function App() {
-  const [count, setCount] = useState(0)
+  const [activeView, setActiveView] = useState('rules')
+
+  const renderActiveView = () => {
+    switch (activeView) {
+      case 'rules':
+        return <RulesView />
+      case 'preferences':
+        return <PreferencesView />
+      case 'dry-run':
+        return <DryRunView />
+      case 'stats':
+        return <StatsView />
+      default:
+        return <RulesView />
+    }
+  }
 
   return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.tsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
+    <Layout activeView={activeView} onViewChange={setActiveView}>
+      {renderActiveView()}
+    </Layout>
   )
 }
 

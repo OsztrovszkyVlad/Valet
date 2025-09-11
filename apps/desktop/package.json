@@ -11,8 +11,10 @@
     "lint": "eslint src --ext .ts,.tsx"
   },
   "dependencies": {
+    "@tauri-apps/api": "^2.8.0",
     "react": "^19.1.1",
-    "react-dom": "^19.1.1"
+    "react-dom": "^19.1.1",
+    "react-router-dom": "^7.8.2"
   },
   "devDependencies": {
     "@eslint/js": "^9.33.0",

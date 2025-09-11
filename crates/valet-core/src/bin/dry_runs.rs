@@ -10,7 +10,7 @@ async fn main() -> Result<()> {
 
   // Choose a folder to preview actions for
   let target = dirs::download_dir().unwrap_or(PathBuf::from("~/Downloads"));
-  let plan = dry_run_for_paths(&[target.clone()], &db).await?;
+  let plan = dry_run_for_paths(std::slice::from_ref(&target), &db).await?;
 
   println!("Dry run results for {} action(s):", plan.actions.len());
   for a in plan.actions {

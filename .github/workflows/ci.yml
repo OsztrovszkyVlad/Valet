@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test-windows:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: stable-x86_64-pc-windows-msvc
+    
+    - name: Install Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+    
+    - name: Enable Corepack
+      run: corepack enable
+    
+    - name: Install dependencies
+      run: pnpm install
+      working-directory: apps/desktop
+    
+    - name: Rust check
+      run: cargo check --all-targets --all-features
+    
+    - name: Rust clippy (strict)
+      run: cargo clippy --all-targets --all-features -- -D warnings
+    
+    - name: Node build
+      run: pnpm build
+      working-directory: apps/desktop
+    
+    - name: Tauri build
+      run: pnpm tauri build
+      working-directory: apps/desktop
+
+  test-macos:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+    
+    - name: Install Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+    
+    - name: Enable Corepack
+      run: corepack enable
+    
+    - name: Install dependencies
+      run: pnpm install
+      working-directory: apps/desktop
+    
+    - name: Rust check
+      run: cargo check --all-targets --all-features
+    
+    - name: Rust clippy (strict)
+      run: cargo clippy --all-targets --all-features -- -D warnings
+    
+    - name: Node build
+      run: pnpm build
+      working-directory: apps/desktop
+    
+    - name: Tauri build
+      run: pnpm tauri build
+      working-directory: apps/desktop

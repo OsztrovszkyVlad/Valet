@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileRow {
@@ -38,4 +39,29 @@ pub struct DryRunAction {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DryRunPlan {
   pub actions: Vec<DryRunAction>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OperationStats {
+  pub total_operations: u64,
+  pub successful_operations: u64,
+  pub failed_operations: u64,
+  pub files_moved: u64,
+  pub files_copied: u64,
+  pub rules_applied_count: HashMap<String, u64>,
+  pub file_types_organized: HashMap<String, u64>,
+  pub average_operations_per_day: f64,
+  pub last_operation_date: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecentOperation {
+  pub id: u64,
+  pub source_path: String,
+  pub destination_path: String,
+  pub operation_type: String,
+  pub rule_name: String,
+  pub status: String,
+  pub error_message: Option<String>,
+  pub created_at: String,
 }
