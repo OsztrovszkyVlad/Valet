@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import Layout from './components/Layout'
 import RulesView from './views/RulesView'
-import PreferencesView from './views/PreferencesView'
+import SettingsView from './views/SettingsView'
 import DryRunView from './views/DryRunView'
 import StatsView from './views/StatsView'
 import './App.css'
@@ -13,8 +13,8 @@ function App() {
     switch (activeView) {
       case 'rules':
         return <RulesView />
-      case 'preferences':
-        return <PreferencesView />
+      case 'settings':
+        return <SettingsView />
       case 'dry-run':
         return <DryRunView />
       case 'stats':

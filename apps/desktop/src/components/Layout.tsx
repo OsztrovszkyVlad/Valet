@@ -10,7 +10,7 @@ interface LayoutProps {
 const Layout: React.FC<LayoutProps> = ({ children, activeView, onViewChange }) => {
     const views = [
         { id: 'rules', label: 'Rules', icon: '📁' },
-        { id: 'preferences', label: 'Preferences', icon: '⚙️' },
+        { id: 'settings', label: 'Settings', icon: '⚙️' },
         { id: 'dry-run', label: 'Dry Run', icon: '🔍' },
         { id: 'stats', label: 'Statistics', icon: '📊' }
     ];
