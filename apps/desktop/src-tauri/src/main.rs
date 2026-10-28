@@ -5,7 +5,7 @@ use tauri::menu::Menu;
 use tauri::WindowEvent;
 use tauri_plugin_log::Builder;
 
-use commands::platform::{launched_minimized, AUTOSTART_NAME, MINIMIZED_ARG};
+use commands::platform::launched_minimized;
 
 mod commands;
 mod i18n;
@@ -32,13 +32,6 @@ fn main() {
             }
         }))
         .plugin(Builder::default().level(log_level).build())
-        // Per-user auto-start entry; Valet then starts hidden in the tray.
-        .plugin(
-            tauri_plugin_autostart::Builder::new()
-                .app_name(AUTOSTART_NAME)
-                .arg(MINIMIZED_ARG)
-                .build(),
-        )
         .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![
             commands::rules::get_rules,

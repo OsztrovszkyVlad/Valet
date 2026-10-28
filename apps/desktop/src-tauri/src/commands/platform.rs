@@ -3,16 +3,12 @@
 use std::path::Path;
 
 use tauri::{AppHandle, Manager, Runtime};
-use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_notification::NotificationExt;
 
 use crate::i18n;
 
 /// Argument the auto-start entry passes: start hidden in the tray.
-pub(crate) const MINIMIZED_ARG: &str = "--minimized";
-
-/// Name of the auto-start entry (value name under HKCU\...\Run on Windows).
-pub(crate) const AUTOSTART_NAME: &str = "Valet";
+pub(crate) const MINIMIZED_ARG: &str = valet_platform::AUTOSTART_ARG;
 
 /// True if `args` contain [`MINIMIZED_ARG`].
 pub(crate) fn launched_minimized<I, S>(args: I) -> bool
@@ -81,17 +77,14 @@ pub(crate) async fn send_notification(
     Ok(())
 }
 
-/// Adds or removes the per-user auto-start entry. The entry starts Valet
-/// with [`MINIMIZED_ARG`], so it opens in the tray.
+/// Adds or removes the per-user auto-start entry for the running exe
+/// (`valet_platform::set_autostart`, HKCU only). The entry starts Valet with
+/// [`MINIMIZED_ARG`], so it opens in the tray.
 #[tauri::command]
-pub(crate) async fn configure_auto_start(enabled: bool, app: AppHandle) -> Result<(), String> {
-    let manager = app.autolaunch();
-    let result = if enabled {
-        manager.enable()
-    } else {
-        manager.disable()
-    };
-    result.map_err(|e| format!("Failed to change auto-start: {e}"))?;
+pub(crate) async fn configure_auto_start(enabled: bool) -> Result<(), String> {
+    std::env::current_exe()
+        .and_then(|exe| valet_platform::set_autostart(enabled, &exe))
+        .map_err(|e| format!("Failed to change auto-start: {e}"))?;
     log::info!(
         "Auto-start {}",
         if enabled { "enabled" } else { "disabled" }
@@ -99,11 +92,12 @@ pub(crate) async fn configure_auto_start(enabled: bool, app: AppHandle) -> Resul
     Ok(())
 }
 
-/// Whether the auto-start entry exists and is not disabled in Task Manager.
+/// Whether the auto-start entry exists, points at the running exe and is
+/// not disabled in Task Manager (`valet_platform::autostart_state`).
 #[tauri::command]
-pub(crate) async fn get_auto_start(app: AppHandle) -> Result<bool, String> {
-    app.autolaunch()
-        .is_enabled()
+pub(crate) async fn get_auto_start() -> Result<bool, String> {
+    std::env::current_exe()
+        .and_then(|exe| valet_platform::autostart_state(&exe))
         .map_err(|e| format!("Failed to read auto-start state: {e}"))
 }
 
