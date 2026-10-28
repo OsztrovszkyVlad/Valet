@@ -146,3 +146,40 @@ fn plan_10k_files_three_name_rules_under_budget() {
     assert_eq!(ops, 10_000);
     assert!(elapsed < Duration::from_secs(3), "{elapsed:?}");
 }
+
+/// Worst case for `duplicate`: every fixture file has the same size and
+/// bytes, so all 10,000 are hashed and form one group.
+#[test]
+#[ignore = "timing; run in release with --ignored"]
+fn plan_10k_files_duplicate_rule_under_budget() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("Downloads");
+    fixture(&root);
+    let rules: Vec<Rule> = vec![
+        serde_json::from_value(json!({
+            "id": Uuid::from_u128(1),
+            "name": "Duplicate",
+            "enabled": true,
+            "conditions": [{ "type": "duplicate", "value": true }],
+            "actions": [{ "type": "report" }, { "type": "trash" }],
+        }))
+        .unwrap(),
+    ];
+    let start = Instant::now();
+    let p = plan(
+        std::slice::from_ref(&root),
+        &rules,
+        &FakePlatform::default(),
+        &ctx(),
+    );
+    let elapsed = start.elapsed();
+    println!(
+        "plan (duplicate): 10000 files, {} ops, {} reports, {:.3} s",
+        p.ops.len(),
+        p.reports.len(),
+        elapsed.as_secs_f64()
+    );
+    assert_eq!(p.ops.len(), 9_999);
+    assert_eq!(p.reports.len(), 10_000);
+    assert!(elapsed < Duration::from_secs(3), "{elapsed:?}");
+}

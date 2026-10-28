@@ -1692,3 +1692,292 @@ fn file_rules_never_see_directories() {
     assert_eq!(p.ops[0].kind, OpKind::Move);
     assert_eq!(p.ops[1].kind, OpKind::Trash);
 }
+
+// ---------------------------------------------------------------- duplicate
+
+fn put(path: &Path, body: &[u8], mtime_secs: u64) {
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, body).unwrap();
+    set_mtime(
+        path,
+        SystemTime::UNIX_EPOCH + Duration::from_secs(mtime_secs),
+    );
+}
+
+fn dup_rule(n: u128, extra: Value, actions: Value) -> Rule {
+    let mut conds = vec![json!({ "type": "duplicate", "value": true })];
+    if let Value::Array(more) = extra {
+        conds.extend(more);
+    }
+    acts(n, &format!("dup{n}"), Value::Array(conds), actions)
+}
+
+fn group_id(body: &[u8]) -> String {
+    blake3::hash(body).to_hex()[..12].to_string()
+}
+
+fn hashed() -> Vec<PathBuf> {
+    let mut v = HASHED.with(|h| h.borrow().clone());
+    v.sort();
+    v
+}
+
+fn reset_hashed() {
+    HASHED.with(|h| h.borrow_mut().clear());
+}
+
+#[test]
+fn duplicate_report_groups_identical_files_and_hashes_same_size_only() {
+    let (_tmp, root) = tmp_root();
+    let (a, b, c) = (root.join("a.bin"), root.join("s/b.bin"), root.join("c.bin"));
+    let d = root.join("d.bin"); // same size, other bytes
+    let e = root.join("e.bin"); // unique size
+    for f in [&a, &b, &c] {
+        put(f, b"same", 1000);
+    }
+    put(&d, b"diff", 1000);
+    put(&e, b"longer content", 1000);
+    reset_hashed();
+    let p = run(
+        std::slice::from_ref(&root),
+        &[dup_rule(1, json!([]), json!([{ "type": "report" }]))],
+    );
+    let g = Some(group_id(b"same"));
+    assert_eq!(
+        reports(&p),
+        vec![
+            (a.clone(), "dup1".into(), g.clone()),
+            (c.clone(), "dup1".into(), g.clone()),
+            (b.clone(), "dup1".into(), g),
+        ]
+    );
+    assert!(p.ops.is_empty() && p.skipped.is_empty());
+    let mut want = vec![a, b, c, d];
+    want.sort();
+    assert_eq!(hashed(), want, "e has a unique size and is never hashed");
+}
+
+#[test]
+fn duplicate_trash_keeps_oldest_and_trashes_the_rest() {
+    let (_tmp, root) = tmp_root();
+    let (old, mid, new) = (
+        root.join("z_old.bin"),
+        root.join("a_mid.bin"),
+        root.join("m_new.bin"),
+    );
+    put(&old, b"same", 1000);
+    put(&mid, b"same", 2000);
+    put(&new, b"same", 3000);
+    let p = run(
+        std::slice::from_ref(&root),
+        &[dup_rule(1, json!([]), json!([{ "type": "trash" }]))],
+    );
+    let ops: Vec<(PathBuf, OpKind)> = p.ops.iter().map(|o| (o.source.clone(), o.kind)).collect();
+    assert_eq!(ops, vec![(mid, OpKind::Trash), (new, OpKind::Trash)]);
+    assert_eq!(
+        reports(&p),
+        vec![(old, "dup1".into(), Some(group_id(b"same")))]
+    );
+}
+
+#[test]
+fn duplicate_keeper_ties_break_on_path_length_then_lexicographic() {
+    let (_tmp, root) = tmp_root();
+    let long = root.join("aaaa.bin");
+    let b = root.join("b.bin");
+    let a = root.join("a.bin");
+    let c = root.join("c.bin");
+    for f in [&long, &b, &a, &c] {
+        put(f, b"same", 1000);
+    }
+    let p = run(
+        std::slice::from_ref(&root),
+        &[dup_rule(1, json!([]), json!([{ "type": "trash" }]))],
+    );
+    // Same mtime; a.bin, b.bin and c.bin are shortest; a.bin sorts first.
+    assert_eq!(reports(&p)[0].0, a);
+    assert_eq!(
+        sources(&p),
+        vec![long, b, c],
+        "every copy except the keeper"
+    );
+}
+
+#[test]
+fn keeper_key_orders_mtime_then_length_then_path() {
+    let f = |p: &str, t: u64| FoundFile {
+        path: PathBuf::from(p),
+        root_idx: 0,
+        depth: 1,
+        base: PathBuf::new(),
+        size: 1,
+        mtime: SystemTime::UNIX_EPOCH + Duration::from_secs(t),
+        created: None,
+        hidden: false,
+        is_dir: false,
+    };
+    assert!(keeper_key(&f("/long/path", 1)) < keeper_key(&f("/a", 2)));
+    assert!(keeper_key(&f("/b", 1)) < keeper_key(&f("/aa", 1)));
+    assert!(keeper_key(&f("/a", 1)) < keeper_key(&f("/b", 1)));
+}
+
+#[test]
+fn placeholders_hidden_excluded_and_writing_files_are_never_hashed() {
+    let (_tmp, root) = tmp_root();
+    let real = root.join("a.bin");
+    let cloud = root.join("cloud.bin");
+    let attr_hidden = root.join("h.bin");
+    let dot = root.join(".dot.bin");
+    let writing = root.join("w.bin.part");
+    let excluded = root.join("node_modules").join("x.bin");
+    for f in [&real, &cloud, &attr_hidden, &dot, &writing, &excluded] {
+        put(f, b"same", 1000);
+    }
+    let mut platform = FakePlatform::default();
+    platform.placeholders.insert(cloud.clone());
+    platform.hidden.insert(attr_hidden.clone());
+    let opted = rule_json(
+        1,
+        "dup",
+        json!([{ "type": "duplicate", "value": true }]),
+        json!([{ "type": "trash" }]),
+        json!({ "includeHidden": true }),
+    );
+    reset_hashed();
+    let p = plan(std::slice::from_ref(&root), &[opted], &platform, &ctx());
+    assert!(hashed().is_empty(), "hashed {:?}", hashed());
+    assert!(p.ops.is_empty() && p.reports.is_empty());
+    assert!(
+        p.skipped
+            .iter()
+            .any(|s| s.path == cloud && s.reason == SkipReason::CloudPlaceholder)
+    );
+}
+
+#[test]
+fn duplicate_candidates_follow_the_other_conditions_and_scope() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (r1, r2) = (tmp.path().join("A"), tmp.path().join("B"));
+    put(&r1.join("a.pdf"), b"same", 1000);
+    put(&r1.join("b.txt"), b"same", 1000);
+    put(&r2.join("c.pdf"), b"same", 1000);
+    let mut r = dup_rule(
+        1,
+        json!([{ "type": "extIn", "value": ["pdf"] }]),
+        json!([{ "type": "report" }]),
+    );
+    let p = run(&[r1.clone(), r2.clone()], std::slice::from_ref(&r));
+    let got: Vec<PathBuf> = p.reports.iter().map(|e| e.path.clone()).collect();
+    assert_eq!(got, vec![r1.join("a.pdf"), r2.join("c.pdf")]);
+
+    r.scope = vec![r1.to_string_lossy().into_owned()];
+    reset_hashed();
+    let p = run(&[r1.clone(), r2], &[r]);
+    assert!(p.reports.is_empty(), "the copy in B is out of scope");
+    assert!(
+        hashed().is_empty(),
+        "a single candidate per size is not hashed"
+    );
+}
+
+#[test]
+fn empty_files_are_never_duplicates() {
+    let (_tmp, root) = tmp_root();
+    put(&root.join("a"), b"", 1000);
+    put(&root.join("b"), b"", 1000);
+    reset_hashed();
+    let p = run(
+        std::slice::from_ref(&root),
+        &[dup_rule(1, json!([]), json!([{ "type": "report" }]))],
+    );
+    assert!(p.reports.is_empty());
+    assert!(hashed().is_empty());
+}
+
+#[test]
+fn files_are_hashed_once_per_plan_across_duplicate_rules() {
+    let (_tmp, root) = tmp_root();
+    put(&root.join("a"), b"same", 1000);
+    put(&root.join("b"), b"same", 1000);
+    reset_hashed();
+    let p = run(
+        std::slice::from_ref(&root),
+        &[
+            dup_rule(1, json!([]), json!([{ "type": "report" }])),
+            dup_rule(2, json!([]), json!([{ "type": "report" }])),
+        ],
+    );
+    assert_eq!(p.reports.len(), 4);
+    assert_eq!(hashed(), vec![root.join("a"), root.join("b")]);
+}
+
+#[test]
+fn unreadable_candidate_is_skipped_and_left_out_of_groups() {
+    let (_tmp, root) = tmp_root();
+    let (a, b, c) = (root.join("a"), root.join("b"), root.join("c"));
+    for f in [&a, &b, &c] {
+        put(f, b"same", 1000);
+    }
+    HASH_FAILS.with(|f| f.borrow_mut().insert(b.clone()));
+    let p = run(
+        std::slice::from_ref(&root),
+        &[dup_rule(1, json!([]), json!([{ "type": "trash" }]))],
+    );
+    HASH_FAILS.with(|f| f.borrow_mut().clear());
+    assert_eq!(sources(&p), vec![c]);
+    assert_eq!(reports(&p)[0].0, a);
+    assert_eq!(
+        skips(&p),
+        vec![(b, SkipReason::Unreadable, Some("dup1".into()))]
+    );
+}
+
+#[test]
+fn copy_claimed_by_an_earlier_rule_conflicts_and_keeper_stays() {
+    let (_tmp, root) = tmp_root();
+    let (a, b, c) = (root.join("a.bin"), root.join("b.bin"), root.join("c.bin"));
+    put(&a, b"same", 1000);
+    put(&b, b"same", 2000);
+    put(&c, b"same", 3000);
+    let mv = acts(
+        9,
+        "move-b",
+        json!([{ "type": "nameContains", "value": "b." }]),
+        json!([{ "type": "moveTo", "params": { "path": "Out" } }]),
+    );
+    let p = run(
+        std::slice::from_ref(&root),
+        &[mv, dup_rule(1, json!([]), json!([{ "type": "trash" }]))],
+    );
+    let ops: Vec<(PathBuf, OpKind)> = p.ops.iter().map(|o| (o.source.clone(), o.kind)).collect();
+    assert_eq!(ops, vec![(b.clone(), OpKind::Move), (c, OpKind::Trash)]);
+    assert_eq!(
+        skips(&p),
+        vec![(b, SkipReason::Conflict, Some("dup1".into()))]
+    );
+    assert_eq!(reports(&p)[0].0, a);
+}
+
+#[test]
+fn keeper_alone_does_not_block_later_rules() {
+    let (_tmp, root) = tmp_root();
+    let (a, b) = (root.join("a.bin"), root.join("b.bin"));
+    put(&a, b"same", 1000);
+    put(&b, b"same", 2000);
+    let p = run(
+        std::slice::from_ref(&root),
+        &[
+            dup_rule(1, json!([]), json!([{ "type": "trash" }])),
+            all(2, "move", "moveTo", "/abs/out"),
+        ],
+    );
+    let ops: Vec<(PathBuf, OpKind)> = p.ops.iter().map(|o| (o.source.clone(), o.kind)).collect();
+    assert_eq!(
+        ops,
+        vec![(a.clone(), OpKind::Move), (b.clone(), OpKind::Trash)]
+    );
+    assert_eq!(
+        skips(&p),
+        vec![(b, SkipReason::Conflict, Some("move".into()))]
+    );
+}

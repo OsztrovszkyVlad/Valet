@@ -1,11 +1,14 @@
 //! Builds the plan: which file goes where under which rule, and why every
 //! other file in scope was left alone. The planner lists directories and reads
-//! metadata; it never opens, hashes, moves or writes a file.
+//! metadata; it never moves or writes a file. It opens and hashes files only
+//! for `duplicate` rules, and only files that share their size with another
+//! candidate of the same rule (never a placeholder, hidden, excluded or
+//! being-written file: those are skipped before matching).
 
 use std::{
     collections::{HashMap, HashSet},
     ffi::OsStr,
-    fs,
+    fs, io,
     path::{Component, Path, PathBuf},
     time::{Duration, SystemTime},
 };
@@ -17,7 +20,7 @@ use walkdir::WalkDir;
 
 use crate::{
     collision::next_free_name,
-    matcher::{FileFacts, is_folder_rule, rule_matches},
+    matcher::{FileFacts, is_duplicate_rule, is_folder_rule, rule_matches},
     platform::Platform,
     rules::{Action, Rule},
 };
@@ -195,19 +198,129 @@ pub fn plan(roots: &[PathBuf], rules: &[Rule], platform: &dyn Platform, ctx: &Pl
     let mut marker_cache: HashMap<PathBuf, bool> = HashMap::new();
     let prepared = prepare(roots, rules, ctx);
     let want_dirs = rules.iter().any(|r| r.enabled && is_folder_rule(r));
-    scan(roots, platform, ctx.now, want_dirs, |found| match found {
-        Found::Skip(s) => out.skipped.push(s),
-        Found::File(f) => plan_file(
-            &f,
-            &prepared,
-            platform,
-            ctx,
-            &mut reserved,
-            &mut marker_cache,
-            &mut out,
-        ),
-    });
+    let mut found = Vec::new();
+    scan(roots, platform, ctx.now, want_dirs, |f| found.push(f));
+    let dups = find_duplicates(&found, &prepared, platform, ctx);
+    for f in found {
+        match f {
+            Found::Skip(s) => out.skipped.push(s),
+            Found::File(f) => plan_file(
+                &f,
+                &prepared,
+                &dups,
+                platform,
+                ctx,
+                &mut reserved,
+                &mut marker_cache,
+                &mut out,
+            ),
+        }
+    }
     out
+}
+
+// ---------------------------------------------------------------- duplicates
+
+/// Characters of the blake3 hex digest used as the duplicate group id.
+const GROUP_ID_LEN: usize = 12;
+
+/// Byte-identical groups for the `duplicate` rules of one plan.
+#[derive(Default)]
+struct Duplicates {
+    /// Rule index -> member path -> (group id, is the keeper).
+    by_rule: HashMap<usize, HashMap<PathBuf, (String, bool)>>,
+    /// Candidates that could not be read for hashing.
+    unreadable: HashSet<PathBuf>,
+}
+
+/// The copy a group keeps: oldest mtime, then shortest path, then the
+/// lexicographically smallest path.
+fn keeper_key(f: &FoundFile) -> (SystemTime, usize, String) {
+    let p = f.path.to_string_lossy().into_owned();
+    (f.mtime, p.chars().count(), p)
+}
+
+/// For each enabled `duplicate` rule: its candidates are the non-empty,
+/// non-hidden files the rule sees whose other conditions hold. Candidates are
+/// grouped by size; only files sharing a size are hashed (once per plan,
+/// shared between rules); groups of two or more identical hashes are kept.
+fn find_duplicates(
+    found: &[Found],
+    rules: &[Prepared],
+    platform: &dyn Platform,
+    ctx: &PlanContext,
+) -> Duplicates {
+    let mut out = Duplicates::default();
+    let mut hashes: HashMap<PathBuf, Option<String>> = HashMap::new();
+    for (ri, p) in rules.iter().enumerate() {
+        if !p.duplicate || !p.rule.enabled {
+            continue;
+        }
+        let mut by_size: HashMap<u64, Vec<&FoundFile>> = HashMap::new();
+        for f in found.iter().filter_map(|f| match f {
+            Found::File(f) => Some(f),
+            Found::Skip(_) => None,
+        }) {
+            if f.is_dir || f.hidden || f.size == 0 || !p.sees(f) {
+                continue;
+            }
+            let path_str = f.path.to_string_lossy();
+            if rule_matches(p.rule, &facts(f, &path_str, ctx)) {
+                by_size.entry(f.size).or_default().push(f);
+            }
+        }
+        let members = out.by_rule.entry(ri).or_default();
+        for same_size in by_size.values().filter(|v| v.len() > 1) {
+            let mut by_hash: HashMap<String, Vec<&FoundFile>> = HashMap::new();
+            for f in same_size {
+                let h = hashes
+                    .entry(f.path.clone())
+                    .or_insert_with(|| hash_for_duplicates(platform, &f.path).ok());
+                match h {
+                    Some(h) => by_hash.entry(h.clone()).or_default().push(f),
+                    None => {
+                        out.unreadable.insert(f.path.clone());
+                    }
+                }
+            }
+            for (h, group) in by_hash.iter().filter(|(_, g)| g.len() > 1) {
+                let keeper = group
+                    .iter()
+                    .min_by_key(|f| keeper_key(f))
+                    .expect("group has members");
+                let id: String = h.chars().take(GROUP_ID_LEN).collect();
+                for f in group {
+                    members.insert(f.path.clone(), (id.clone(), f.path == keeper.path));
+                }
+            }
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Paths hashed by `hash_for_duplicates` on this thread (tests only).
+    pub(crate) static HASHED: std::cell::RefCell<Vec<PathBuf>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Paths whose hashing fails on this thread (tests only).
+    pub(crate) static HASH_FAILS: std::cell::RefCell<HashSet<PathBuf>> =
+        std::cell::RefCell::new(HashSet::new());
+}
+
+fn hash_for_duplicates(platform: &dyn Platform, path: &Path) -> io::Result<String> {
+    #[cfg(test)]
+    {
+        HASHED.with(|h| h.borrow_mut().push(path.to_path_buf()));
+        if HASH_FAILS.with(|f| f.borrow().contains(path)) {
+            return Err(io::Error::other("test: hashing fails"));
+        }
+    }
+    crate::executor::hash_file(platform, path)
 }
 
 // ---------------------------------------------------------------- rule scope
@@ -219,6 +332,8 @@ struct Prepared<'r> {
     in_roots: Vec<bool>,
     /// `options.topLevelOnly`: only entries directly inside a root.
     top_level_only: bool,
+    /// Has a `duplicate` condition.
+    duplicate: bool,
 }
 
 impl Prepared<'_> {
@@ -248,6 +363,7 @@ fn prepare<'r>(roots: &[PathBuf], rules: &'r [Rule], ctx: &PlanContext) -> Vec<P
                 rule,
                 in_roots,
                 top_level_only: rule.option_flag("topLevelOnly"),
+                duplicate: is_duplicate_rule(rule),
             }
         })
         .collect()
@@ -579,9 +695,23 @@ impl<'r> Hit<'r> {
     }
 }
 
+fn facts<'a>(f: &FoundFile, path_str: &'a str, ctx: &PlanContext) -> FileFacts<'a> {
+    FileFacts {
+        path: path_str,
+        size: f.size,
+        mtime: Some(f.mtime),
+        created: f.created,
+        is_dir: f.is_dir,
+        is_empty_dir: f.is_dir,
+        now: Some(ctx.now),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn plan_file(
     f: &FoundFile,
     rules: &[Prepared],
+    dups: &Duplicates,
     platform: &dyn Platform,
     ctx: &PlanContext,
     reserved: &mut HashSet<String>,
@@ -589,23 +719,40 @@ fn plan_file(
     out: &mut Plan,
 ) {
     let path_str = f.path.to_string_lossy();
-    let facts = FileFacts {
-        path: &path_str,
-        size: f.size,
-        mtime: Some(f.mtime),
-        created: f.created,
-        is_dir: f.is_dir,
-        is_empty_dir: f.is_dir,
-        now: Some(ctx.now),
-    };
+    let facts = facts(f, &path_str, ctx);
+    let mut unreadable_for: Option<&Rule> = None;
     let matching: Vec<Hit> = rules
         .iter()
-        .filter(|p| p.sees(f) && rule_matches(p.rule, &facts))
-        .map(|p| Hit {
-            rule: p.rule,
-            group: None,
+        .enumerate()
+        .filter(|(_, p)| p.sees(f) && rule_matches(p.rule, &facts))
+        .filter_map(|(ri, p)| {
+            if !p.duplicate {
+                return Some(Hit {
+                    rule: p.rule,
+                    group: None,
+                });
+            }
+            match dups.by_rule.get(&ri).and_then(|m| m.get(&f.path)) {
+                Some(g) => Some(Hit {
+                    rule: p.rule,
+                    group: Some(g.clone()),
+                }),
+                None => {
+                    if dups.unreadable.contains(&f.path) {
+                        unreadable_for = unreadable_for.or(Some(p.rule));
+                    }
+                    None
+                }
+            }
         })
         .collect();
+    if let Some(rule) = unreadable_for {
+        out.skipped.push(Skipped {
+            path: f.path.clone(),
+            reason: SkipReason::Unreadable,
+            rule_name: Some(rule.name.clone()),
+        });
+    }
     let winner = matching.iter().position(|h| h.mutation().is_some());
 
     let push_skip = |out: &mut Plan, reason, rule: Option<&Rule>| {
