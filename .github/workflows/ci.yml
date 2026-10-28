@@ -99,6 +99,129 @@ jobs:
         if: ${{ !cancelled() }}
         run: pnpm build
 
+  # UI smoke test (PLAN 2 exit criterion, PLAN 4.6): onboarding -> preview ->
+  # organize -> undo -> history through tauri-driver + WebKitWebDriver under
+  # Xvfb. The app runs with a temp HOME (tests/e2e/smoke.mjs). Blocking.
+  e2e-linux:
+    name: e2e smoke (Linux)
+    runs-on: ubuntu-latest
+    env:
+      CARGO_INCREMENTAL: "0"
+      TAURI_DRIVER_VERSION: "2.0.6"
+    steps:
+      - uses: actions/checkout@v4
+      - name: System packages (webkit2gtk, WebKitWebDriver, Xvfb)
+        id: apt
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev \
+            libssl-dev libayatana-appindicator3-dev librsvg2-dev \
+            webkit2gtk-driver xvfb dbus locales
+          # Romanian dates in the UI (toLocaleString uses the system locale).
+          sudo locale-gen ro_RO.UTF-8
+      - name: Rust toolchain from rust-toolchain.toml
+        run: rustup toolchain install || rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: e2e-linux
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: apps/desktop/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+      - name: Build frontend
+        id: frontend
+        working-directory: apps/desktop
+        run: pnpm install --frozen-lockfile && pnpm build
+      - name: Build app (embedded dist/)
+        id: build
+        run: cargo build -p app --features tauri/custom-protocol
+      - name: Cache tauri-driver
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/tauri-driver
+          key: tauri-driver-${{ env.TAURI_DRIVER_VERSION }}-${{ runner.os }}
+      - name: Install tauri-driver
+        id: driver
+        run: |
+          if ! tauri-driver --help >/dev/null 2>&1; then
+            cargo install tauri-driver --locked --version "$TAURI_DRIVER_VERSION"
+          fi
+      - name: Smoke test (onboarding, preview, organize, undo, history)
+        id: smoke
+        run: bash scripts/e2e-linux.sh target/debug/app e2e-screenshots
+      - name: Upload screenshots
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-linux-screenshots
+          path: e2e-screenshots
+          if-no-files-found: ignore
+      - name: Report the failing step
+        if: ${{ failure() }}
+        run: |
+          for s in "apt=${{ steps.apt.outcome }}" "frontend=${{ steps.frontend.outcome }}" \
+                   "build=${{ steps.build.outcome }}" "driver=${{ steps.driver.outcome }}" \
+                   "smoke=${{ steps.smoke.outcome }}"; do
+            [ "${s#*=}" = failure ] && echo "::error title=e2e-linux::step '${s%%=*}' failed (the smoke step prints its own annotation with the UI text)"
+          done
+          true
+
+  # Same smoke test on Windows (WebView2 + msedgedriver). Report only: the
+  # preinstalled msedgedriver follows the Edge browser version, which can
+  # differ from the WebView2 runtime. The app uses the runner's real
+  # Downloads and %APPDATA% (ephemeral VM).
+  e2e-windows:
+    name: e2e smoke (Windows, report only)
+    runs-on: windows-latest
+    continue-on-error: true
+    env:
+      CARGO_INCREMENTAL: "0"
+      TAURI_DRIVER_VERSION: "2.0.6"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust toolchain from rust-toolchain.toml
+        shell: bash
+        run: rustup toolchain install || rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: e2e-windows
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: apps/desktop/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+      - name: Build frontend
+        working-directory: apps/desktop
+        run: pnpm install --frozen-lockfile; if ($?) { pnpm build }
+      - name: Build app (embedded dist/)
+        run: cargo build -p app --features tauri/custom-protocol
+      - name: Install tauri-driver
+        shell: bash
+        run: cargo install tauri-driver --locked --version "$TAURI_DRIVER_VERSION"
+      - name: Smoke test
+        shell: pwsh
+        run: |
+          $edge = Join-Path $env:EDGEWEBDRIVER 'msedgedriver.exe'
+          if (-not (Test-Path $edge)) { Write-Output "::error title=e2e-windows::msedgedriver not found at $edge"; exit 1 }
+          & $edge --version
+          node tests/e2e/smoke.mjs --app target/debug/app.exe --native-driver $edge --screenshots e2e-screenshots
+          exit $LASTEXITCODE
+      - name: Upload screenshots
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-windows-screenshots
+          path: e2e-screenshots
+          if-no-files-found: ignore
+
   windows:
     name: workspace (Windows)
     runs-on: windows-latest
