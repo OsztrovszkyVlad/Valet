@@ -8,6 +8,10 @@
 //!
 //! Even iterations use the same-volume rename path, odd ones
 //! `VALET_FORCE_CROSS_VOLUME=1` (copy + verify + rename + trash).
+//! Iterations 2 and 3 of every 4 send the `.txt` files to the (fake) Recycle
+//! Bin with a `trash` rule instead of moving them: each such original must
+//! then be exactly once at its source or in the bin, and undo restores it
+//! from the bin.
 //! Iterations: env `VALET_FAULT_ITERS` (default 10). CI runs 100.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -18,7 +22,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant, SystemTime};
 
 use serde_json::{Value, json};
-use valet_core::journal::{BatchKind, OpState};
+use valet_core::journal::{BatchKind, OpState, OpType};
 use valet_core::storage::Db;
 
 const BIN: &str = env!("CARGO_BIN_EXE_valet-fault");
@@ -100,6 +104,8 @@ fn temp_files(dir: &Path, skip: &Path) -> Vec<PathBuf> {
 
 struct Fixture {
     tmp: tempfile::TempDir,
+    /// `.txt` files go to the Recycle Bin instead of `dest/txt`.
+    trash_txt: bool,
     src: PathBuf,
     dest: PathBuf,
     db: PathBuf,
@@ -114,7 +120,24 @@ impl Fixture {
     }
 }
 
+/// Content hashes of the files in the fake Recycle Bin (top level).
+fn bin_hashes(f: &Fixture) -> Vec<String> {
+    match fs::read_dir(f.trash()) {
+        Ok(rd) => rd
+            .filter_map(Result::ok)
+            .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
+            .map(|e| hash_bytes(&fs::read(e.path()).unwrap()))
+            .collect(),
+        Err(_) => vec![],
+    }
+}
+
+fn is_txt(rel: &Path) -> bool {
+    rel.extension().is_some_and(|e| e == "txt")
+}
+
 fn fixture(iter: u64) -> Fixture {
+    let trash_txt = iter % 4 >= 2;
     let tmp = tempfile::tempdir().unwrap();
     let src = tmp.path().join("src");
     let dest = tmp.path().join("dest");
@@ -162,18 +185,24 @@ fn fixture(iter: u64) -> Fixture {
         .iter()
         .enumerate()
         .map(|(i, ext)| {
+            let action = if trash_txt && *ext == "txt" {
+                json!({ "type": "trash" })
+            } else {
+                json!({ "type": "moveTo", "params": { "path": format!("{dest_str}/{{ext}}") } })
+            };
             json!({
                 "id": format!("00000000-0000-0000-0000-{:012}", i + 1),
                 "name": format!("by-ext-{ext}"),
                 "enabled": true,
                 "conditions": [{ "type": "ext", "value": ext }],
-                "actions": [{ "type": "moveTo", "params": { "path": format!("{dest_str}/{{ext}}") } }],
+                "actions": [action],
             })
         })
         .collect();
     let rules_path = state.join("rules.json");
     fs::write(&rules_path, serde_json::to_vec(&rules).unwrap()).unwrap();
     Fixture {
+        trash_txt,
         original: tree(&src),
         pre_existing: tree(&dest),
         src,
@@ -236,6 +265,8 @@ fn check_exactly_once(f: &Fixture) -> Result<(), String> {
             ));
         }
     }
+    let bin = bin_hashes(f);
+    let mut in_bin = 0;
     let mut dest_by_hash: BTreeMap<&String, Vec<&PathBuf>> = BTreeMap::new();
     for (rel, h) in &dest {
         if f.pre_existing.get(rel) != Some(h) {
@@ -252,15 +283,23 @@ fn check_exactly_once(f: &Fixture) -> Result<(), String> {
             None => 0,
         };
         let at_dest = dest_by_hash.get(h).map_or(0, Vec::len);
-        if at_src + at_dest != 1 {
+        // Trashed originals count in the bin. (The bin also holds sources of
+        // cross-volume moves, which are counted at their destination.)
+        let at_bin = if f.trash_txt && is_txt(rel) {
+            bin.iter().filter(|b| *b == h).count()
+        } else {
+            0
+        };
+        in_bin += at_bin;
+        if at_src + at_dest + at_bin != 1 {
             errors.push(format!(
-                "src/{}: {at_src} at source, {at_dest} at destination {:?}",
+                "src/{}: {at_src} at source, {at_dest} at destination {:?}, {at_bin} in the bin",
                 rel.display(),
                 dest_by_hash.get(h)
             ));
         }
     }
-    let expected = f.original.len() + f.pre_existing.len();
+    let expected = f.original.len() + f.pre_existing.len() - in_bin;
     if src.len() + dest.len() != expected {
         errors.push(format!(
             "{} files in src+dest, expected {expected}",
@@ -385,6 +424,11 @@ fn iteration(iter: u64, rt: &tokio::runtime::Runtime, stats: &mut Stats) -> Resu
         if let Some(b) = &apply {
             for op in j.list_ops(&b.id).await.map_err(|e| e.to_string())? {
                 match op.state {
+                    OpState::Done if op.op_type == OpType::Trash => {
+                        if op.source_path.exists() {
+                            return Err(format!("done trash op {}: file still there", op.id));
+                        }
+                    }
                     OpState::Done => {
                         let dest = op.dest_path.clone().ok_or("done op without dest")?;
                         let h = fs::read(&dest).map(|b| hash_bytes(&b)).ok();
@@ -412,7 +456,11 @@ fn iteration(iter: u64, rt: &tokio::runtime::Runtime, stats: &mut Stats) -> Resu
         Some(b) if b.counts.done > 0 => {
             let rep = run_json(cross, &[Path::new("undo"), &f.db, Path::new(&b.id)])?;
             let empty = |k: &str| rep[k].as_array().is_none_or(Vec::is_empty);
-            if !empty("failed") || !empty("needs_confirmation") || !empty("restored_as") {
+            if !empty("failed")
+                || !empty("needs_confirmation")
+                || !empty("restored_as")
+                || !empty("restored_modified")
+            {
                 return Err(format!("undo incomplete: {rep}"));
             }
             if rep["undone"].as_array().map_or(0, Vec::len) as u64 != b.counts.done {
@@ -437,6 +485,17 @@ fn iteration(iter: u64, rt: &tokio::runtime::Runtime, stats: &mut Stats) -> Resu
     }
     if tree(&f.dest) != f.pre_existing {
         return Err("after undo, destination holds more than the pre-existing files".into());
+    }
+    if f.trash_txt {
+        let bin = bin_hashes(&f);
+        for (rel, h) in f.original.iter().filter(|(rel, _)| is_txt(rel)) {
+            if bin.contains(h) {
+                return Err(format!(
+                    "after undo, src/{} is still in the bin",
+                    rel.display()
+                ));
+            }
+        }
     }
     let temps = temp_files(f.tmp.path(), &f.trash());
     if !temps.is_empty() {

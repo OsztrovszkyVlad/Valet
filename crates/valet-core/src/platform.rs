@@ -161,25 +161,27 @@ pub mod testing {
                 let mut unique = std::ffi::OsString::from(format!("{n}-"));
                 unique.push(name);
                 let info = info_dir.join(&unique);
-                if fs::symlink_metadata(&info).is_ok() {
+                let target = dir.join(&unique);
+                if fs::symlink_metadata(&info).is_ok() || fs::symlink_metadata(&target).is_ok() {
                     continue;
                 }
-                let target = dir.join(&unique);
+                // The record is written first, so a process killed in between
+                // leaves a record without a bin entry (ignored), never an
+                // entry without a record (as the real bin, which is one step).
+                let nanos = SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .map(|d| d.as_nanos())
+                    .unwrap_or(0);
+                let mut f = fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&info)?;
+                write!(f, "{nanos}\n{}", path.to_string_lossy())?;
+                f.sync_all()?;
+                drop(f);
                 match self.rename_no_replace(path, &target) {
                     Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
-                    Err(e) => return Err(e),
-                    Ok(()) => {
-                        let nanos = SystemTime::now()
-                            .duration_since(SystemTime::UNIX_EPOCH)
-                            .map(|d| d.as_nanos())
-                            .unwrap_or(0);
-                        let mut f = fs::OpenOptions::new()
-                            .write(true)
-                            .create_new(true)
-                            .open(&info)?;
-                        write!(f, "{nanos}\n{}", path.to_string_lossy())?;
-                        return Ok(());
-                    }
+                    other => return other,
                 }
             }
         }
