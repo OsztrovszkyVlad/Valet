@@ -8,6 +8,9 @@
 //!   fsync, compare blake3 with the source hash, rename into place, then send
 //!   the source to the Recycle Bin. Requires the Recycle Bin on both sides.
 //! - Copy: as cross-volume move, without trashing the source.
+//! - Trash: `Platform::trash` on a file, or on a folder that is still empty
+//!   right before the call; then the source must be gone. Needs a usable
+//!   Recycle Bin for the source (`can_trash`). Undo restores it from the bin.
 //!
 //! Nothing is deleted permanently and nothing is overwritten. Destination
 //! folders created on the way are left in place (also by undo).
@@ -70,7 +73,8 @@ pub enum FailCode {
     NoRecycleBin,
     /// The copied bytes or the result on disk do not match.
     VerifyFailed,
-    /// The source could not be sent to the Recycle Bin; the copy was removed again.
+    /// The source could not be sent to the Recycle Bin (for a move or copy:
+    /// the copy was removed again).
     TrashFailed,
     /// The target path is taken and renaming was not allowed.
     Occupied,
@@ -80,9 +84,10 @@ pub enum FailCode {
     InvalidPath,
     /// Any other I/O error.
     Io,
-    /// This build does not execute the operation kind (trash, until Phase 2
-    /// task A2). Nothing was touched.
-    Unsupported,
+    /// Undo of a `trash` operation: the original path is taken. The item
+    /// stays in the Recycle Bin (restoring beside it is not possible without
+    /// overwrite risk).
+    RestoreOccupied,
 }
 
 impl FailCode {
@@ -99,7 +104,7 @@ impl FailCode {
             FailCode::Interrupted => "Interrupted",
             FailCode::InvalidPath => "InvalidPath",
             FailCode::Io => "Io",
-            FailCode::Unsupported => "Unsupported",
+            FailCode::RestoreOccupied => "RestoreOccupied",
         }
     }
 }
@@ -555,6 +560,119 @@ pub async fn execute(
     Ok(report)
 }
 
+/// The folder has no entries at all.
+fn dir_is_empty(platform: &dyn Platform, dir: &Path) -> io::Result<bool> {
+    Ok(fs::read_dir(platform.os_path(dir))?.next().is_none())
+}
+
+/// Checks before trashing, in this order: placeholder (before anything
+/// touches the entry), existence, type (file, or folder for a folder op),
+/// size and mtime, emptiness (folders), lock (files), Recycle Bin. Returns
+/// the `hash_before` to journal: the file's blake3, or [`EMPTY_DIR_MARK`].
+fn precheck_trash(op: &PlannedOp, platform: &dyn Platform) -> Result<String, OpError> {
+    if op.source.to_str().is_none() {
+        return Err(OpError::with(
+            FailCode::InvalidPath,
+            "path is not valid Unicode",
+        ));
+    }
+    if platform.is_cloud_placeholder(&op.source) {
+        return Err(OpError::new(FailCode::CloudPlaceholder));
+    }
+    let meta = match fs::symlink_metadata(platform.os_path(&op.source)) {
+        Ok(m) => m,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            return Err(OpError::new(FailCode::SourceMissing));
+        }
+        Err(e) => return Err(OpError::io(&e)),
+    };
+    // The planner gives folders size 0. A 0-byte file replaced by an empty
+    // folder with the same mtime would be taken for a folder op (and trashed,
+    // which undo reverses).
+    let want_dir = meta.is_dir() && op.size == 0;
+    if !(meta.is_file() || want_dir) || platform.is_reparse_point(&op.source) {
+        return Err(OpError::with(
+            FailCode::ChangedSincePreview,
+            "no longer a regular file or folder",
+        ));
+    }
+    if meta.is_file() && meta.len() != op.size {
+        return Err(OpError::with(
+            FailCode::ChangedSincePreview,
+            format!("size {} -> {}", op.size, meta.len()),
+        ));
+    }
+    if meta.modified().ok() != Some(op.mtime) {
+        return Err(OpError::with(
+            FailCode::ChangedSincePreview,
+            "modification time changed",
+        ));
+    }
+    if want_dir {
+        if !dir_is_empty(platform, &op.source).map_err(|e| OpError::io(&e))? {
+            return Err(OpError::with(
+                FailCode::ChangedSincePreview,
+                "folder is no longer empty",
+            ));
+        }
+    } else if platform.is_locked(&op.source) {
+        return Err(OpError::new(FailCode::Locked));
+    }
+    if !platform.can_trash(&op.source) {
+        return Err(OpError::new(FailCode::NoRecycleBin));
+    }
+    if want_dir {
+        Ok(EMPTY_DIR_MARK.to_owned())
+    } else {
+        hash_file(platform, &op.source).map_err(|e| OpError::io(&e))
+    }
+}
+
+/// A `trash` operation that is already `planned` in the journal:
+/// precheck -> `in_progress` (with the file hash or [`EMPTY_DIR_MARK`]) ->
+/// folders: still empty? -> `Platform::trash` -> source gone -> `done`.
+async fn execute_trash(
+    op_id: i64,
+    op: &PlannedOp,
+    steps: &Steps<'_>,
+    platform: &dyn Platform,
+) -> Result<Result<PathBuf, OpError>> {
+    let hash = match precheck_trash(op, platform) {
+        Ok(h) => h,
+        Err(e) => {
+            steps.failed(op_id, &e).await?;
+            return Ok(Err(e));
+        }
+    };
+    steps.start(op_id, Some(&hash)).await?;
+    let outcome = (|| {
+        if hash == EMPTY_DIR_MARK && !dir_is_empty(platform, &op.source).unwrap_or(false) {
+            return Err(OpError::with(
+                FailCode::ChangedSincePreview,
+                "folder is no longer empty",
+            ));
+        }
+        platform
+            .trash(&op.source)
+            .map_err(|e| OpError::with(FailCode::TrashFailed, e.to_string()))?;
+        if exists(platform, &op.source) {
+            return Err(OpError::with(
+                FailCode::VerifyFailed,
+                format!(
+                    "{} is still there after sending it to the Recycle Bin",
+                    op.source.display()
+                ),
+            ));
+        }
+        Ok(PathBuf::new())
+    })();
+    match &outcome {
+        Ok(_) => steps.done(op_id, None).await?,
+        Err(e) => steps.failed(op_id, e).await?,
+    }
+    Ok(outcome)
+}
+
 /// One operation that is already `planned` in the journal.
 async fn execute_one(
     op_id: i64,
@@ -563,9 +681,7 @@ async fn execute_one(
     platform: &dyn Platform,
 ) -> Result<Result<PathBuf, OpError>> {
     if op.kind == OpKind::Trash {
-        let e = OpError::with(FailCode::Unsupported, "trash is not executed yet");
-        steps.failed(op_id, &e).await?;
-        return Ok(Err(e));
+        return execute_trash(op_id, op, steps, platform).await;
     }
     let ready = (|| {
         precheck(op, platform)?;
@@ -620,3 +736,5 @@ async fn execute_one(
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_trash;
