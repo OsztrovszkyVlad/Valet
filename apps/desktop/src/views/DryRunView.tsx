@@ -1,34 +1,33 @@
 import React, { useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { useTranslation } from 'react-i18next';
+import {
+    dryRun,
+    executeOperations as runExecute,
+    type ExecuteResponse,
+    type PlannedOperation,
+    type SkippedFile,
+} from '../api/commands';
+import UndoPanel from '../components/UndoPanel';
+import { formatDateTime } from '../i18n/format';
 import './DryRunView.css';
 
-interface DryRunResult {
-    source_path: string;
-    destination_path: string;
-    rule_name: string;
-    operation: string;
+type DryRunResult = PlannedOperation;
+
+export interface LastBatch {
+    id: string;
+    createdAt: string;
 }
 
-interface DryRunResponse {
-    results: DryRunResult[];
-    total_files: number;
-    total_rules_applied: number;
+interface DryRunViewProps {
+    lastBatch: LastBatch | null;
+    /** A new batch ran; `null` when it did nothing that can be undone. */
+    onBatchRan: (batch: LastBatch | null) => void;
+    /** The user closed the undo result; `complete`: nothing left to undo. */
+    onLastBatchClosed: (complete: boolean) => void;
 }
 
-interface ExecuteResponse {
-    executed_count: number;
-    failed_operations: ExecuteError[];
-    success: boolean;
-}
-
-interface ExecuteError {
-    source_path: string;
-    destination_path: string;
-    rule_name: string;
-    error_message: string;
-}
-
-const DryRunView: React.FC = () => {
+const DryRunView: React.FC<DryRunViewProps> = ({ lastBatch, onBatchRan, onLastBatchClosed }) => {
+    const { t } = useTranslation();
     const [results, setResults] = useState<DryRunResult[]>([]);
     const [loading, setLoading] = useState(false);
     const [executing, setExecuting] = useState(false);
@@ -38,14 +37,18 @@ const DryRunView: React.FC = () => {
     const [totalFiles, setTotalFiles] = useState(0);
     const [totalRulesApplied, setTotalRulesApplied] = useState(0);
     const [executeResults, setExecuteResults] = useState<ExecuteResponse | null>(null);
+    const [skipped, setSkipped] = useState<SkippedFile[]>([]);
+    const [showSkipped, setShowSkipped] = useState(false);
 
     const runDryRun = async () => {
         try {
             setLoading(true);
             setError('');
 
-            const response = await invoke<DryRunResponse>('dry_run');
+            const response = await dryRun();
             setResults(response.results);
+            setSkipped(response.skipped);
+            setShowSkipped(false);
             setTotalFiles(response.total_files);
             setTotalRulesApplied(response.total_rules_applied);
             setHasRun(true);
@@ -59,6 +62,7 @@ const DryRunView: React.FC = () => {
 
     const clearResults = () => {
         setResults([]);
+        setSkipped([]);
         setHasRun(false);
         setTotalFiles(0);
         setTotalRulesApplied(0);
@@ -73,14 +77,20 @@ const DryRunView: React.FC = () => {
             setError('');
             setSuccessMessage('');
 
-            const response = await invoke<ExecuteResponse>('execute_operations');
+            const response = await runExecute();
 
             setExecuteResults(response);
+            onBatchRan(
+                response.executed_count > 0
+                    ? { id: response.batch_id, createdAt: new Date().toISOString() }
+                    : null,
+            );
 
             if (response.success) {
                 setSuccessMessage(`Successfully executed ${response.executed_count} file operation(s)!`);
                 // Clear the dry run results since files have been moved
                 setResults([]);
+                setSkipped([]);
                 setHasRun(false);
             } else {
                 setError(`Executed ${response.executed_count} operations, but ${response.failed_operations.length} failed. See details below.`);
@@ -203,6 +213,21 @@ const DryRunView: React.FC = () => {
                     )}
                 </div>
 
+                {lastBatch && (
+                    <div className="last-batch">
+                        <h3 className="results-title">{t('lastBatch.title')}</h3>
+                        <p className="last-batch-date">
+                            {t('lastBatch.startedAt', { date: formatDateTime(lastBatch.createdAt) })}
+                        </p>
+                        <UndoPanel
+                            key={lastBatch.id}
+                            batchId={lastBatch.id}
+                            canUndo={!executing}
+                            onClose={onLastBatchClosed}
+                        />
+                    </div>
+                )}
+
                 {hasRun && !loading && (
                     <div className="dry-run-summary">
                         <div className="summary-card">
@@ -270,6 +295,45 @@ const DryRunView: React.FC = () => {
                                 </table>
                             </div>
                         </div>
+                    </div>
+                )}
+
+                {skipped.length > 0 && (
+                    <div className="skipped-files">
+                        <div className="skipped-header">
+                            <h3 className="results-title">{t('skipped.title', { count: skipped.length })}</h3>
+                            <button className="btn-secondary" onClick={() => setShowSkipped((v) => !v)}>
+                                {showSkipped ? t('skipped.hide') : t('skipped.show')}
+                            </button>
+                        </div>
+                        {showSkipped && (
+                            <div className="results-table-container">
+                                <table className="results-table">
+                                    <thead>
+                                        <tr>
+                                            <th>{t('skipped.colFile')}</th>
+                                            <th>{t('skipped.colReason')}</th>
+                                            <th>{t('skipped.colRule')}</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {skipped.map((s, index) => (
+                                            <tr key={index}>
+                                                <td>
+                                                    <code className="path-code">{s.path}</code>
+                                                </td>
+                                                <td>
+                                                    {t(`skipReason.${s.reason}`, {
+                                                        defaultValue: t('skipReason.unknown', { reason: s.reason }),
+                                                    })}
+                                                </td>
+                                                <td>{s.rule_name ?? ''}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
                     </div>
                 )}
 

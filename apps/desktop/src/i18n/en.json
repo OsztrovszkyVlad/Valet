@@ -1,0 +1,110 @@
+{
+  "nav": {
+    "history": "History"
+  },
+  "common": {
+    "cancel": "Cancel",
+    "close": "Close",
+    "loading": "Loading...",
+    "refresh": "Refresh",
+    "error": "Error: {{message}}"
+  },
+  "skipped": {
+    "title": "Skipped files: {{count}}",
+    "show": "Show",
+    "hide": "Hide",
+    "colFile": "File",
+    "colReason": "Reason",
+    "colRule": "Rule"
+  },
+  "skipReason": {
+    "excluded": "Excluded (system folder, AppData, .git, node_modules, etc.)",
+    "hidden": "Hidden or system file",
+    "reparsePoint": "Link (symlink or junction)",
+    "beingWritten": "Still being written or locked",
+    "cloudPlaceholder": "OneDrive/Dropbox on-demand file, not downloaded",
+    "conflict": "Another rule applies before this one",
+    "alreadyInPlace": "Already at the destination",
+    "noExtension": "File has no extension",
+    "invalidDestination": "The rule's destination is not valid",
+    "unsupportedAction": "The rule's action is not supported yet",
+    "unreadable": "Cannot be read",
+    "unknown": "Unknown reason: {{reason}}"
+  },
+  "lastBatch": {
+    "title": "Last batch",
+    "startedAt": "Started at {{date}}"
+  },
+  "undo": {
+    "button": "Undo batch",
+    "previewTitle": "Files to move back: {{count}}",
+    "previewNothing": "The batch has nothing left to undo.",
+    "confirm": "Confirm undo",
+    "running": "Undoing...",
+    "needsConfirmationTitle": "Files that need confirmation: {{count}}",
+    "force": "Undo anyway",
+    "resultTitle": "Undo result",
+    "undone": "Operations undone: {{count}}",
+    "restoredAs": "{{original}} restored as {{path}}",
+    "failed": "Failed: {{count}}",
+    "pending": "Left as is (not confirmed): {{count}}",
+    "skipped": "Skipped (not done in the batch): {{count}}",
+    "failedToStart": "Undo could not start: {{message}}"
+  },
+  "confirmReason": {
+    "Modified": "The file changed after the batch",
+    "SourceOccupied": "The original location is taken; the file will get a new name",
+    "OriginalMissing": "The original is gone; undo sends this copy to the Recycle Bin"
+  },
+  "failCode": {
+    "SourceMissing": "The file no longer exists",
+    "ChangedSincePreview": "The file changed since the preview",
+    "CloudPlaceholder": "On-demand file, not downloaded",
+    "Locked": "The file is locked by another program",
+    "NoRecycleBin": "The Recycle Bin is not available",
+    "VerifyFailed": "Verifying the copy failed",
+    "TrashFailed": "Could not send to the Recycle Bin",
+    "Occupied": "The destination is taken",
+    "Interrupted": "Interrupted by the app stopping",
+    "InvalidPath": "Invalid path",
+    "Io": "Read or write error"
+  },
+  "batchKind": {
+    "apply": "Organize",
+    "undo": "Undo",
+    "recovery": "Recovery after a stop"
+  },
+  "opState": {
+    "planned": "planned",
+    "in_progress": "in progress",
+    "done": "done",
+    "failed": "failed",
+    "rolled_back": "undone"
+  },
+  "opType": {
+    "move": "move",
+    "copy": "copy",
+    "trash": "to Recycle Bin"
+  },
+  "history": {
+    "title": "History",
+    "empty": "No batches yet.",
+    "loadFailed": "Could not read the history: {{message}}",
+    "colKind": "Type",
+    "colDate": "Date",
+    "colCounts": "Operations",
+    "unfinished": "not finished",
+    "count": "{{state}}: {{count}}",
+    "selectHint": "Pick a batch from the list.",
+    "detailTitle": "{{kind}}, {{date}}",
+    "batchId": "Batch {{id}}",
+    "summaryTitle": "What happened",
+    "noOperations": "The batch has no operations.",
+    "colId": "No.",
+    "colType": "Operation",
+    "colFrom": "From",
+    "colTo": "To",
+    "colState": "State",
+    "colError": "Error"
+  }
+}

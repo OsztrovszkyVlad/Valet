@@ -1,0 +1,110 @@
+{
+  "nav": {
+    "history": "Istoric"
+  },
+  "common": {
+    "cancel": "Renunță",
+    "close": "Închide",
+    "loading": "Se încarcă...",
+    "refresh": "Reîncarcă",
+    "error": "Eroare: {{message}}"
+  },
+  "skipped": {
+    "title": "Fișiere sărite: {{count}}",
+    "show": "Arată",
+    "hide": "Ascunde",
+    "colFile": "Fișier",
+    "colReason": "Motiv",
+    "colRule": "Regulă"
+  },
+  "skipReason": {
+    "excluded": "Exclus (folder de sistem, AppData, .git, node_modules etc.)",
+    "hidden": "Fișier ascuns sau de sistem",
+    "reparsePoint": "Legătură (symlink sau joncțiune)",
+    "beingWritten": "Se scrie încă sau e blocat",
+    "cloudPlaceholder": "Fișier OneDrive/Dropbox la cerere, nedescărcat",
+    "conflict": "Altă regulă se aplică înaintea acesteia",
+    "alreadyInPlace": "E deja la destinație",
+    "noExtension": "Fișier fără extensie",
+    "invalidDestination": "Destinația regulii nu e validă",
+    "unsupportedAction": "Acțiunea regulii nu e suportată încă",
+    "unreadable": "Nu poate fi citit",
+    "unknown": "Motiv necunoscut: {{reason}}"
+  },
+  "lastBatch": {
+    "title": "Ultimul lot",
+    "startedAt": "Pornit la {{date}}"
+  },
+  "undo": {
+    "button": "Anulează lotul",
+    "previewTitle": "Fișiere de mutat înapoi: {{count}}",
+    "previewNothing": "Lotul nu mai are operații de anulat.",
+    "confirm": "Confirmă anularea",
+    "running": "Se anulează...",
+    "needsConfirmationTitle": "Fișiere care cer confirmare: {{count}}",
+    "force": "Anulează oricum",
+    "resultTitle": "Rezultatul anulării",
+    "undone": "Operații anulate: {{count}}",
+    "restoredAs": "{{original}} restaurat ca {{path}}",
+    "failed": "Eșuate: {{count}}",
+    "pending": "Rămase neanulate (fără confirmare): {{count}}",
+    "skipped": "Sărite (nu erau făcute în lot): {{count}}",
+    "failedToStart": "Anularea nu a putut porni: {{message}}"
+  },
+  "confirmReason": {
+    "Modified": "Fișierul s-a schimbat după lot",
+    "SourceOccupied": "Locul inițial e ocupat; fișierul va primi un nume nou",
+    "OriginalMissing": "Originalul nu mai există; anularea trimite această copie în Coșul de reciclare"
+  },
+  "failCode": {
+    "SourceMissing": "Fișierul nu mai există",
+    "ChangedSincePreview": "Fișierul s-a schimbat de la previzualizare",
+    "CloudPlaceholder": "Fișier la cerere, nedescărcat",
+    "Locked": "Fișierul e blocat de alt program",
+    "NoRecycleBin": "Coșul de reciclare nu e disponibil",
+    "VerifyFailed": "Verificarea copiei a eșuat",
+    "TrashFailed": "Nu s-a putut trimite în Coșul de reciclare",
+    "Occupied": "Destinația e ocupată",
+    "Interrupted": "Întrerupt de o oprire a aplicației",
+    "InvalidPath": "Cale nevalidă",
+    "Io": "Eroare de citire sau scriere"
+  },
+  "batchKind": {
+    "apply": "Organizare",
+    "undo": "Anulare",
+    "recovery": "Recuperare după oprire"
+  },
+  "opState": {
+    "planned": "planificată",
+    "in_progress": "în curs",
+    "done": "făcută",
+    "failed": "eșuată",
+    "rolled_back": "anulată"
+  },
+  "opType": {
+    "move": "mutare",
+    "copy": "copiere",
+    "trash": "în Coș"
+  },
+  "history": {
+    "title": "Istoric",
+    "empty": "Niciun lot încă.",
+    "loadFailed": "Istoricul nu a putut fi citit: {{message}}",
+    "colKind": "Tip",
+    "colDate": "Data",
+    "colCounts": "Operații",
+    "unfinished": "neterminat",
+    "count": "{{state}}: {{count}}",
+    "selectHint": "Alege un lot din listă.",
+    "detailTitle": "{{kind}}, {{date}}",
+    "batchId": "Lot {{id}}",
+    "summaryTitle": "Ce s-a întâmplat",
+    "noOperations": "Lotul nu are operații.",
+    "colId": "Nr.",
+    "colType": "Operație",
+    "colFrom": "De la",
+    "colTo": "La",
+    "colState": "Stare",
+    "colError": "Eroare"
+  }
+}

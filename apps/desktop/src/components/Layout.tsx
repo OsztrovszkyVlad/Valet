@@ -1,4 +1,5 @@
 import React, { type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import './Layout.css';
 
 interface LayoutProps {
@@ -8,10 +9,12 @@ interface LayoutProps {
 }
 
 const Layout: React.FC<LayoutProps> = ({ children, activeView, onViewChange }) => {
+    const { t } = useTranslation();
     const views = [
         { id: 'rules', label: 'Rules', icon: '📁' },
         { id: 'settings', label: 'Settings', icon: '⚙️' },
         { id: 'dry-run', label: 'Dry Run', icon: '🔍' },
+        { id: 'history', label: t('nav.history'), icon: '🕘' },
         { id: 'stats', label: 'Statistics', icon: '📊' }
     ];
 

@@ -1,0 +1,53 @@
+.undo-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.undo-panel h4 {
+    margin: 0.25rem 0;
+    font-size: 0.9rem;
+}
+
+.undo-panel p {
+    margin: 0.25rem 0;
+}
+
+.btn-undo {
+    background: #b45309;
+    color: white;
+    border: 1px solid #b45309;
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    align-self: flex-start;
+}
+
+.btn-undo:hover {
+    background: #92400e;
+    border-color: #92400e;
+}
+
+.undo-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.undo-list {
+    max-height: 16rem;
+    overflow: auto;
+    margin: 0;
+    padding-left: 1.25rem;
+    font-size: 0.8rem;
+}
+
+.undo-list code {
+    word-break: break-all;
+}
+
+.undo-error,
+.undo-failed {
+    color: #b91c1c;
+}

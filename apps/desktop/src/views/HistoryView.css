@@ -1,0 +1,56 @@
+.history-view {
+    width: 100%;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+.history-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.history-list {
+    max-height: 18rem;
+    overflow: auto;
+    margin-bottom: 1rem;
+}
+
+.history-row {
+    cursor: pointer;
+}
+
+.history-row.selected {
+    background: #e0f2fe;
+}
+
+.history-unfinished {
+    color: #b45309;
+}
+
+.history-detail {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.history-batch-id {
+    margin: 0;
+    font-size: 0.8rem;
+    color: #6b7280;
+}
+
+.history-summary {
+    white-space: pre-wrap;
+    word-break: break-all;
+    font-size: 0.8rem;
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    padding: 0.75rem;
+    margin: 0;
+}
+
+.history-error {
+    color: #b91c1c;
+}
