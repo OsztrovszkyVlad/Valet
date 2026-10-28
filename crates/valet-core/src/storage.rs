@@ -3,7 +3,7 @@ use crate::rules::Rule;
 use anyhow::Result;
 use sqlx::{
     SqlitePool,
-    sqlite::{SqliteConnectOptions, SqlitePoolOptions},
+    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
 };
 use std::path::Path;
 
@@ -21,7 +21,9 @@ impl Db {
         // Use connect options instead of URL string to avoid issues with spaces, etc.
         let options = SqliteConnectOptions::new()
             .filename(db_path)
-            .create_if_missing(true);
+            .create_if_missing(true)
+            // WAL: the operation journal is written while the UI reads history.
+            .journal_mode(SqliteJournalMode::Wal);
 
         let pool = SqlitePoolOptions::new()
             .max_connections(5)
@@ -30,6 +32,11 @@ impl Db {
 
         sqlx::migrate!("./migrations").run(&pool).await?;
         Ok(Self { pool })
+    }
+
+    /// The write-ahead operation journal stored in this database.
+    pub fn journal(&self) -> crate::journal::Journal {
+        crate::journal::Journal::new(self.pool.clone())
     }
 
     pub async fn upsert_file(&self, f: &FileRow) -> Result<()> {
