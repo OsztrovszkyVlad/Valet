@@ -9,7 +9,11 @@ async fn main() -> Result<()> {
     let db = Db::connect(&db_path).await?;
 
     // Change this to any path you want to index (Downloads as a default)
-    let paths = vec![dirs::download_dir().unwrap_or(PathBuf::from("~/Downloads"))];
+    let paths = vec![
+        directories::UserDirs::new()
+            .and_then(|u| u.download_dir().map(|p| p.to_path_buf()))
+            .unwrap_or(PathBuf::from("~/Downloads")),
+    ];
 
     let n = index_paths(&paths, &db).await?;
     println!("Indexed {} files.", n);

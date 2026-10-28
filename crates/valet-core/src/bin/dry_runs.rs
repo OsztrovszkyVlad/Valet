@@ -9,7 +9,9 @@ async fn main() -> Result<()> {
     let db = Db::connect(&db_path).await?;
 
     // Choose a folder to preview actions for
-    let target = dirs::download_dir().unwrap_or(PathBuf::from("~/Downloads"));
+    let target = directories::UserDirs::new()
+        .and_then(|u| u.download_dir().map(|p| p.to_path_buf()))
+        .unwrap_or(PathBuf::from("~/Downloads"));
     let plan = dry_run_for_paths(std::slice::from_ref(&target), &db).await?;
 
     println!("Dry run results for {} action(s):", plan.actions.len());
