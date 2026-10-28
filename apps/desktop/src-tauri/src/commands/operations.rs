@@ -603,13 +603,17 @@ mod tests {
         assert_eq!(v["success"], false);
         assert_eq!(v["batch_id"], "b-1");
         let f = &v["failed_operations"][0];
+        // Same construction as `result`: `join` uses `\` on Windows.
         assert_eq!(
             f["source_path"],
-            PathBuf::from("in/b.txt").to_string_lossy().as_ref()
+            PathBuf::from("in").join("b.txt").to_string_lossy().as_ref()
         );
         assert_eq!(
             f["destination_path"],
-            PathBuf::from("out/b.txt").to_string_lossy().as_ref()
+            PathBuf::from("out")
+                .join("b.txt")
+                .to_string_lossy()
+                .as_ref()
         );
         assert_eq!(f["rule_name"], "r");
         assert_eq!(f["error_message"], "Locked");
