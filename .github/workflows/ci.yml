@@ -39,8 +39,8 @@ jobs:
         run: cargo test -p valet-core --features test-support
         env:
           VALET_FAULT_ITERS: "100"
-      - name: Perf plan 10k and integration 10k (release)
-        run: cargo test -p valet-core --release --features test-support --test perf_plan_10k --test integration_10k -- --include-ignored --nocapture
+      - name: Perf plan 10k, index 100k and integration 10k (release)
+        run: cargo test -p valet-core --release --features test-support --test perf_plan_10k --test integration_10k --test perf_index_100k -- --include-ignored --nocapture
 
   windows:
     name: workspace (Windows)

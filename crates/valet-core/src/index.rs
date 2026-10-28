@@ -17,6 +17,10 @@ use crate::{
     storage::Db,
 };
 
+/// Index rows written per SQLite transaction. One commit per file costs one
+/// WAL fsync per file (PLAN.md 2.6 budget: 100k files < 60 s).
+const INDEX_BATCH_ROWS: usize = 1_000;
+
 fn unix_secs(t: SystemTime) -> i64 {
     t.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64
 }
@@ -46,18 +50,23 @@ pub async fn index_paths(paths: &[PathBuf], db: &Db, platform: &dyn Platform) ->
         }
     });
 
-    for f in &files {
-        let hash_short = short_hash(&platform.os_path(&f.path)).ok();
-        let path_str = f.path.to_string_lossy().to_string();
-        let row = FileRow {
-            id: FileRow::id_for_path(&path_str),
-            path: path_str,
-            size: f.size as i64,
-            mtime: unix_secs(f.mtime),
-            hash_short,
-            tags_json: "[]".into(),
-        };
-        db.upsert_file(&row).await?;
+    for chunk in files.chunks(INDEX_BATCH_ROWS) {
+        let rows: Vec<FileRow> = chunk
+            .iter()
+            .map(|f| {
+                let hash_short = short_hash(&platform.os_path(&f.path)).ok();
+                let path_str = f.path.to_string_lossy().to_string();
+                FileRow {
+                    id: FileRow::id_for_path(&path_str),
+                    path: path_str,
+                    size: f.size as i64,
+                    mtime: unix_secs(f.mtime),
+                    hash_short,
+                    tags_json: "[]".into(),
+                }
+            })
+            .collect();
+        db.upsert_files(&rows).await?;
     }
     Ok(files.len())
 }
@@ -103,6 +112,57 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].0, normal.to_string_lossy());
         assert!(rows[0].1.is_some());
+        db.pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn index_writes_every_row_across_batch_boundaries() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Db::connect(&tmp.path().join("t.sqlite3")).await.unwrap();
+        let root = tmp.path().join("root");
+        let n = INDEX_BATCH_ROWS * 2 + 1;
+        for i in 0..n {
+            old_file(&root.join(format!("f{i}.txt")), i.to_string().as_bytes());
+        }
+        let placeholder = root.join("cloud.txt");
+        old_file(&placeholder, b"c");
+        old_file(&root.join(".hidden"), b"h");
+        let mut platform = FakePlatform::default();
+        platform.placeholders.insert(placeholder.clone());
+
+        assert_eq!(
+            index_paths(std::slice::from_ref(&root), &db, &platform)
+                .await
+                .unwrap(),
+            n
+        );
+        // Re-indexing updates rows in place instead of adding new ones.
+        old_file(&root.join("f0.txt"), b"changed");
+        assert_eq!(
+            index_paths(std::slice::from_ref(&root), &db, &platform)
+                .await
+                .unwrap(),
+            n
+        );
+        let (count, hashed): (i64, i64) =
+            sqlx::query_as("SELECT COUNT(*), COUNT(hash_short) FROM files")
+                .fetch_one(&db.pool)
+                .await
+                .unwrap();
+        assert_eq!((count as usize, hashed as usize), (n, n));
+        let size: i64 = sqlx::query_scalar("SELECT size FROM files WHERE path = ?1")
+            .bind(root.join("f0.txt").to_string_lossy().to_string())
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+        assert_eq!(size, 7);
+        let skipped: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM files WHERE path LIKE '%cloud.txt' OR path LIKE '%.hidden'",
+        )
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+        assert_eq!(skipped, 0);
         db.pool.close().await;
     }
 }

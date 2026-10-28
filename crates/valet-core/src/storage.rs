@@ -2,8 +2,9 @@ use crate::model::{FileRow, OperationStats, RecentOperation};
 use crate::rules::Rule;
 use anyhow::Result;
 use sqlx::{
-    SqlitePool,
-    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
+    Sqlite, SqlitePool,
+    query::Query,
+    sqlite::{SqliteArguments, SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
 };
 use std::path::Path;
 
@@ -40,24 +41,22 @@ impl Db {
     }
 
     pub async fn upsert_file(&self, f: &FileRow) -> Result<()> {
-        sqlx::query(
-            r#"
-      INSERT INTO files (id, path, size, mtime, hash_short, tags_json)
-      VALUES (?1, ?2, ?3, ?4, ?5, COALESCE(?6,'[]'))
-      ON CONFLICT(path) DO UPDATE SET
-        size=excluded.size,
-        mtime=excluded.mtime,
-        hash_short=excluded.hash_short
-      "#,
-        )
-        .bind(f.id.to_string())
-        .bind(&f.path)
-        .bind(f.size)
-        .bind(f.mtime)
-        .bind(&f.hash_short)
-        .bind(&f.tags_json)
-        .execute(&self.pool)
-        .await?;
+        upsert_file_query(f).execute(&self.pool).await?;
+        Ok(())
+    }
+
+    /// Upserts all rows in one transaction (one WAL commit instead of one per
+    /// row). Either every row is written or none is. Used by the indexer;
+    /// the operation journal does not use this.
+    pub async fn upsert_files(&self, rows: &[FileRow]) -> Result<()> {
+        if rows.is_empty() {
+            return Ok(());
+        }
+        let mut tx = self.pool.begin().await?;
+        for f in rows {
+            upsert_file_query(f).execute(&mut *tx).await?;
+        }
+        tx.commit().await?;
         Ok(())
     }
 
@@ -290,6 +289,25 @@ impl Db {
     }
 }
 
+fn upsert_file_query(f: &FileRow) -> Query<'_, Sqlite, SqliteArguments<'_>> {
+    sqlx::query(
+        r#"
+      INSERT INTO files (id, path, size, mtime, hash_short, tags_json)
+      VALUES (?1, ?2, ?3, ?4, ?5, COALESCE(?6,'[]'))
+      ON CONFLICT(path) DO UPDATE SET
+        size=excluded.size,
+        mtime=excluded.mtime,
+        hash_short=excluded.hash_short
+      "#,
+    )
+    .bind(f.id.to_string())
+    .bind(&f.path)
+    .bind(f.size)
+    .bind(f.mtime)
+    .bind(&f.hash_short)
+    .bind(&f.tags_json)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -341,5 +359,38 @@ mod tests {
         assert!(db.get_recent_operations(10).await.unwrap().is_empty());
         assert_eq!(j.list_batches(10).await.unwrap().len(), 1);
         assert_eq!(j.list_ops(&batch).await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn upsert_files_inserts_then_updates_in_place() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Db::connect(&tmp.path().join("valet.sqlite3"))
+            .await
+            .unwrap();
+        let row = |path: &str, size: i64| FileRow {
+            id: FileRow::id_for_path(path),
+            path: path.into(),
+            size,
+            mtime: 1,
+            hash_short: Some(format!("h{size}")),
+            tags_json: "[]".into(),
+        };
+        db.upsert_files(&[]).await.unwrap();
+        db.upsert_files(&[row("a", 1), row("b", 2)]).await.unwrap();
+        db.upsert_files(&[row("a", 10), row("c", 3)]).await.unwrap();
+        let rows: Vec<(String, i64, Option<String>)> =
+            sqlx::query_as("SELECT path, size, hash_short FROM files ORDER BY path")
+                .fetch_all(&db.pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            rows,
+            vec![
+                ("a".into(), 10, Some("h10".into())),
+                ("b".into(), 2, Some("h2".into())),
+                ("c".into(), 3, Some("h3".into())),
+            ]
+        );
+        db.pool.close().await;
     }
 }

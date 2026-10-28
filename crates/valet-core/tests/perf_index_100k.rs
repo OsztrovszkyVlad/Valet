@@ -15,7 +15,7 @@ use valet_core::storage::Db;
 const N: usize = 100_000;
 
 #[test]
-#[ignore = "BUG: index_paths on 100k files takes 70.8 s in release (budget 60 s); one autocommit per upsert_file. Timing; run in release with --ignored"]
+#[ignore = "release-only perf test"]
 fn index_100k_files_under_budget() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("Docs");
