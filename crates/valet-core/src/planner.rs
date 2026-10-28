@@ -153,6 +153,7 @@ pub(crate) struct FoundFile {
     pub base: PathBuf,
     pub size: u64,
     pub mtime: SystemTime,
+    pub created: Option<SystemTime>,
     /// Dot-name or hidden/system attribute; the caller decides.
     pub hidden: bool,
 }
@@ -293,6 +294,7 @@ pub(crate) fn scan(
                 base: base.clone(),
                 size: meta.len(),
                 mtime,
+                created: meta.created().ok(),
                 hidden,
             }));
         }
@@ -397,6 +399,11 @@ fn plan_file(
     let facts = FileFacts {
         path: &path_str,
         size: f.size,
+        mtime: Some(f.mtime),
+        created: f.created,
+        is_dir: false,
+        is_empty_dir: false,
+        now: Some(ctx.now),
     };
     let matching: Vec<&Rule> = rules.iter().filter(|r| rule_matches(r, &facts)).collect();
     let winner = matching.iter().position(|r| first_transfer(r).is_some());

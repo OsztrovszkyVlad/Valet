@@ -24,3 +24,4 @@ pub mod planner;
 pub mod platform;
 pub mod rules;
 pub mod storage;
+pub mod typegroups;

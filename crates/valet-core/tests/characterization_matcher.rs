@@ -24,11 +24,27 @@ fn p(parts: &[&str]) -> PathBuf {
 
 fn matches_path(rule: &Rule, path: &Path, size: u64) -> bool {
     let s = path.to_string_lossy();
-    rule_matches(rule, &FileFacts { path: &s, size })
+    // Phase 2: changed intentionally: FileFacts gained fields
+    rule_matches(
+        rule,
+        &FileFacts {
+            path: &s,
+            size,
+            ..Default::default()
+        },
+    )
 }
 
 fn matches_str(rule: &Rule, path: &str, size: u64) -> bool {
-    rule_matches(rule, &FileFacts { path, size })
+    // Phase 2: changed intentionally: FileFacts gained fields
+    rule_matches(
+        rule,
+        &FileFacts {
+            path,
+            size,
+            ..Default::default()
+        },
+    )
 }
 
 // ---------------------------------------------------------------- enabled / alwaysApply
@@ -409,13 +425,29 @@ fn char_matching_rules_preserves_order_and_returns_all() {
     ];
     let path = p(&["a.pdf"]);
     let s = path.to_string_lossy();
-    let got = matching_rules(&rules, &FileFacts { path: &s, size: 10 });
+    // Phase 2: changed intentionally: FileFacts gained fields
+    let got = matching_rules(
+        &rules,
+        &FileFacts {
+            path: &s,
+            size: 10,
+            ..Default::default()
+        },
+    );
     assert_eq!(names(&got), vec!["pdf", "big", "name"]);
 
     // Reversed input gives reversed output: order comes from the slice.
     let mut rev = rules.clone();
     rev.reverse();
-    let got = matching_rules(&rev, &FileFacts { path: &s, size: 10 });
+    // Phase 2: changed intentionally: FileFacts gained fields
+    let got = matching_rules(
+        &rev,
+        &FileFacts {
+            path: &s,
+            size: 10,
+            ..Default::default()
+        },
+    );
     assert_eq!(names(&got), vec!["name", "big", "pdf"]);
 }
 
@@ -423,7 +455,12 @@ fn char_matching_rules_preserves_order_and_returns_all() {
 fn char_matching_rules_empty_and_none() {
     let path = p(&["a.pdf"]);
     let s = path.to_string_lossy();
-    let facts = FileFacts { path: &s, size: 1 };
+    // Phase 2: changed intentionally: FileFacts gained fields
+    let facts = FileFacts {
+        path: &s,
+        size: 1,
+        ..Default::default()
+    };
     assert!(matching_rules(&[], &facts).is_empty());
 
     let rules = vec![rule(
@@ -443,6 +480,14 @@ fn char_matching_rules_skips_disabled() {
     let rules = vec![off, on];
     let path = p(&["a.pdf"]);
     let s = path.to_string_lossy();
-    let got = matching_rules(&rules, &FileFacts { path: &s, size: 1 });
+    // Phase 2: changed intentionally: FileFacts gained fields
+    let got = matching_rules(
+        &rules,
+        &FileFacts {
+            path: &s,
+            size: 1,
+            ..Default::default()
+        },
+    );
     assert_eq!(names(&got), vec!["on"]);
 }
