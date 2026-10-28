@@ -204,25 +204,6 @@ const SettingsView: React.FC = () => {
         }));
 
         // Handle special cases that require system integration
-        if (key === 'show_context_menu') {
-            try {
-                if (value) {
-                    await invoke('install_context_menu_integration');
-                    console.log('Context menu integration installed');
-                } else {
-                    await invoke('uninstall_context_menu_integration');
-                    console.log('Context menu integration removed');
-                }
-            } catch (error) {
-                console.error('Failed to update context menu integration:', error);
-                // Revert the setting if the operation failed
-                setSettings(prev => ({
-                    ...prev,
-                    [key]: !value
-                }));
-            }
-        }
-
         if (key === 'auto_start') {
             try {
                 await invoke('configure_auto_start', { enabled: value });
@@ -672,25 +653,6 @@ const SettingsView: React.FC = () => {
                                         </label>
                                         <small className="form-help">
                                             Hide window to system tray when closed instead of exiting.
-                                        </small>
-                                    </div>
-                                </div>
-
-                                <div className="setting-group">
-                                    <h4 className="group-title">Context Menu</h4>
-
-                                    <div className="form-group">
-                                        <label className="checkbox-label">
-                                            <input
-                                                type="checkbox"
-                                                className="form-checkbox"
-                                                checked={settings.show_context_menu}
-                                                onChange={(e) => handleSettingChange('show_context_menu', e.target.checked)}
-                                            />
-                                            <span className="checkbox-text">Add context menu items</span>
-                                        </label>
-                                        <small className="form-help">
-                                            Add "Organize with Valet" to file and folder context menus.
                                         </small>
                                     </div>
                                 </div>
