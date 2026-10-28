@@ -94,7 +94,7 @@ pub(crate) struct AppSettings {
     max_backup_age_days: u32,
 
     // Performance
-    pub(crate) max_concurrent_operations: u32,
+    max_concurrent_operations: u32,
     file_size_limit_mb: u32,
     enable_file_watching: bool,
     watch_interval_ms: u32,
