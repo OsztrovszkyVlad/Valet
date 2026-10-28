@@ -2,10 +2,13 @@
 
 use log::LevelFilter;
 use tauri::menu::Menu;
-use tauri::Manager;
+use tauri::WindowEvent;
 use tauri_plugin_log::Builder;
 
+use commands::platform::{launched_minimized, AUTOSTART_NAME, MINIMIZED_ARG};
+
 mod commands;
+mod i18n;
 mod setup;
 mod state;
 
@@ -21,14 +24,22 @@ fn main() {
         // Must stay the first plugin: its setup takes the instance lock while
         // `Builder::build` initializes plugins, before `setup::setup` (and with
         // it journal recovery) runs. A second process exits inside that call.
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.unminimize();
-                let _ = window.show();
-                let _ = window.set_focus();
+        // A second launch shows the running instance, unless it is the
+        // auto-start entry (`--minimized`).
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if !launched_minimized(&args) {
+                setup::show_main_window(app);
             }
         }))
         .plugin(Builder::default().level(log_level).build())
+        // Per-user auto-start entry; Valet then starts hidden in the tray.
+        .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .app_name(AUTOSTART_NAME)
+                .arg(MINIMIZED_ARG)
+                .build(),
+        )
+        .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![
             commands::rules::get_rules,
             commands::rules::upsert_rule,
@@ -44,10 +55,21 @@ fn main() {
             commands::operations::get_batch,
             commands::operations::undo_batch,
             commands::platform::configure_auto_start,
+            commands::platform::get_auto_start,
             commands::platform::show_in_explorer,
             commands::platform::send_notification
         ])
         .menu(Menu::new) // optional
+        // Closing the main window hides it: Valet keeps running in the tray
+        // (watcher, auto-apply). The tray's quit item exits.
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() == "main" {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
         .setup(setup::setup)
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

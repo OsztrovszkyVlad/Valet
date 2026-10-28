@@ -1,17 +1,18 @@
-//! App startup: DB init and sample rules, config logging, file watcher, app state, tray menu.
+//! App startup: DB init and sample rules, config logging, file watcher, app state, tray,
+//! main window visibility.
 
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 
 use tauri::{
-    menu::{CheckMenuItemBuilder, Menu, MenuItemBuilder},
-    tray::TrayIconBuilder,
-    Emitter, Manager,
+    menu::{Menu, MenuItemBuilder, PredefinedMenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    AppHandle, Manager, Runtime,
 };
 use valet_core::{executor, storage::Db};
 
-use crate::commands::operations::plan_for_paths;
-use crate::commands::platform::{send_notification, show_in_explorer_internal};
+use crate::commands::platform::launched_minimized;
+use crate::i18n;
 use crate::state::{config_dir, AppState};
 
 pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
@@ -93,151 +94,98 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
         }
     }
 
-    // --- Tray + menu (v2 API) ---
-    let dry_run =
-        MenuItemBuilder::with_id("index-dry-run", "Index Downloads (dry run)").build(app)?;
-    let show_stats = MenuItemBuilder::with_id("show-stats", "Show Statistics").build(app)?;
-    let open_config_folder =
-        MenuItemBuilder::with_id("open-config", "Open Config Folder").build(app)?;
-    let separator1 = MenuItemBuilder::with_id("sep1", "").build(app)?;
-    let pause = CheckMenuItemBuilder::with_id("pause", "Pause watchers")
-        .checked(false)
-        .build(app)?;
-    let separator2 = MenuItemBuilder::with_id("sep2", "").build(app)?;
-    let preferences = MenuItemBuilder::with_id("preferences", "Preferences…").build(app)?;
-    let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
-
-    let tray_menu = Menu::with_items(
-        app,
-        &[
-            &dry_run,
-            &show_stats,
-            &open_config_folder,
-            &separator1,
-            &pause,
-            &separator2,
-            &preferences,
-            &quit,
-        ],
-    )?;
-
-    // Clone variables for the closure
-    let cfg_path_clone = cfg_path.clone();
-    let db_path_clone = db_path.clone();
-
-    TrayIconBuilder::new()
+    // --- Tray ---
+    let tray_menu = tray_menu(app.handle())?;
+    let mut tray = TrayIconBuilder::with_id(TRAY_ID)
         .menu(&tray_menu)
-        .show_menu_on_left_click(true)
-        .on_menu_event(move |app, event| match event.id().as_ref() {
-            "index-dry-run" => {
-                log::info!("Tray: dry-run clicked");
-
-                // Run dry-run on configured paths
-                match std::fs::read_to_string(&cfg_path_clone) {
-                    Ok(txt) => {
-                        if let Ok(config_json) = serde_json::from_str::<serde_json::Value>(&txt) {
-                            if let Some(inbox_paths) =
-                                config_json.get("inbox_paths").and_then(|v| v.as_array())
-                            {
-                                let watch_paths: Vec<PathBuf> = inbox_paths
-                                    .iter()
-                                    .filter_map(|v| v.as_str())
-                                    .map(PathBuf::from)
-                                    .collect();
-
-                                // Run dry-run async
-                                let db_path_for_async = db_path_clone.clone();
-                                let platform = app.state::<AppState>().platform.clone();
-                                tauri::async_runtime::spawn(async move {
-                                    match valet_core::storage::Db::connect(&db_path_for_async).await
-                                    {
-                                        Ok(db) => {
-                                            match plan_for_paths(&watch_paths, &db, platform.as_ref()).await {
-                                                Ok(plan) => {
-                                                    log::info!(
-                                                        "🔍 Dry run results for {} operation(s), {} skipped:",
-                                                        plan.ops.len(),
-                                                        plan.skipped.len()
-                                                    );
-                                                    for op in plan.ops {
-                                                        log::debug!(
-                                                            "  - [{}] {} -> {} ({:?})",
-                                                            op.rule_name,
-                                                            op.source.display(),
-                                                            op.dest.display(),
-                                                            op.kind
-                                                        );
-                                                    }
-                                                }
-                                                Err(e) => log::error!("Dry run failed: {:?}", e),
-                                            }
-                                        }
-                                        Err(e) => log::error!(
-                                            "Failed to connect to DB for dry run: {:?}",
-                                            e
-                                        ),
-                                    }
-                                });
-                            } else {
-                                log::warn!("No inbox_paths found in config for dry run");
-                            }
-                        } else {
-                            log::warn!("Failed to parse config JSON for dry run");
-                        }
-                    }
-                    Err(e) => {
-                        log::warn!("Could not read config for dry run: {:?}", e);
-                    }
-                }
-            }
-            "show-stats" => {
-                log::info!("Tray: show-stats clicked");
-                // Bring window to front and navigate to stats
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                    let _ = window.emit("navigate-to-stats", ());
-                }
-            }
-            "open-config" => {
-                log::info!("Tray: open-config clicked");
-                if let Ok(dir) = config_dir(app) {
-                    let _ = show_in_explorer_internal(&dir.to_string_lossy());
-                }
-            }
-            "pause" => {
-                // Toggle handling (you can wire this to engine later)
+        .tooltip(i18n::text(i18n::current_lang(app)).tray_tooltip)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            MENU_SHOW => show_main_window(app),
+            MENU_PAUSE => {
                 let state = app.state::<AppState>();
-                let now = !state.paused.load(Ordering::SeqCst);
-                state.paused.store(now, Ordering::SeqCst);
-                log::info!("Pause toggled -> {}", now);
-
-                // Send notification about pause state
-                let status = if now { "paused" } else { "resumed" };
-                // Pre-existing: the future is never awaited, so no notification is sent. Listed in docs/reports/phase-0.md.
-                #[allow(clippy::let_underscore_future)]
-                let _ = send_notification(
-                    "Valet File Manager".to_string(),
-                    format!("File monitoring {}", status),
-                    app.clone(),
-                );
-            }
-            "preferences" => {
-                log::info!("Tray: preferences clicked");
-                // Bring window to front and navigate to preferences
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                    let _ = window.emit("navigate-to-preferences", ());
+                let paused = !state.paused.load(Ordering::SeqCst);
+                state.paused.store(paused, Ordering::SeqCst);
+                log::info!("Automatic organizing paused: {}", paused);
+                if let Err(e) = refresh_tray(app) {
+                    log::warn!("Failed to update the tray menu: {}", e);
                 }
             }
-            "quit" => {
+            MENU_QUIT => {
                 app.state::<AppState>().stop_watcher();
                 app.exit(0);
             }
             _ => {}
         })
-        .build(app)?;
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                show_main_window(tray.app_handle());
+            }
+        });
+    if let Some(icon) = app.default_window_icon() {
+        tray = tray.icon(icon.clone());
+    }
+    tray.build(app)?;
+
+    // --- Main window: hidden when started by auto-start, shown otherwise ---
+    if let Some(window) = app.get_webview_window("main") {
+        if launched_minimized(std::env::args()) {
+            log::info!("Started minimized to the tray");
+            let _ = window.hide();
+        } else {
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+    }
 
     Ok(())
+}
+
+const TRAY_ID: &str = "main";
+const MENU_SHOW: &str = "show";
+const MENU_PAUSE: &str = "pause";
+const MENU_QUIT: &str = "quit";
+
+/// The tray menu in the current language, with the pause item matching
+/// `AppState.paused`.
+fn tray_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
+    let text = i18n::text(i18n::current_lang(app));
+    let paused = app
+        .try_state::<AppState>()
+        .is_some_and(|s| s.paused.load(Ordering::SeqCst));
+    let show = MenuItemBuilder::with_id(MENU_SHOW, text.tray_show).build(app)?;
+    let pause_label = if paused {
+        text.tray_resume
+    } else {
+        text.tray_pause
+    };
+    let pause = MenuItemBuilder::with_id(MENU_PAUSE, pause_label).build(app)?;
+    let separator = PredefinedMenuItem::separator(app)?;
+    let quit = MenuItemBuilder::with_id(MENU_QUIT, text.tray_quit).build(app)?;
+    Menu::with_items(app, &[&show, &pause, &separator, &quit])
+}
+
+/// Rebuilds the tray menu and tooltip from the current language and pause
+/// state. Call after the language in `app_settings.json` changes.
+pub(crate) fn refresh_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
+    let Some(tray) = app.tray_by_id(TRAY_ID) else {
+        return Ok(());
+    };
+    tray.set_menu(Some(tray_menu(app)?))?;
+    tray.set_tooltip(Some(i18n::text(i18n::current_lang(app)).tray_tooltip))?;
+    Ok(())
+}
+
+/// Shows, restores and focuses the main window.
+pub(crate) fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
 }

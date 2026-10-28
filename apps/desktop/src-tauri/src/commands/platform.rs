@@ -1,7 +1,27 @@
 //! Platform commands: notifications, auto-start, Explorer.
 
-use crate::commands::settings::AppSettings;
-use crate::state::config_dir;
+use std::path::Path;
+
+use tauri::{AppHandle, Manager, Runtime};
+use tauri_plugin_autostart::ManagerExt;
+use tauri_plugin_notification::NotificationExt;
+
+use crate::i18n;
+
+/// Argument the auto-start entry passes: start hidden in the tray.
+pub(crate) const MINIMIZED_ARG: &str = "--minimized";
+
+/// Name of the auto-start entry (value name under HKCU\...\Run on Windows).
+pub(crate) const AUTOSTART_NAME: &str = "Valet";
+
+/// True if `args` contain [`MINIMIZED_ARG`].
+pub(crate) fn launched_minimized<I, S>(args: I) -> bool
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    args.into_iter().any(|a| a.as_ref() == MINIMIZED_ARG)
+}
 
 #[derive(Clone)]
 #[allow(dead_code)]
@@ -12,171 +32,115 @@ pub(crate) enum NotificationLevel {
     Error,
 }
 
-// Notification functionality
+/// `notifications_enabled` from `app_settings.json`; true when unset.
+pub(crate) fn notifications_enabled<R: Runtime, M: Manager<R>>(app: &M) -> bool {
+    i18n::app_settings_json(app)
+        .as_ref()
+        .and_then(|v| v.get("notifications_enabled"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true)
+}
+
+/// Shows a desktop notification unless notifications are turned off in
+/// settings. Failures are logged, never returned: a missing notification must
+/// not fail the operation that triggered it.
+pub(crate) fn notify<R: Runtime>(app: &AppHandle<R>, title: &str, body: &str) {
+    if !notifications_enabled(app) {
+        log::debug!("Notifications disabled, skipping notification");
+        return;
+    }
+    match app.notification().builder().title(title).body(body).show() {
+        Ok(()) => log::info!("Notification sent"),
+        Err(e) => log::warn!("Failed to send notification: {e}"),
+    }
+}
+
+/// The short notification after a batch, in the UI language. Nothing when
+/// the batch did nothing.
+#[allow(dead_code)] // Called from the batch code once auto-apply (A3) uses it.
+pub(crate) fn notify_batch_done<R: Runtime>(app: &AppHandle<R>, done: usize, failed: usize) {
+    if done == 0 && failed == 0 {
+        return;
+    }
+    let lang = i18n::current_lang(app);
+    notify(
+        app,
+        i18n::text(lang).batch_title,
+        &i18n::batch_body(lang, done, failed),
+    );
+}
+
 #[tauri::command]
 pub(crate) async fn send_notification(
     title: String,
     message: String,
-    app: tauri::AppHandle,
+    app: AppHandle,
 ) -> Result<(), String> {
-    // Check if notifications are enabled in settings
-    let app_cfg_dir = config_dir(&app)?;
-    let settings_path = app_cfg_dir.join("app_settings.json");
-
-    if settings_path.exists() {
-        let contents = std::fs::read_to_string(&settings_path)
-            .map_err(|e| format!("Failed to read settings file: {}", e))?;
-
-        if let Ok(settings) = serde_json::from_str::<AppSettings>(&contents) {
-            if !settings.notifications_enabled {
-                log::debug!("Notifications disabled, skipping notification");
-                return Ok(());
-            }
-        }
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        use notify_rust::Notification;
-
-        match Notification::new()
-            .summary(&title)
-            .body(&message)
-            .icon("file-manager") // Use a generic file manager icon
-            .timeout(notify_rust::Timeout::Milliseconds(5000))
-            .show()
-        {
-            Ok(_) => {
-                log::info!("Notification sent");
-                log::debug!("Notification: {} - {}", title, message);
-                Ok(())
-            }
-            Err(e) => {
-                log::warn!("Failed to send notification: {}", e);
-                // Don't fail the operation if notification fails
-                Ok(())
-            }
-        }
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        log::info!("Notification skipped (unsupported platform)");
-        log::debug!("Notification: {} - {}", title, message);
-        Ok(())
-    }
+    log::debug!("Notification: {} - {}", title, message);
+    notify(&app, &title, &message);
+    Ok(())
 }
 
+/// Adds or removes the per-user auto-start entry. The entry starts Valet
+/// with [`MINIMIZED_ARG`], so it opens in the tray.
 #[tauri::command]
-pub(crate) async fn configure_auto_start(enabled: bool) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    {
-        use std::process::Command;
-
-        let app_path = std::env::current_exe()
-            .map_err(|e| format!("Failed to get current executable path: {}", e))?;
-
-        let app_name = "ValetFileOrganizer";
-
-        if enabled {
-            // Add to Windows startup via registry
-            let status = Command::new("reg")
-                .args([
-                    "add",
-                    "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
-                    "/v",
-                    app_name,
-                    "/t",
-                    "REG_SZ",
-                    "/d",
-                    &format!("\"{}\"", app_path.display()),
-                    "/f",
-                ])
-                .status()
-                .map_err(|e| format!("Failed to execute registry command: {}", e))?;
-
-            if status.success() {
-                log::info!("Auto-start enabled successfully");
-                Ok(())
-            } else {
-                Err("Failed to enable auto-start".to_string())
-            }
-        } else {
-            // Remove from Windows startup
-            let status = Command::new("reg")
-                .args([
-                    "delete",
-                    "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
-                    "/v",
-                    app_name,
-                    "/f",
-                ])
-                .status()
-                .map_err(|e| format!("Failed to execute registry command: {}", e))?;
-
-            if status.success() || status.code() == Some(1) {
-                // Code 1 means the key doesn't exist
-                log::info!("Auto-start disabled successfully");
-                Ok(())
-            } else {
-                Err("Failed to disable auto-start".to_string())
-            }
-        }
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = enabled;
-        log::warn!("Auto-start configuration not supported on this platform");
-        Err("Auto-start configuration not supported on this platform".to_string())
-    }
+pub(crate) async fn configure_auto_start(enabled: bool, app: AppHandle) -> Result<(), String> {
+    let manager = app.autolaunch();
+    let result = if enabled {
+        manager.enable()
+    } else {
+        manager.disable()
+    };
+    result.map_err(|e| format!("Failed to change auto-start: {e}"))?;
+    log::info!(
+        "Auto-start {}",
+        if enabled { "enabled" } else { "disabled" }
+    );
+    Ok(())
 }
 
+/// Whether the auto-start entry exists and is not disabled in Task Manager.
+#[tauri::command]
+pub(crate) async fn get_auto_start(app: AppHandle) -> Result<bool, String> {
+    app.autolaunch()
+        .is_enabled()
+        .map_err(|e| format!("Failed to read auto-start state: {e}"))
+}
+
+/// Error string `show_in_explorer` returns when the path does not exist.
+pub(crate) const PATH_NOT_FOUND: &str = "path_not_found";
+
+/// Opens Explorer with `path` selected (`valet_platform::reveal_in_explorer`).
 #[tauri::command]
 pub(crate) async fn show_in_explorer(path: String) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    {
-        use std::process::Command;
-
-        let status = Command::new("explorer")
-            .args(["/select,", &path])
-            .status()
-            .map_err(|e| format!("Failed to open explorer: {}", e))?;
-
-        if status.success() {
-            Ok(())
+    valet_platform::reveal_in_explorer(Path::new(&path)).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            PATH_NOT_FOUND.to_string()
         } else {
-            Err("Failed to open file in explorer".to_string())
+            format!("Failed to show in Explorer: {e}")
         }
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = path;
-        Err("Show in explorer not supported on this platform".to_string())
-    }
+    })
 }
 
-pub(crate) fn show_in_explorer_internal(path: &str) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    {
-        use std::process::Command;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-        let status = Command::new("explorer")
-            .args(["/select,", path])
-            .status()
-            .map_err(|e| format!("Failed to open explorer: {}", e))?;
-
-        if status.success() {
-            Ok(())
-        } else {
-            Err("Failed to open file in explorer".to_string())
-        }
+    #[test]
+    fn minimized_flag_is_detected() {
+        assert!(launched_minimized(["app.exe", "--minimized"]));
+        assert!(!launched_minimized(["app.exe"]));
+        assert!(!launched_minimized(["app.exe", "--minimized=false"]));
     }
 
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = path;
-        Err("Show in explorer not supported on this platform".to_string())
+    #[test]
+    fn show_in_explorer_missing_path_is_path_not_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("missing.txt");
+        let err = tauri::async_runtime::block_on(show_in_explorer(
+            missing.to_string_lossy().into_owned(),
+        ))
+        .unwrap_err();
+        assert_eq!(err, PATH_NOT_FOUND);
     }
 }
