@@ -133,13 +133,6 @@ impl Db {
         Ok(res.rows_affected() > 0)
     }
 
-    /// Seeds nothing: a new database starts without rules and onboarding
-    /// installs the chosen presets (`presets::install`). Kept only until the
-    /// app's startup stops calling it.
-    pub async fn load_sample_rules_if_empty(&self) -> Result<()> {
-        Ok(())
-    }
-
     // Operation History & Statistics
     pub async fn record_operation(
         &self,
@@ -357,7 +350,6 @@ mod tests {
         let db = Db::connect(&tmp.path().join("valet.sqlite3"))
             .await
             .unwrap();
-        db.load_sample_rules_if_empty().await.unwrap();
         assert!(db.list_rules().await.unwrap().is_empty());
     }
 

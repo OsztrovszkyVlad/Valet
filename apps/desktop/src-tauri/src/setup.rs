@@ -1,4 +1,4 @@
-//! App startup: DB init and sample rules, journal recovery, app state, file
+//! App startup: DB init, journal recovery, app state, file
 //! watcher with the auto-apply loop, tray, main window visibility.
 
 use std::sync::atomic::Ordering;
@@ -15,13 +15,12 @@ use crate::i18n;
 use crate::state::{config_dir, AppState};
 
 pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
-    // --- DB init & seed sample rules ---
+    // --- DB init (no rules: onboarding installs presets) ---
     let cfg_dir = config_dir(app).expect("config dir");
     let db_path = cfg_dir.join("valet.sqlite3");
     let state = AppState::new(db_path.clone());
     tauri::async_runtime::block_on(async {
         let db = Db::connect(&db_path).await.expect("db connect");
-        db.load_sample_rules_if_empty().await.expect("seed rules");
         // Finish or roll back operations a crash interrupted, before the
         // watcher can start new ones.
         match executor::recover(&db.journal(), state.platform.as_ref()).await {
