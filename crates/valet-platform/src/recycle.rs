@@ -32,18 +32,25 @@ pub fn trash_path(path: &Path) -> io::Result<()> {
     }
 }
 
-/// Clock slack, in seconds, when matching an item's deletion time: the bin
-/// stores whole seconds.
+/// Clock slack, in seconds, when matching an item's deletion time. The `trash`
+/// crate reports deletion times as whole seconds since the Unix epoch (UTC),
+/// truncated: on Windows from the bin's FILETIME, on Linux from the
+/// `.trashinfo` local time converted to UTC.
 pub const DELETED_TOLERANCE_SECS: i64 = 2;
 
 /// Moves the most recent trash item that came from `original` back to
 /// `original`. Never overwrites.
 ///
 /// Only items deleted at or after `trashed_after` minus
-/// [`DELETED_TOLERANCE_SECS`] are considered. Locations are compared as given
-/// and with the parent folder of `original` canonicalized (the `trash` crate
-/// records canonical parents); on Windows the comparison ignores case, `/` vs
-/// `\` and the `\\?\` prefix.
+/// [`DELETED_TOLERANCE_SECS`] are considered. An item matches when its file
+/// name equals the name of `original` and its parent folder is the same
+/// folder as the parent of `original`. Folders are compared as given, in long
+/// form (Windows `GetLongPathNameW`, so `C:\Users\RUNNER~1` equals
+/// `C:\Users\runneradmin`) and canonicalized (the `trash` crate records
+/// canonical parents). On Windows the comparison ignores case, `/` vs `\` and
+/// the `\\?\` prefix, and the original path of an item is read from the bin's
+/// `$I` info file, because the name the shell lists hides known extensions
+/// when Explorer is set to hide them.
 ///
 /// Errors:
 /// - `AlreadyExists`: something exists at `original`; the item stays in the bin.
@@ -93,28 +100,42 @@ fn restore_impl(original: &Path, trashed_after: SystemTime) -> io::Result<()> {
     use std::sync::atomic::{AtomicU64, Ordering};
     use trash::os_limited;
 
-    let after_secs = match trashed_after.duration_since(SystemTime::UNIX_EPOCH) {
-        Ok(d) => i64::try_from(d.as_secs()).unwrap_or(i64::MAX),
-        Err(_) => 0,
-    };
-    let min_deleted = after_secs.saturating_sub(DELETED_TOLERANCE_SECS);
-    let wanted = [path_key(original), path_key(&canonical_parent(original))];
-
-    let items =
-        os_limited::list().map_err(|e| io::Error::other(format!("trash list failed: {e}")))?;
-    let item = items
-        .into_iter()
-        .filter(|i| i.time_deleted >= min_deleted)
-        .filter(|i| wanted.contains(&path_key(&i.original_path())))
-        .max_by_key(|i| i.time_deleted)
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no matching item in the bin"))?;
-
     let Some(parent) = original.parent().filter(|p| !p.as_os_str().is_empty()) else {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "original path has no parent folder",
         ));
     };
+    let Some(wanted_name) = original.file_name().map(name_key) else {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "original path has no file name",
+        ));
+    };
+    let wanted_parent = location_keys(parent);
+
+    let after_secs = match trashed_after.duration_since(SystemTime::UNIX_EPOCH) {
+        Ok(d) => i64::try_from(d.as_secs()).unwrap_or(i64::MAX),
+        Err(_) => 0,
+    };
+    let min_deleted = after_secs.saturating_sub(DELETED_TOLERANCE_SECS);
+
+    let items =
+        os_limited::list().map_err(|e| io::Error::other(format!("trash list failed: {e}")))?;
+    let item = items
+        .into_iter()
+        .filter(|i| i.time_deleted >= min_deleted)
+        .filter(|i| {
+            item_origins(i).iter().any(|origin| {
+                origin.file_name().map(name_key).as_ref() == Some(&wanted_name)
+                    && origin
+                        .parent()
+                        .is_some_and(|p| location_keys(p).iter().any(|k| wanted_parent.contains(k)))
+            })
+        })
+        .max_by_key(|i| i.time_deleted)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no matching item in the bin"))?;
+
     std::fs::create_dir_all(crate::to_long_path(parent))?;
 
     static COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -168,16 +189,108 @@ fn restore_impl(original: &Path, trashed_after: SystemTime) -> io::Result<()> {
     ))
 }
 
-/// `original` with its parent folder canonicalized. Unchanged if the parent
-/// cannot be canonicalized.
+/// Paths an item may have come from.
+///
+/// Windows: the path recorded in the item's `$I` info file. If that file
+/// cannot be read, the crate's `original_parent` joined with its `name`, and
+/// with `name` plus the extension of the `$R` data file (the listed name
+/// lacks the extension when Explorer hides known extensions).
+#[cfg(windows)]
+fn item_origins(item: &trash::TrashItem) -> Vec<PathBuf> {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+
+    let data_file = Path::new(&item.id);
+    let info_file = data_file
+        .file_name()
+        .and_then(|n| n.to_str())
+        .and_then(|n| n.strip_prefix("$R"))
+        .map(|rest| data_file.with_file_name(format!("$I{rest}")));
+    if let Some(info_file) = info_file
+        && let Ok(bytes) = std::fs::read(crate::to_long_path(&info_file))
+        && let Some(wide) = parse_info_file(&bytes)
+    {
+        return vec![PathBuf::from(OsString::from_wide(&wide))];
+    }
+
+    let mut origins = vec![item.original_path()];
+    if let Some(ext) = data_file.extension() {
+        let mut name = item.name.clone();
+        name.push(".");
+        name.push(ext);
+        origins.push(item.original_parent.join(name));
+    }
+    origins
+}
+
+/// Paths an item may have come from: the crate's `original_parent` joined
+/// with its `name`.
+#[cfg(all(
+    unix,
+    not(target_os = "macos"),
+    not(target_os = "ios"),
+    not(target_os = "android")
+))]
+fn item_origins(item: &trash::TrashItem) -> Vec<PathBuf> {
+    vec![item.original_path()]
+}
+
+/// Original path (UTF-16, no terminating NUL) stored in a Recycle Bin `$I`
+/// info file. Layout: version (u64 LE), size (u64), deletion FILETIME (u64),
+/// then for version 1 (Vista to 8.1) a fixed 260-unit NUL-padded path, for
+/// version 2 (Windows 10+) a u32 length in UTF-16 units (NUL included) and
+/// the path. `None` for any other layout.
+#[cfg_attr(not(any(windows, test)), allow(dead_code))]
+fn parse_info_file(bytes: &[u8]) -> Option<Vec<u16>> {
+    const HEADER: usize = 24;
+    const V1_UNITS: usize = 260;
+    const MAX_UNITS: usize = 32_768;
+    let version = u64::from_le_bytes(bytes.get(..8)?.try_into().ok()?);
+    let raw = match version {
+        1 => bytes.get(HEADER..HEADER + 2 * V1_UNITS)?,
+        2 => {
+            let units = u32::from_le_bytes(bytes.get(HEADER..HEADER + 4)?.try_into().ok()?);
+            let units = usize::try_from(units).ok().filter(|&n| n <= MAX_UNITS)?;
+            bytes.get(HEADER + 4..HEADER + 4 + 2 * units)?
+        }
+        _ => return None,
+    };
+    let wide: Vec<u16> = raw
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|&c| u16::from_le_bytes(c))
+        .take_while(|&u| u != 0)
+        .collect();
+    (!wide.is_empty()).then_some(wide)
+}
+
+/// Comparison keys for a folder: as given, in long form (Windows
+/// `GetLongPathNameW`, only for existing folders) and canonicalized (only for
+/// existing folders). See [`path_key`].
 #[cfg_attr(target_os = "macos", allow(dead_code))]
-fn canonical_parent(original: &Path) -> PathBuf {
-    match (original.parent(), original.file_name()) {
-        (Some(parent), Some(name)) => match std::fs::canonicalize(parent) {
-            Ok(p) => p.join(name),
-            Err(_) => original.to_path_buf(),
-        },
-        _ => original.to_path_buf(),
+fn location_keys(dir: &Path) -> Vec<String> {
+    let mut keys = vec![path_key(dir)];
+    #[cfg(windows)]
+    if let Some(long) = long_path_name(dir) {
+        keys.push(path_key(&long));
+    }
+    if let Ok(canonical) = std::fs::canonicalize(dir) {
+        keys.push(path_key(&canonical));
+    }
+    keys.sort();
+    keys.dedup();
+    keys
+}
+
+/// Comparison key for a file name: lowercased on Windows, as is elsewhere.
+#[cfg_attr(target_os = "macos", allow(dead_code))]
+fn name_key(name: &std::ffi::OsStr) -> String {
+    let s = name.to_string_lossy();
+    if cfg!(windows) {
+        s.to_lowercase()
+    } else {
+        s.into_owned()
     }
 }
 
@@ -202,6 +315,49 @@ fn path_key(path: &Path) -> String {
     }
 }
 
+/// `path` with every 8.3 short component expanded (`GetLongPathNameW` on the
+/// absolute `\\?\` form; the result keeps the prefix). `None` if the path
+/// does not exist or the call fails.
+#[cfg(windows)]
+fn long_path_name(path: &Path) -> Option<PathBuf> {
+    use windows_sys::Win32::Storage::FileSystem::GetLongPathNameW;
+    // SAFETY: `input` is NUL-terminated; the output buffer length is passed.
+    win_path_call(path, |input, out, len| unsafe {
+        GetLongPathNameW(input, out, len)
+    })
+}
+
+/// Runs a Win32 call with the `GetLongPathNameW` contract (returns the
+/// length written, or the buffer size needed including the NUL, or 0 on
+/// failure) on the absolute `\\?\` form of `path`.
+#[cfg(windows)]
+fn win_path_call(path: &Path, call: impl Fn(*const u16, *mut u16, u32) -> u32) -> Option<PathBuf> {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+
+    let abs = std::path::absolute(path).ok()?;
+    let input: Vec<u16> = crate::to_long_path(&abs)
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let mut buf: Vec<u16> = vec![0; 512];
+    // The path can change between calls; retry a few times.
+    for _ in 0..4 {
+        let cap = u32::try_from(buf.len()).ok()?;
+        let n = call(input.as_ptr(), buf.as_mut_ptr(), cap) as usize;
+        if n == 0 {
+            return None;
+        }
+        if n < buf.len() {
+            buf.truncate(n);
+            return Some(PathBuf::from(OsString::from_wide(&buf)));
+        }
+        buf.resize(n, 0);
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -212,8 +368,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let f = dir.path().join("valet-trash-test.txt");
         std::fs::write(&f, b"x").unwrap();
+        let before = SystemTime::now();
         trash_path(&f).unwrap();
         assert!(std::fs::symlink_metadata(&f).is_err());
+
+        // Leave nothing behind in the bin.
+        restore_from_trash(&f, before).unwrap();
+        assert_eq!(std::fs::read(&f).unwrap(), b"x");
     }
 
     #[test]
@@ -326,6 +487,171 @@ mod tests {
 
         restore_from_trash(&d, before).unwrap();
         assert_eq!(std::fs::read(d.join("inner.txt")).unwrap(), b"inner");
+    }
+
+    /// `$I` info file bytes: version, size 7, FILETIME, then the path.
+    fn info_file(version: u64, path: &str) -> Vec<u8> {
+        let wide: Vec<u16> = path.encode_utf16().collect();
+        let mut b = Vec::new();
+        b.extend_from_slice(&version.to_le_bytes());
+        b.extend_from_slice(&7u64.to_le_bytes());
+        b.extend_from_slice(&133_000_000_000_000_000u64.to_le_bytes());
+        match version {
+            1 => {
+                let mut fixed = wide.clone();
+                fixed.resize(260, 0);
+                fixed
+                    .iter()
+                    .for_each(|u| b.extend_from_slice(&u.to_le_bytes()));
+            }
+            _ => {
+                b.extend_from_slice(&(wide.len() as u32 + 1).to_le_bytes());
+                wide.iter()
+                    .for_each(|u| b.extend_from_slice(&u.to_le_bytes()));
+                b.extend_from_slice(&0u16.to_le_bytes());
+            }
+        }
+        b
+    }
+
+    #[test]
+    fn parse_info_file_versions_1_and_2() {
+        let path = r"C:\Users\Ana\Documente\Factură.txt";
+        let wide: Vec<u16> = path.encode_utf16().collect();
+        assert_eq!(parse_info_file(&info_file(1, path)), Some(wide.clone()));
+        assert_eq!(parse_info_file(&info_file(2, path)), Some(wide));
+    }
+
+    #[test]
+    fn parse_info_file_rejects_bad_input() {
+        let path = r"C:\a\b.txt";
+        assert_eq!(parse_info_file(&info_file(3, path)), None);
+        assert_eq!(parse_info_file(&[]), None);
+        assert_eq!(parse_info_file(&info_file(2, "")), None);
+        let v2 = info_file(2, path);
+        assert_eq!(parse_info_file(&v2[..v2.len() - 4]), None);
+        let v1 = info_file(1, path);
+        assert_eq!(parse_info_file(&v1[..100]), None);
+        let mut huge = info_file(2, path);
+        huge[24..28].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert_eq!(parse_info_file(&huge), None);
+    }
+
+    /// The `trash` crate reports deletion times in whole seconds since the
+    /// Unix epoch (UTC), which is what `restore_from_trash` compares against.
+    #[cfg(any(windows, target_os = "linux"))]
+    #[test]
+    fn bin_reports_deletion_time_in_unix_seconds() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("valet-deletion-time.txt");
+        std::fs::write(&f, b"t").unwrap();
+        let secs =
+            |t: SystemTime| t.duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs() as i64;
+        let before = SystemTime::now();
+        trash_path(&f).unwrap();
+        let after = SystemTime::now();
+
+        let wanted = location_keys(dir.path());
+        let times: Vec<i64> = trash::os_limited::list()
+            .unwrap()
+            .iter()
+            .filter(|i| {
+                item_origins(i).iter().any(|o| {
+                    o.file_name().map(name_key).as_deref() == Some("valet-deletion-time.txt")
+                        && o.parent()
+                            .is_some_and(|p| location_keys(p).iter().any(|k| wanted.contains(k)))
+                })
+            })
+            .map(|i| i.time_deleted)
+            .collect();
+        restore_from_trash(&f, before).unwrap();
+
+        assert_eq!(times.len(), 1, "items found: {times:?}");
+        let (lo, hi) = (secs(before) - 1, secs(after) + 1);
+        assert!(
+            (lo..=hi).contains(&times[0]),
+            "time_deleted {} outside {lo}..={hi}",
+            times[0]
+        );
+    }
+
+    /// `path` with every component in 8.3 short form, if the volume has
+    /// short names (`GetShortPathNameW`; the result keeps the `\\?\` prefix).
+    #[cfg(windows)]
+    fn short_path_name(path: &Path) -> Option<PathBuf> {
+        use windows_sys::Win32::Storage::FileSystem::GetShortPathNameW;
+        // SAFETY: `input` is NUL-terminated; the output buffer length is passed.
+        win_path_call(path, |input, out, len| unsafe {
+            GetShortPathNameW(input, out, len)
+        })
+    }
+
+    /// Strips `\\?\` so the path looks like what users and `%TEMP%` give.
+    #[cfg(windows)]
+    fn plain(path: PathBuf) -> PathBuf {
+        let s = path.to_string_lossy().into_owned();
+        PathBuf::from(s.strip_prefix(r"\\?\").unwrap_or(&s))
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn restore_matches_short_and_long_folder_forms() {
+        let dir = tempfile::tempdir().unwrap();
+        let sub = dir.path().join("Valet Long Folder Name");
+        std::fs::create_dir(&sub).unwrap();
+        let long = plain(long_path_name(&sub).unwrap());
+        let short = plain(short_path_name(&sub).unwrap());
+        eprintln!(
+            "long form: {}\nshort form: {}",
+            long.display(),
+            short.display()
+        );
+        if path_key(&long) == path_key(&short) {
+            // 8.3 names are off on this volume: the test still runs, but
+            // both forms are the same. GitHub's runners have them on.
+            assert!(
+                std::env::var_os("GITHUB_ACTIONS").is_none(),
+                "expected 8.3 short names on the runner's temp volume"
+            );
+        }
+
+        // Trashed through the short form, restored through the long form.
+        let name = "Short Then Long.txt";
+        std::fs::write(short.join(name), b"short").unwrap();
+        let before = SystemTime::now();
+        trash_path(&short.join(name)).unwrap();
+        assert!(std::fs::symlink_metadata(long.join(name)).is_err());
+        restore_from_trash(&long.join(name), before).unwrap();
+        assert_eq!(std::fs::read(long.join(name)).unwrap(), b"short");
+
+        // Trashed through the long form, restored through the short form.
+        let name = "Long Then Short.txt";
+        std::fs::write(long.join(name), b"long").unwrap();
+        let before = SystemTime::now();
+        trash_path(&long.join(name)).unwrap();
+        assert!(std::fs::symlink_metadata(short.join(name)).is_err());
+        restore_from_trash(&short.join(name), before).unwrap();
+        assert_eq!(std::fs::read(short.join(name)).unwrap(), b"long");
+
+        assert_eq!(
+            dir_names(&long),
+            ["Long Then Short.txt", "Short Then Long.txt"]
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn long_path_name_expands_short_components() {
+        let dir = tempfile::tempdir().unwrap();
+        let sub = dir.path().join("Another Long Folder Name");
+        std::fs::create_dir(&sub).unwrap();
+        let short = short_path_name(&sub).unwrap();
+        assert_eq!(
+            path_key(&long_path_name(&short).unwrap()),
+            path_key(&long_path_name(&sub).unwrap())
+        );
+        assert!(path_key(&long_path_name(&short).unwrap()).ends_with(r"\another long folder name"));
+        assert_eq!(long_path_name(&sub.join("missing")), None);
     }
 
     #[cfg(windows)]
