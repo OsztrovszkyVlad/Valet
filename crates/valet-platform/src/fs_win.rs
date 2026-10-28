@@ -36,6 +36,16 @@ fn attrs_reparse_point(attrs: u32) -> bool {
     attrs & FILE_ATTRIBUTE_REPARSE_POINT != 0
 }
 
+/// Name-surrogate bit of a reparse tag (`IsReparseTagNameSurrogate` in
+/// winnt.h): the entry stands for another name (symlink, junction, mount
+/// point). Cloud-file tags (`IO_REPARSE_TAG_CLOUD*`) do not have it.
+const REPARSE_TAG_NAME_SURROGATE: u32 = 0x2000_0000;
+
+#[cfg_attr(not(windows), allow(dead_code))]
+fn tag_is_name_surrogate(tag: u32) -> bool {
+    tag & REPARSE_TAG_NAME_SURROGATE != 0
+}
+
 /// True if `path` is a cloud-files placeholder whose data is not on disk
 /// (OneDrive / Dropbox "on demand"): the RECALL_ON_DATA_ACCESS, RECALL_ON_OPEN
 /// or OFFLINE attribute is set.
@@ -70,14 +80,31 @@ pub fn is_hidden_or_system(path: &Path) -> bool {
     }
 }
 
-/// True if `path` itself is a reparse point (symlink, junction, mount point,
-/// cloud placeholder with a reparse tag). Links are not followed.
+/// True if `path` itself is a name-surrogate reparse point: a symlink,
+/// junction or mount point, i.e. an entry that points somewhere else. Links
+/// are not followed.
+///
+/// Cloud-file reparse points (OneDrive Files On-Demand, Dropbox; hydrated
+/// files and synced folders carry them too) return false: unhydrated ones are
+/// reported by [`is_cloud_placeholder`], hydrated ones are normal files.
+///
+/// Windows: reads the attributes with `GetFileAttributesW`; only if
+/// REPARSE_POINT is set, reads the reparse tag from the directory entry with
+/// `FindFirstFileW` (`WIN32_FIND_DATAW.dwReserved0`). Neither call opens the
+/// file. If the attribute is set but the tag cannot be read, returns true
+/// (the entry is skipped rather than traversed). Missing path: false.
 ///
 /// Off Windows: true if `path` is a symlink.
 pub fn is_reparse_point(path: &Path) -> bool {
     #[cfg(windows)]
     {
-        win::attributes(path).is_some_and(attrs_reparse_point)
+        if !win::attributes(path).is_some_and(attrs_reparse_point) {
+            return false;
+        }
+        match win::reparse_tag(path) {
+            Some(tag) => tag_is_name_surrogate(tag),
+            None => true,
+        }
     }
     #[cfg(not(windows))]
     {
@@ -290,9 +317,11 @@ mod win {
     use std::io;
     use std::os::windows::ffi::OsStrExt;
     use std::path::Path;
+    use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
     use windows_sys::Win32::Storage::FileSystem::{
-        GetDriveTypeW, GetFileAttributesW, GetVolumeNameForVolumeMountPointW, GetVolumePathNameW,
-        INVALID_FILE_ATTRIBUTES,
+        FindClose, FindFirstFileW, GetDriveTypeW, GetFileAttributesW,
+        GetVolumeNameForVolumeMountPointW, GetVolumePathNameW, INVALID_FILE_ATTRIBUTES,
+        WIN32_FIND_DATAW,
     };
     use windows_sys::Win32::System::Registry::{
         HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, RRF_RT_REG_DWORD, RegGetValueW,
@@ -322,6 +351,23 @@ mod win {
         // SAFETY: `wide` is a NUL-terminated UTF-16 string that outlives the call.
         let attrs = unsafe { GetFileAttributesW(wide.as_ptr()) };
         (attrs != INVALID_FILE_ATTRIBUTES).then_some(attrs)
+    }
+
+    /// Reparse tag of `path` itself, read from its directory entry with
+    /// `FindFirstFileW` (does not open the file). None if the entry cannot be
+    /// read or has no REPARSE_POINT attribute.
+    pub(super) fn reparse_tag(path: &Path) -> Option<u32> {
+        let wide = long_abs_wide(path).ok()?;
+        // SAFETY: WIN32_FIND_DATAW is plain data; all-zero is a valid value.
+        let mut data: WIN32_FIND_DATAW = unsafe { std::mem::zeroed() };
+        // SAFETY: `wide` is NUL-terminated; `data` is a valid out pointer.
+        let handle = unsafe { FindFirstFileW(wide.as_ptr(), &mut data) };
+        if handle == INVALID_HANDLE_VALUE {
+            return None;
+        }
+        // SAFETY: `handle` is a valid search handle returned above.
+        unsafe { FindClose(handle) };
+        super::attrs_reparse_point(data.dwFileAttributes).then_some(data.dwReserved0)
     }
 
     struct Volume {
@@ -512,6 +558,21 @@ mod tests {
         assert!(!attrs_hidden_or_system(0x20));
         assert!(attrs_reparse_point(FILE_ATTRIBUTE_REPARSE_POINT));
         assert!(!attrs_reparse_point(0x20));
+    }
+
+    #[test]
+    fn reparse_tag_name_surrogate_bit() {
+        // Name surrogates: symlink, mount point / junction, WSL symlink.
+        for tag in [0xA000_000C_u32, 0xA000_0003, 0xA000_001D] {
+            assert!(tag_is_name_surrogate(tag), "{tag:#x}");
+        }
+        // Not name surrogates: cloud files (base tag and the Cloud-1..F
+        // variants used by OneDrive), dedup, AppExecLink, WCI.
+        let mut others = vec![0x9000_001A_u32, 0x8000_0013, 0x8000_001B, 0x8000_0018];
+        others.extend((1..=0xF).map(|n| 0x9000_001A | (n << 12)));
+        for tag in others {
+            assert!(!tag_is_name_surrogate(tag), "{tag:#x}");
+        }
     }
 
     #[test]

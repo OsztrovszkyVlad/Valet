@@ -110,6 +110,41 @@ fn symlink_is_reparse_point() {
 }
 
 #[test]
+fn junction_is_reparse_point() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("target_dir");
+    std::fs::create_dir(&target).unwrap();
+    let junction = dir.path().join("junction");
+    // Junctions need no privilege, but skip if cmd/mklink is unavailable.
+    let made = std::process::Command::new("cmd")
+        .arg("/C")
+        .arg("mklink")
+        .arg("/J")
+        .arg(&junction)
+        .arg(&target)
+        .output()
+        .is_ok_and(|o| o.status.success());
+    if !made {
+        eprintln!("mklink /J failed here; skipping");
+        return;
+    }
+    assert!(is_reparse_point(&junction));
+    assert!(!is_reparse_point(&target));
+}
+
+#[test]
+fn plain_file_and_dir_are_not_reparse_points() {
+    let dir = tempfile::tempdir().unwrap();
+    let f = file_in(dir.path(), "plain.txt");
+    let d = dir.path().join("plain_dir");
+    std::fs::create_dir(&d).unwrap();
+    assert!(!is_reparse_point(&f));
+    assert!(!is_reparse_point(&d));
+    assert!(!is_reparse_point(dir.path()));
+    assert!(!is_reparse_point(&dir.path().join("missing")));
+}
+
+#[test]
 fn long_path_create_rename_read() {
     let dir = tempfile::tempdir().unwrap();
     let deep = deep_dir(dir.path());
