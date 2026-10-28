@@ -222,7 +222,7 @@ pub(crate) fn scan(
             let entry = match res {
                 Ok(e) => e,
                 Err(err) => {
-                    let p = err.path().map(&logical).unwrap_or_else(|| root.clone());
+                    let p = err.path().map(logical).unwrap_or_else(|| root.clone());
                     if seen.insert(p.clone()) {
                         emit(skip(p, SkipReason::Unreadable));
                     }
