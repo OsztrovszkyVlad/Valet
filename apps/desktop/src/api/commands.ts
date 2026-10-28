@@ -223,6 +223,11 @@ export function configureAutoStart(enabled: boolean): Promise<void> {
     return invoke<void>('configure_auto_start', { enabled });
 }
 
+/** Whether the per-user auto-start entry exists and is enabled. */
+export function getAutoStart(): Promise<boolean> {
+    return invoke<boolean>('get_auto_start');
+}
+
 /** Error raised by a command: either a plain string or `{ code, detail }`. */
 export interface CommandError {
     code: string;

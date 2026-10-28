@@ -4,6 +4,7 @@ import {
     configureAutoStart,
     errorMessage,
     getAppSettings,
+    getAutoStart,
     getConfig,
     saveAppSettings,
     saveConfig,
@@ -30,10 +31,12 @@ const SettingsView: React.FC = () => {
 
     useEffect(() => {
         let cancelled = false;
-        Promise.all([getAppSettings(), getConfig()])
-            .then(([s, c]) => {
+        // The auto-start entry can change outside Valet (Task Manager); show its real state.
+        const autoStart = getAutoStart().catch(() => null);
+        Promise.all([getAppSettings(), getConfig(), autoStart])
+            .then(([s, c, a]) => {
                 if (!cancelled) {
-                    setSettings(s);
+                    setSettings(a === null ? s : { ...s, auto_start: a });
                     setConfig(c);
                 }
             })

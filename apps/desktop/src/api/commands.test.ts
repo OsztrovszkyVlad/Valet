@@ -5,6 +5,7 @@ import {
     errorMessage,
     executeOperations,
     getAppSettings,
+    getAutoStart,
     getConfig,
     listBatches,
     parseCommandError,
@@ -38,6 +39,9 @@ describe('command wrappers', () => {
 
         await configureAutoStart(false);
         expect(invokeMock).toHaveBeenLastCalledWith('configure_auto_start', { enabled: false });
+
+        await getAutoStart();
+        expect(invokeMock).toHaveBeenLastCalledWith('get_auto_start');
     });
 
     it('send settings and config as single objects and return the saved value', async () => {

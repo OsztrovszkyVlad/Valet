@@ -12,6 +12,7 @@ const DOWNLOADS = 'C:\\Users\\ana\\Downloads';
 
 let settings: AppSettings;
 let config: Config;
+let osAutoStart: boolean | Error;
 
 function baseSettings(): AppSettings {
     return {
@@ -27,6 +28,7 @@ function baseSettings(): AppSettings {
 beforeEach(() => {
     settings = baseSettings();
     config = { inbox_paths: [DOWNLOADS], pause_watchers: false };
+    osAutoStart = false;
     invokeMock.mockReset();
     invokeMock.mockImplementation(async (cmd, args) => {
         const a = args as Record<string, unknown> | undefined;
@@ -48,6 +50,9 @@ beforeEach(() => {
             }
             case 'configure_auto_start':
                 return undefined;
+            case 'get_auto_start':
+                if (osAutoStart instanceof Error) throw osAutoStart.message;
+                return osAutoStart;
             default:
                 throw new Error(`unexpected command ${cmd}`);
         }
@@ -152,6 +157,19 @@ describe('SettingsView', () => {
         await screen.findByText('Salvat.');
         expect(callsTo('configure_auto_start')).toEqual([['configure_auto_start', { enabled: true }]]);
         expect(settings.auto_start).toBe(true);
+    });
+
+    it('shows the real auto-start state, falling back to the saved value', async () => {
+        osAutoStart = true;
+        await renderLoaded();
+        expect((screen.getByLabelText('Pornește Valet odată cu Windows') as HTMLInputElement).checked).toBe(true);
+    });
+
+    it('uses the saved auto-start value when the state cannot be read', async () => {
+        osAutoStart = new Error('Failed to read auto-start state');
+        settings = { ...baseSettings(), auto_start: true };
+        await renderLoaded();
+        expect((screen.getByLabelText('Pornește Valet odată cu Windows') as HTMLInputElement).checked).toBe(true);
     });
 
     it('does not save autostart when the platform command fails', async () => {
