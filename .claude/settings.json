@@ -52,8 +52,7 @@
         "hooks": [
           {
             "type": "command",
-            "shell": "powershell",
-            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .claude/hooks/guard-shell.ps1"
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-shell.sh\""
           }
         ]
       },
@@ -62,8 +61,7 @@
         "hooks": [
           {
             "type": "command",
-            "shell": "powershell",
-            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .claude/hooks/guard-edit.ps1"
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-edit.sh\""
           }
         ]
       }
@@ -74,8 +72,7 @@
         "hooks": [
           {
             "type": "command",
-            "shell": "powershell",
-            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .claude/hooks/post-edit-check.ps1"
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/post-edit-check.sh\""
           }
         ]
       }
@@ -85,8 +82,7 @@
         "hooks": [
           {
             "type": "command",
-            "shell": "powershell",
-            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .claude/hooks/stop-gate.ps1"
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/stop-gate.sh\""
           }
         ]
       }
