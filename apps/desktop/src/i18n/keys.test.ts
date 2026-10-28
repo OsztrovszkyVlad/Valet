@@ -49,7 +49,27 @@ function rustCodes(prefixes: string[]): string[] {
     return [...codes].sort();
 }
 
+const PLANNER = import.meta.glob('../../../../crates/valet-core/src/planner.rs', {
+    query: '?raw',
+    import: 'default',
+    eager: true,
+}) as Record<string, string>;
+
+/** Variants of `valet_core::planner::SkipReason`, camelCase as serialized. */
+function skipReasons(): string[] {
+    const text = Object.values(PLANNER)[0] ?? '';
+    const body = /pub enum SkipReason \{([\s\S]*?)\n\}/.exec(text)?.[1] ?? '';
+    return [...body.matchAll(/^\s{4}([A-Z][A-Za-z]+),/gm)].map((m) => m[1][0].toLowerCase() + m[1].slice(1));
+}
+
 describe('run-time i18n keys', () => {
+    it('explain every skip reason the planner returns', () => {
+        const reasons = skipReasons();
+        expect(reasons).toContain('excluded');
+        expect(reasons).toContain('ruleDestination');
+        expect(missing(reasons.map((r) => `skipReason.${r}`))).toEqual([]);
+    });
+
     it('exist in ro.json and en.json', () => {
         const keys = [
             ...CONDITION_TYPES.map((c) => `conditionLabel.${c}`),

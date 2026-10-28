@@ -15,7 +15,8 @@ export type SkipReason =
     | 'noExtension'
     | 'invalidDestination'
     | 'unsupportedAction'
-    | 'unreadable';
+    | 'unreadable'
+    | 'ruleDestination';
 
 export interface PlannedOperation {
     source_path: string;

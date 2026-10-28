@@ -37,7 +37,8 @@
     "unsupportedAction": "The rule's action is not supported yet",
     "unreadable": "Cannot be read",
     "unknown": "Unknown reason: {{reason}}",
-    "noExtensionPlain": "The file has no extension."
+    "noExtensionPlain": "The file has no extension.",
+    "ruleDestination": "Empty folder kept: it is the destination of a rule"
   },
   "preview": {
     "expired": "The preview has expired. Run the preview again.",
@@ -212,6 +213,10 @@
     },
     "settings": {
       "io": "Settings could not be saved."
+    },
+    "preset": {
+      "unknown": "Unknown preset.",
+      "storage": "Presets could not be installed."
     }
   },
   "folder": {
@@ -260,7 +265,8 @@
     "modifiedOlder_one": "modified over 1 day ago",
     "createdOlder_one": "created over 1 day ago",
     "modifiedOlder_other": "modified over {{count}} days ago",
-    "createdOlder_other": "created over {{count}} days ago"
+    "createdOlder_other": "created over {{count}} days ago",
+    "relative": "subfolder {{path}}"
   },
   "rules": {
     "title": "Rules",

@@ -37,7 +37,8 @@
     "unsupportedAction": "Acțiunea regulii nu e suportată încă",
     "unreadable": "Nu poate fi citit",
     "unknown": "Motiv necunoscut: {{reason}}",
-    "noExtensionPlain": "Fișierul nu are extensie."
+    "noExtensionPlain": "Fișierul nu are extensie.",
+    "ruleDestination": "Folder gol păstrat: e destinația unei reguli"
   },
   "preview": {
     "expired": "Previzualizarea a expirat. Rulează din nou previzualizarea.",
@@ -212,6 +213,10 @@
     },
     "settings": {
       "io": "Setările nu au putut fi salvate."
+    },
+    "preset": {
+      "unknown": "Presetare necunoscută.",
+      "storage": "Presetările nu au putut fi instalate."
     }
   },
   "folder": {
@@ -262,7 +267,8 @@
     "modifiedOlder_few": "modificate de peste {{count}} zile",
     "createdOlder_few": "create de peste {{count}} zile",
     "modifiedOlder_other": "modificate de peste {{count}} de zile",
-    "createdOlder_other": "create de peste {{count}} de zile"
+    "createdOlder_other": "create de peste {{count}} de zile",
+    "relative": "subfolderul {{path}}"
   },
   "rules": {
     "title": "Reguli",

@@ -92,9 +92,12 @@ const OnboardingView: React.FC<OnboardingViewProps> = ({ onFinished }) => {
             await completeOnboarding(folders, presetIds);
         } catch (err) {
             setFinishing(false);
-            if (parseCommandError(err)?.code.startsWith('config.')) {
-                // A folder cannot be watched: back to step 1 with the reason.
-                setFolderError(commandErrorText(t, err));
+            const parsed = parseCommandError(err);
+            if (parsed?.code.startsWith('config.')) {
+                // A folder cannot be watched: back to step 1 with the reason,
+                // naming a folder token (`{pictures}`) as the UI does.
+                const detail = parsed.detail === null ? null : displayPath(t, parsed.detail);
+                setFolderError(commandErrorText(t, detail === null ? parsed.code : `${parsed.code}: ${detail}`));
                 setStep(1);
             } else {
                 setFinishError(commandErrorText(t, err));

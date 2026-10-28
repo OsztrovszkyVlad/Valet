@@ -30,6 +30,10 @@ describe('conditionSummary (ro)', () => {
         [{ type: 'nameContains', value: ['invoice', 'bon'] }, 'cu «invoice» sau «bon» în nume'],
         [{ type: 'nameMatches', value: '^scan_\\d+' }, 'nume potrivit cu ^scan_\\d+'],
         [{ type: 'pathContains', value: 'work' }, 'cu «work» în cale'],
+        [
+            { type: 'nameMatches', value: '(?i)(^|[^\\p{L}])(screenshot|captur[aă]|snip|clipboard)$' },
+            'nume potrivit cu (?i)(^|[^\\p{L}])(screenshot|captur[aă]|s…',
+        ],
         [{ type: 'sizeGt', value: 1024 ** 3 }, 'peste 1 GB'],
         [{ type: 'sizeLt', value: 1536 * 1024 }, 'sub 1,5 MB'],
         [{ type: 'modifiedOlderThanDays', value: 1 }, 'modificate de peste o zi'],
@@ -50,6 +54,9 @@ describe('actionSummary (ro)', () => {
             'Documente/Facturi/{year}',
         );
         expect(actionSummary(t, { type: 'copyTo', params: { path: 'D:\\Backup' } })).toBe('copie în D:\\Backup');
+        expect(actionSummary(t, { type: 'moveTo', params: { path: 'Imagini' } })).toBe('subfolderul Imagini');
+        expect(actionSummary(t, { type: 'moveTo', params: { path: '~/Arhiva' } })).toBe('~/Arhiva');
+        expect(actionSummary(t, { type: 'moveTo', params: { path: '\\\\nas\\x' } })).toBe('\\\\nas\\x');
         expect(actionSummary(t, { type: 'trash' })).toBe('Coșul de reciclare');
         expect(actionSummary(t, { type: 'report', params: {} })).toBe('doar raport');
     });
@@ -74,7 +81,7 @@ describe('ruleSummary', () => {
 
     it('says all files for alwaysApply', () => {
         const r = rule([], [{ type: 'moveTo', params: { path: 'Arhiva' } }], { alwaysApply: true });
-        expect(ruleSummary(t, r, 'ro')).toBe('Toate fișierele → Arhiva');
+        expect(ruleSummary(t, r, 'ro')).toBe('Toate fișierele → subfolderul Arhiva');
     });
 
     it('follows the UI language', async () => {

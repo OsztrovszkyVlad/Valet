@@ -173,6 +173,26 @@ describe('OnboardingView', () => {
         expect(calls('dry_run')).toHaveLength(0);
     });
 
+    it('names a missing folder token in the error', async () => {
+        completeError = 'config.missing: {pictures}';
+        render(<OnboardingView onFinished={vi.fn()} />);
+        fireEvent.click(checkbox('Imagini'));
+        fireEvent.click(screen.getByRole('button', { name: 'Continuă' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Sari peste' }));
+        expect(await screen.findByText('Folderul nu există. (Imagini)')).toBeTruthy();
+        expect(screen.getByText('Pasul 1 din 3')).toBeTruthy();
+    });
+
+    it('shows preset errors on step 2', async () => {
+        completeError = 'preset.unknown: nope';
+        render(<OnboardingView onFinished={vi.fn()} />);
+        fireEvent.click(screen.getByRole('button', { name: 'Continuă' }));
+        await screen.findByText('Descărcări după tip');
+        fireEvent.click(screen.getByRole('button', { name: 'Continuă' }));
+        expect(await screen.findByText('Presetare necunoscută. (nope)')).toBeTruthy();
+        expect(screen.getByText('Pasul 2 din 3')).toBeTruthy();
+    });
+
     it('passes a dry_run failure on to the Preview', async () => {
         const onFinished = vi.fn();
         render(<OnboardingView onFinished={onFinished} />);

@@ -14,6 +14,14 @@ export function displayPath(t: TFunction, path: string): string {
     return t(`folder.${m[1]}`) + m[2];
 }
 
+/** Relative to the watched folder: no folder token, `~`, `%VAR%`, drive or root. */
+function isRelative(path: string): boolean {
+    return path !== '' && !/^(\{|~|%|[\\/]|[A-Za-z]:)/.test(path.trim());
+}
+
+/** Longest pattern shown in full in a summary. */
+const MAX_PATTERN = 40;
+
 function list(t: TFunction, items: string[]): string {
     return items.join(t('summary.or'));
 }
@@ -43,8 +51,12 @@ export function conditionSummary(t: TFunction, c: RuleCondition, lng?: string): 
             return t('summary.nameContains', {
                 words: list(t, strings(c.value).map((w) => t('summary.quoted', { text: w }))),
             });
-        case 'nameMatches':
-            return t('summary.nameMatches', { pattern: String(c.value) });
+        case 'nameMatches': {
+            const pattern = String(c.value);
+            return t('summary.nameMatches', {
+                pattern: pattern.length > MAX_PATTERN ? `${pattern.slice(0, MAX_PATTERN)}…` : pattern,
+            });
+        }
         case 'pathContains':
             return t('summary.pathContains', { text: t('summary.quoted', { text: String(c.value) }) });
         case 'sizeGt':
@@ -69,7 +81,8 @@ export function actionSummary(t: TFunction, a: RuleAction): string {
         case 'moveTo':
         case 'copyTo': {
             const params = a.params as { path?: unknown } | null | undefined;
-            const path = displayPath(t, typeof params?.path === 'string' ? params.path : '');
+            const raw = typeof params?.path === 'string' ? params.path : '';
+            const path = isRelative(raw) ? t('summary.relative', { path: raw }) : displayPath(t, raw);
             return a.type === 'moveTo' ? path : t('summary.copyTo', { path });
         }
         case 'trash':
