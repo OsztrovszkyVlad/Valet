@@ -37,6 +37,7 @@ fn op_type(kind: OpKind) -> &'static str {
     match kind {
         OpKind::Move => "move",
         OpKind::Copy => "copy",
+        OpKind::Trash => "trash",
     }
 }
 
@@ -102,8 +103,10 @@ pub(crate) async fn dry_run(app: tauri::AppHandle) -> Result<serde_json::Value, 
     Ok(json)
 }
 
-/// The shape `DryRunView.tsx` reads, plus `skipped` (path, reason, rule_name)
-/// and `plan_id`, which `execute_operations` needs.
+/// The shape `DryRunView.tsx` reads, plus `skipped` (path, reason, rule_name),
+/// `reports` (path, rule_id, rule_name, size, group) and `plan_id`, which
+/// `execute_operations` needs. A `trash` operation has an empty
+/// `destination_path`.
 fn dry_run_json(plan: &Plan, plan_id: &str) -> serde_json::Value {
     let results: Vec<serde_json::Value> = plan
         .ops
@@ -129,11 +132,26 @@ fn dry_run_json(plan: &Plan, plan_id: &str) -> serde_json::Value {
         })
         .collect();
 
+    let reports: Vec<serde_json::Value> = plan
+        .reports
+        .iter()
+        .map(|r| {
+            serde_json::json!({
+              "path": r.path.to_string_lossy(),
+              "rule_id": r.rule_id,
+              "rule_name": r.rule_name,
+              "size": r.size,
+              "group": r.group,
+            })
+        })
+        .collect();
+
     serde_json::json!({
       "total_files": results.len(),
       "total_rules_applied": results.len(),
       "results": results,
       "skipped": skipped,
+      "reports": reports,
       "plan_id": plan_id,
     })
 }
@@ -521,6 +539,7 @@ mod tests {
         let plan = Plan {
             ops: vec![planned_move(&a, &f.out.join("a.txt"))],
             skipped: vec![],
+            reports: vec![],
         };
         f.state.store_preview("p-1".to_string(), plan);
         let err = execute_previewed(&f.state, &f.db, "p-2", |_| panic!("ran"))
@@ -542,6 +561,7 @@ mod tests {
         let plan = Plan {
             ops: vec![planned_move(&a, &f.out.join("a.txt"))],
             skipped: vec![],
+            reports: vec![],
         };
         f.state.store_preview("p-1".to_string(), plan);
 
@@ -648,6 +668,7 @@ mod tests {
                 reason: valet_core::planner::SkipReason::Excluded,
                 rule_name: None,
             }],
+            reports: vec![],
         };
         let v = dry_run_json(&plan, "p-1");
         assert_eq!(v["total_files"], 1);
@@ -671,5 +692,42 @@ mod tests {
         assert_eq!(k["reason"], "excluded");
         assert!(k["rule_name"].is_null());
         assert_eq!(v["plan_id"], "p-1");
+        assert_eq!(v["reports"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn dry_run_json_has_trash_ops_and_reports() {
+        let plan = Plan {
+            ops: vec![PlannedOp {
+                source: PathBuf::from("in/setup.exe"),
+                dest: PathBuf::new(),
+                kind: OpKind::Trash,
+                rule_id: uuid::Uuid::nil(),
+                rule_name: "old".to_string(),
+                size: 3,
+                mtime: std::time::SystemTime::UNIX_EPOCH,
+            }],
+            skipped: vec![],
+            reports: vec![valet_core::planner::ReportEntry {
+                path: PathBuf::from("in/a.iso"),
+                rule_id: uuid::Uuid::from_u128(5),
+                rule_name: "big".to_string(),
+                size: 9,
+                group: Some("abc123".to_string()),
+            }],
+        };
+        let v = dry_run_json(&plan, "p-2");
+        let r = &v["results"][0];
+        assert_eq!(r["operation"], "trash");
+        assert_eq!(r["destination_path"], "");
+        let rep = &v["reports"][0];
+        assert_eq!(
+            rep["path"],
+            PathBuf::from("in/a.iso").to_string_lossy().as_ref()
+        );
+        assert_eq!(rep["rule_id"], uuid::Uuid::from_u128(5).to_string());
+        assert_eq!(rep["rule_name"], "big");
+        assert_eq!(rep["size"], 9);
+        assert_eq!(rep["group"], "abc123");
     }
 }

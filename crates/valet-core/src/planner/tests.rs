@@ -1345,3 +1345,350 @@ fn top_level_only_false_or_malformed_sees_everything() {
         assert_eq!(p.ops.len(), 2);
     }
 }
+
+// ---------------------------------------------------------------- trash and report
+
+fn acts(n: u128, name: &str, conditions: Value, actions: Value) -> Rule {
+    rule_json(n, name, conditions, actions, json!({}))
+}
+
+fn reports(p: &Plan) -> Vec<(PathBuf, String, Option<String>)> {
+    p.reports
+        .iter()
+        .map(|r| (r.path.clone(), r.rule_name.clone(), r.group.clone()))
+        .collect()
+}
+
+#[test]
+fn trash_rule_plans_trash_op_without_destination() {
+    let (_tmp, root) = tmp_root();
+    let f = root.join("setup.exe");
+    write(&f);
+    write(&root.join("keep.pdf"));
+    let r = acts(
+        1,
+        "old",
+        json!([{ "type": "extIn", "value": ["exe"] }]),
+        json!([{ "type": "trash" }]),
+    );
+    let p = run(std::slice::from_ref(&root), &[r]);
+    assert_eq!(p.ops.len(), 1);
+    let op = &p.ops[0];
+    assert_eq!(
+        (&op.source, &op.dest, op.kind),
+        (&f, &PathBuf::new(), OpKind::Trash)
+    );
+    assert_eq!(op.rule_name, "old");
+    assert!(p.skipped.is_empty() && p.reports.is_empty());
+}
+
+#[test]
+fn trash_rule_still_applies_every_skip() {
+    let (_tmp, root) = tmp_root();
+    let hidden = root.join(".h.exe");
+    let writing = root.join("a.exe.crdownload");
+    let cloud = root.join("cloud.exe");
+    let excluded = root.join("node_modules");
+    write(&hidden);
+    write(&writing);
+    write(&cloud);
+    write(&excluded.join("x.exe"));
+    let mut platform = FakePlatform::default();
+    platform.placeholders.insert(cloud.clone());
+    let r = acts(1, "t", json!([]), json!([{ "type": "trash" }]));
+    let p = plan(std::slice::from_ref(&root), &[r], &platform, &ctx());
+    assert!(p.ops.is_empty(), "{:?}", p.ops);
+    let mut got = skips(&p);
+    got.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut want = vec![
+        (hidden, SkipReason::Hidden, Some("t".into())),
+        (writing, SkipReason::BeingWritten, None),
+        (cloud, SkipReason::CloudPlaceholder, None),
+        (excluded, SkipReason::Excluded, None),
+    ];
+    want.sort_by(|a, b| a.0.cmp(&b.0));
+    assert_eq!(got, want);
+}
+
+#[test]
+fn trash_and_transfer_rules_conflict_in_rule_order() {
+    let (_tmp, root) = tmp_root();
+    let f = root.join("a.pdf");
+    write(&f);
+    let trash = acts(1, "trash", json!([]), json!([{ "type": "trash" }]));
+    let mv = all(2, "move", "moveTo", "Out");
+    let p = run(std::slice::from_ref(&root), &[trash.clone(), mv.clone()]);
+    assert_eq!(p.ops[0].kind, OpKind::Trash);
+    assert_eq!(
+        skips(&p),
+        vec![(f.clone(), SkipReason::Conflict, Some("move".into()))]
+    );
+
+    let p = run(std::slice::from_ref(&root), &[mv, trash]);
+    assert_eq!(p.ops[0].kind, OpKind::Move);
+    assert_eq!(
+        skips(&p),
+        vec![(f, SkipReason::Conflict, Some("trash".into()))]
+    );
+}
+
+#[test]
+fn report_rule_adds_entry_and_no_operation() {
+    let (_tmp, root) = tmp_root();
+    let big = root.join("big.iso");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(&big, vec![0u8; 2048]).unwrap();
+    write(&root.join("small.txt"));
+    let r = acts(
+        7,
+        "Mari",
+        json!([{ "type": "sizeGt", "value": 1024 }]),
+        json!([{ "type": "report" }]),
+    );
+    let p = run(std::slice::from_ref(&root), &[r]);
+    assert!(p.ops.is_empty() && p.skipped.is_empty());
+    assert_eq!(
+        p.reports,
+        vec![ReportEntry {
+            path: big,
+            rule_id: Uuid::from_u128(7),
+            rule_name: "Mari".into(),
+            size: 2048,
+            group: None,
+        }]
+    );
+}
+
+#[test]
+fn reports_do_not_count_toward_one_op_per_file() {
+    let (_tmp, root) = tmp_root();
+    let f = root.join("a.pdf");
+    write(&f);
+    let rep1 = acts(1, "rep1", json!([]), json!([{ "type": "report" }]));
+    let mv = all(2, "move", "moveTo", "Out");
+    let rep2 = acts(3, "rep2", json!([]), json!([{ "type": "report" }]));
+    let p = run(std::slice::from_ref(&root), &[rep1, mv, rep2]);
+    assert_eq!(sources(&p), vec![f.clone()]);
+    assert!(p.skipped.is_empty(), "no Conflict for report rules");
+    assert_eq!(
+        reports(&p),
+        vec![(f.clone(), "rep1".into(), None), (f, "rep2".into(), None)]
+    );
+}
+
+#[test]
+fn report_and_trash_in_one_rule_give_both() {
+    let (_tmp, root) = tmp_root();
+    let f = root.join("a.exe");
+    write(&f);
+    let r = acts(
+        1,
+        "r",
+        json!([]),
+        json!([{ "type": "report" }, { "type": "trash" }]),
+    );
+    let p = run(std::slice::from_ref(&root), &[r]);
+    assert_eq!(p.ops[0].kind, OpKind::Trash);
+    assert_eq!(reports(&p), vec![(f, "r".into(), None)]);
+}
+
+#[test]
+fn hidden_file_is_reported_only_with_include_hidden() {
+    let (_tmp, root) = tmp_root();
+    let f = root.join(".h.txt");
+    write(&f);
+    let plain = acts(1, "plain", json!([]), json!([{ "type": "report" }]));
+    let p = run(std::slice::from_ref(&root), std::slice::from_ref(&plain));
+    assert!(p.reports.is_empty());
+    assert_eq!(
+        skips(&p),
+        vec![(f.clone(), SkipReason::Hidden, Some("plain".into()))]
+    );
+
+    let opted = rule_json(
+        2,
+        "opted",
+        json!([]),
+        json!([{ "type": "report" }]),
+        json!({ "includeHidden": true }),
+    );
+    let p = run(std::slice::from_ref(&root), &[opted, plain]);
+    assert_eq!(reports(&p), vec![(f, "opted".into(), None)]);
+}
+
+#[test]
+fn tag_action_is_still_unsupported() {
+    let (_tmp, root) = tmp_root();
+    let f = root.join("a.pdf");
+    write(&f);
+    let r = acts(1, "t", json!([]), json!([{ "type": "tag", "params": {} }]));
+    let p = run(std::slice::from_ref(&root), &[r]);
+    assert_eq!(
+        skips(&p),
+        vec![(f, SkipReason::UnsupportedAction, Some("t".into()))]
+    );
+}
+
+#[test]
+fn plan_json_has_reports_and_trash_kind() {
+    let v = serde_json::to_value(Plan::default()).unwrap();
+    assert_eq!(v["reports"], json!([]));
+    assert_eq!(serde_json::to_value(OpKind::Trash).unwrap(), json!("trash"));
+    // Plans serialized before `reports` existed still load.
+    let old: Plan = serde_json::from_value(json!({ "ops": [], "skipped": [] })).unwrap();
+    assert!(old.reports.is_empty());
+}
+
+// ---------------------------------------------------------------- emptyFolder
+
+fn empty_folder_rule(extra: Value, actions: Value) -> Rule {
+    let mut conds = vec![json!({ "type": "emptyFolder", "value": true })];
+    if let Value::Array(more) = extra {
+        conds.extend(more);
+    }
+    acts(1, "goale", Value::Array(conds), actions)
+}
+
+fn trash_empty() -> Rule {
+    empty_folder_rule(json!([]), json!([{ "type": "trash" }]))
+}
+
+#[test]
+fn empty_folder_rule_trashes_empty_directories_only() {
+    let (_tmp, root) = tmp_root();
+    let empty = root.join("empty");
+    let nested = root.join("full").join("inner");
+    fs::create_dir_all(&empty).unwrap();
+    fs::create_dir_all(&nested).unwrap();
+    write(&root.join("full").join("f.txt"));
+    write(&root.join("file.txt"));
+    let p = run(std::slice::from_ref(&root), &[trash_empty()]);
+    let got: Vec<(PathBuf, OpKind, PathBuf)> = p
+        .ops
+        .iter()
+        .map(|o| (o.source.clone(), o.kind, o.dest.clone()))
+        .collect();
+    assert_eq!(
+        got,
+        vec![
+            (empty, OpKind::Trash, PathBuf::new()),
+            (nested, OpKind::Trash, PathBuf::new()),
+        ]
+    );
+    assert_eq!(p.ops[0].size, 0);
+    assert!(p.skipped.is_empty());
+}
+
+#[test]
+fn empty_root_and_directory_chosen_as_root_are_never_candidates() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("root");
+    let inner = root.join("inner");
+    fs::create_dir_all(&inner).unwrap();
+    let p = run(&[root.clone(), inner.clone()], &[trash_empty()]);
+    assert!(p.ops.is_empty(), "{:?}", p.ops);
+    let p = run(std::slice::from_ref(&inner), &[trash_empty()]);
+    assert!(p.ops.is_empty());
+}
+
+#[test]
+fn excluded_and_hidden_empty_directories_are_skipped_not_trashed() {
+    let (_tmp, root) = tmp_root();
+    fs::create_dir_all(root.join("node_modules")).unwrap();
+    fs::create_dir_all(root.join(".cache")).unwrap();
+    let p = run(std::slice::from_ref(&root), &[trash_empty()]);
+    assert!(p.ops.is_empty());
+    assert_eq!(
+        skips(&p),
+        vec![
+            (root.join(".cache"), SkipReason::Hidden, None),
+            (root.join("node_modules"), SkipReason::Excluded, None),
+        ]
+    );
+}
+
+#[test]
+fn recently_changed_empty_directory_is_being_written() {
+    let (_tmp, root) = tmp_root();
+    let d = root.join("new");
+    fs::create_dir_all(&d).unwrap();
+    let mut c = ctx();
+    c.now = SystemTime::now();
+    let p = plan_with(std::slice::from_ref(&root), &[trash_empty()], &c);
+    assert!(p.ops.is_empty());
+    assert_eq!(skips(&p), vec![(d, SkipReason::BeingWritten, None)]);
+}
+
+#[test]
+fn directories_are_not_scanned_without_folder_rules() {
+    let (_tmp, root) = tmp_root();
+    fs::create_dir_all(root.join("new")).unwrap();
+    let mut c = ctx();
+    c.now = SystemTime::now();
+    let p = plan_with(
+        std::slice::from_ref(&root),
+        &[acts(1, "t", json!([]), json!([{ "type": "trash" }]))],
+        &c,
+    );
+    assert!(p.ops.is_empty() && p.skipped.is_empty());
+}
+
+#[test]
+fn empty_folder_with_age_uses_directory_mtime() {
+    let (_tmp, root) = tmp_root();
+    let old = root.join("old");
+    let young = root.join("young");
+    fs::create_dir_all(&old).unwrap();
+    fs::create_dir_all(&young).unwrap();
+    let ten_days = Duration::from_secs(10 * 86_400);
+    fs::File::open(&old)
+        .unwrap()
+        .set_modified(SystemTime::now() - ten_days)
+        .unwrap();
+    let r = empty_folder_rule(
+        json!([{ "type": "modifiedOlderThanDays", "value": 7 }]),
+        json!([{ "type": "trash" }]),
+    );
+    let p = run(std::slice::from_ref(&root), &[r]);
+    assert_eq!(sources(&p), vec![old]);
+}
+
+#[test]
+fn empty_folder_with_move_is_unsupported_and_report_works() {
+    let (_tmp, root) = tmp_root();
+    let d = root.join("e");
+    fs::create_dir_all(&d).unwrap();
+    let mv = empty_folder_rule(
+        json!([]),
+        json!([{ "type": "moveTo", "params": { "path": "Out" } }]),
+    );
+    let p = run(std::slice::from_ref(&root), &[mv]);
+    assert!(p.ops.is_empty());
+    assert_eq!(
+        skips(&p),
+        vec![(
+            d.clone(),
+            SkipReason::UnsupportedAction,
+            Some("goale".into())
+        )]
+    );
+
+    let rep = empty_folder_rule(json!([]), json!([{ "type": "report" }]));
+    let p = run(std::slice::from_ref(&root), &[rep]);
+    assert_eq!(reports(&p), vec![(d, "goale".into(), None)]);
+}
+
+#[test]
+fn file_rules_never_see_directories() {
+    let (_tmp, root) = tmp_root();
+    fs::create_dir_all(root.join("e")).unwrap();
+    let f = root.join("a.txt");
+    write(&f);
+    let p = run(
+        std::slice::from_ref(&root),
+        &[trash_empty(), all(2, "move", "moveTo", "/abs/out")],
+    );
+    assert_eq!(sources(&p), vec![f, root.join("e")]);
+    assert_eq!(p.ops[0].kind, OpKind::Move);
+    assert_eq!(p.ops[1].kind, OpKind::Trash);
+}

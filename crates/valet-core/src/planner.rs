@@ -17,7 +17,7 @@ use walkdir::WalkDir;
 
 use crate::{
     collision::next_free_name,
-    matcher::{FileFacts, rule_matches},
+    matcher::{FileFacts, is_folder_rule, rule_matches},
     platform::Platform,
     rules::{Action, Rule},
 };
@@ -116,6 +116,9 @@ impl PlanContext {
 pub enum OpKind {
     Move,
     Copy,
+    /// Send the source (a file, or an empty folder for `emptyFolder` rules)
+    /// to the Recycle Bin. The op's `dest` is empty.
+    Trash,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -141,6 +144,7 @@ pub enum SkipReason {
 pub struct PlannedOp {
     pub source: PathBuf,
     /// Full destination file path, collision-free at planning time.
+    /// Empty for [`OpKind::Trash`].
     pub dest: PathBuf,
     pub kind: OpKind,
     pub rule_id: Uuid,
@@ -156,22 +160,42 @@ pub struct Skipped {
     pub rule_name: Option<String>,
 }
 
+/// A file (or empty folder) a `report` rule matched, or the copy a
+/// `duplicate` + `trash` rule keeps. No file operation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReportEntry {
+    pub path: PathBuf,
+    pub rule_id: Uuid,
+    pub rule_name: String,
+    pub size: u64,
+    /// Duplicate group id (short content hash) for `duplicate` rules.
+    pub group: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Plan {
     pub ops: Vec<PlannedOp>,
     pub skipped: Vec<Skipped>,
+    /// Report entries in scan order. They do not count as operations.
+    #[serde(default)]
+    pub reports: Vec<ReportEntry>,
 }
 
-/// Plans at most one move or copy per file found under `roots`.
+/// Plans at most one operation (move, copy or trash) per entry found under
+/// `roots`, plus report entries.
 ///
 /// `rules` are evaluated in the given order (the order of `Db::list_rules`);
-/// the first enabled matching rule with a `moveTo`/`copyTo` action wins.
+/// the first enabled matching rule with a `moveTo`/`copyTo`/`trash` action
+/// wins. Every matching rule with a `report` action adds a report entry.
+/// Rules with `emptyFolder` see only empty folders (never a scan root); all
+/// other rules see only files.
 pub fn plan(roots: &[PathBuf], rules: &[Rule], platform: &dyn Platform, ctx: &PlanContext) -> Plan {
     let mut out = Plan::default();
     let mut reserved: HashSet<String> = HashSet::new();
     let mut marker_cache: HashMap<PathBuf, bool> = HashMap::new();
     let prepared = prepare(roots, rules, ctx);
-    scan(roots, platform, ctx.now, |found| match found {
+    let want_dirs = rules.iter().any(|r| r.enabled && is_folder_rule(r));
+    scan(roots, platform, ctx.now, want_dirs, |found| match found {
         Found::Skip(s) => out.skipped.push(s),
         Found::File(f) => plan_file(
             &f,
@@ -248,7 +272,8 @@ fn expand_scope_entry(entry: &str, ctx: &PlanContext) -> Option<PathBuf> {
 
 // ---------------------------------------------------------------- walker
 
-/// A regular file that passed the walker's checks.
+/// A regular file that passed the walker's checks, or (when the scan was
+/// asked for directories) an empty directory below a root.
 pub(crate) struct FoundFile {
     pub path: PathBuf,
     /// Index of the scan root in the `roots` given to `scan`.
@@ -263,6 +288,8 @@ pub(crate) struct FoundFile {
     pub created: Option<SystemTime>,
     /// Dot-name or hidden/system attribute; the caller decides.
     pub hidden: bool,
+    /// An empty directory (only emitted with `want_dirs`).
+    pub is_dir: bool,
 }
 
 pub(crate) enum Found {
@@ -281,11 +308,14 @@ fn skip(path: PathBuf, reason: SkipReason) -> Found {
 /// Walks `roots` in order with the default exclusions. Emits each file once
 /// (overlapping roots are deduplicated) and one `Skip` per excluded,
 /// hidden, reparse-point, placeholder or unreadable entry. Excluded
-/// directories are not descended.
+/// directories are not descended. With `want_dirs`, also emits each empty
+/// directory below a root that passed the same checks (never a root or a
+/// directory chosen as another root).
 pub(crate) fn scan(
     roots: &[PathBuf],
     platform: &dyn Platform,
     now: SystemTime,
+    want_dirs: bool,
     mut emit: impl FnMut(Found),
 ) {
     let mut seen: HashSet<PathBuf> = HashSet::new();
@@ -373,6 +403,37 @@ pub(crate) fn scan(
                 emit(skip(path, reason));
                 continue;
             }
+            if want_dirs && is_dir && !explicit_dir {
+                let empty = fs::read_dir(platform.os_path(&path))
+                    .is_ok_and(|mut entries| entries.next().is_none());
+                if empty {
+                    seen.insert(path.clone());
+                    let Some((mtime, created)) = entry
+                        .metadata()
+                        .ok()
+                        .and_then(|m| Some((m.modified().ok()?, m.created().ok())))
+                    else {
+                        emit(skip(path, SkipReason::Unreadable));
+                        continue;
+                    };
+                    if is_being_written(entry.file_name(), mtime, now) {
+                        emit(skip(path, SkipReason::BeingWritten));
+                        continue;
+                    }
+                    emit(Found::File(FoundFile {
+                        path,
+                        root_idx,
+                        depth: entry.depth(),
+                        base: base.clone(),
+                        size: 0,
+                        mtime,
+                        created,
+                        hidden: false,
+                        is_dir: true,
+                    }));
+                    continue;
+                }
+            }
             if !ft.is_file() {
                 // Directories that are walked, and special files (sockets, devices).
                 continue;
@@ -405,6 +466,7 @@ pub(crate) fn scan(
                 mtime,
                 created: meta.created().ok(),
                 hidden,
+                is_dir: false,
             }));
         }
     }
@@ -474,22 +536,47 @@ fn fold(p: &Path) -> String {
 
 // ---------------------------------------------------------------- per-file decision
 
-fn first_transfer(rule: &Rule) -> Option<(OpKind, &Action)> {
+/// The rule's first `moveTo`, `copyTo` or `trash` action.
+fn first_mutation(rule: &Rule) -> Option<(OpKind, &Action)> {
     rule.actions.iter().find_map(|a| match a.r#type.as_str() {
         "moveTo" => Some((OpKind::Move, a)),
         "copyTo" => Some((OpKind::Copy, a)),
+        "trash" => Some((OpKind::Trash, a)),
         _ => None,
     })
+}
+
+fn has_report(rule: &Rule) -> bool {
+    rule.actions.iter().any(|a| a.r#type == "report")
 }
 
 fn has_unsupported_action(rule: &Rule) -> bool {
     rule.actions
         .iter()
-        .any(|a| !matches!(a.r#type.as_str(), "moveTo" | "copyTo"))
+        .any(|a| !matches!(a.r#type.as_str(), "moveTo" | "copyTo" | "trash" | "report"))
 }
 
 fn include_hidden(rule: &Rule) -> bool {
     rule.option_flag("includeHidden")
+}
+
+/// A rule that matched one entry.
+struct Hit<'r> {
+    rule: &'r Rule,
+    /// For `duplicate` rules: the group id and whether this entry is the
+    /// group's keeper.
+    group: Option<(String, bool)>,
+}
+
+impl<'r> Hit<'r> {
+    /// The operation this rule would plan for the entry. The keeper of a
+    /// duplicate group gets none.
+    fn mutation(&self) -> Option<(OpKind, &'r Action)> {
+        match &self.group {
+            Some((_, true)) => None,
+            _ => first_mutation(self.rule),
+        }
+    }
 }
 
 fn plan_file(
@@ -507,16 +594,19 @@ fn plan_file(
         size: f.size,
         mtime: Some(f.mtime),
         created: f.created,
-        is_dir: false,
-        is_empty_dir: false,
+        is_dir: f.is_dir,
+        is_empty_dir: f.is_dir,
         now: Some(ctx.now),
     };
-    let matching: Vec<&Rule> = rules
+    let matching: Vec<Hit> = rules
         .iter()
         .filter(|p| p.sees(f) && rule_matches(p.rule, &facts))
-        .map(|p| p.rule)
+        .map(|p| Hit {
+            rule: p.rule,
+            group: None,
+        })
         .collect();
-    let winner = matching.iter().position(|r| first_transfer(r).is_some());
+    let winner = matching.iter().position(|h| h.mutation().is_some());
 
     let push_skip = |out: &mut Plan, reason, rule: Option<&Rule>| {
         out.skipped.push(Skipped {
@@ -527,7 +617,9 @@ fn plan_file(
     };
 
     if f.hidden {
-        let decider = winner.map(|i| matching[i]).or(matching.first().copied());
+        let decider = winner
+            .map(|i| matching[i].rule)
+            .or(matching.first().map(|h| h.rule));
         if !decider.is_some_and(include_hidden) {
             push_skip(out, SkipReason::Hidden, decider);
             return;
@@ -536,9 +628,19 @@ fn plan_file(
 
     let mut planned = false;
     if let Some(wi) = winner {
-        let rule = matching[wi];
-        let (kind, action) = first_transfer(rule).expect("winner has a transfer action");
-        match destination(f, action, platform, ctx, reserved, marker_cache) {
+        let rule = matching[wi].rule;
+        let (kind, action) = matching[wi]
+            .mutation()
+            .expect("winner has a mutating action");
+        let dest = match kind {
+            OpKind::Trash => Ok(PathBuf::new()),
+            // Folders are only ever trashed.
+            OpKind::Move | OpKind::Copy if f.is_dir => Err(SkipReason::UnsupportedAction),
+            OpKind::Move | OpKind::Copy => {
+                destination(f, action, platform, ctx, reserved, marker_cache)
+            }
+        };
+        match dest {
             Ok(dest) => {
                 out.ops.push(PlannedOp {
                     source: f.path.clone(),
@@ -554,14 +656,29 @@ fn plan_file(
             Err(reason) => push_skip(out, reason, Some(rule)),
         }
         for later in &matching[wi + 1..] {
-            if first_transfer(later).is_some() {
-                push_skip(out, SkipReason::Conflict, Some(later));
+            if later.mutation().is_some() {
+                push_skip(out, SkipReason::Conflict, Some(later.rule));
             }
         }
     }
     if !planned {
-        for rule in matching.iter().filter(|r| has_unsupported_action(r)) {
-            push_skip(out, SkipReason::UnsupportedAction, Some(rule));
+        for hit in matching.iter().filter(|h| has_unsupported_action(h.rule)) {
+            push_skip(out, SkipReason::UnsupportedAction, Some(hit.rule));
+        }
+    }
+    for hit in &matching {
+        if f.hidden && !include_hidden(hit.rule) {
+            continue;
+        }
+        let keeper = matches!(hit.group, Some((_, true)));
+        if has_report(hit.rule) || (keeper && first_mutation(hit.rule).is_some()) {
+            out.reports.push(ReportEntry {
+                path: f.path.clone(),
+                rule_id: hit.rule.id,
+                rule_name: hit.rule.name.clone(),
+                size: f.size,
+                group: hit.group.as_ref().map(|(g, _)| g.clone()),
+            });
         }
     }
 }

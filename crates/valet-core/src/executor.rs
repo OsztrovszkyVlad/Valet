@@ -76,6 +76,9 @@ pub enum FailCode {
     InvalidPath,
     /// Any other I/O error.
     Io,
+    /// This build does not execute the operation kind (trash, until Phase 2
+    /// task A2). Nothing was touched.
+    Unsupported,
 }
 
 impl FailCode {
@@ -92,6 +95,7 @@ impl FailCode {
             FailCode::Interrupted => "Interrupted",
             FailCode::InvalidPath => "InvalidPath",
             FailCode::Io => "Io",
+            FailCode::Unsupported => "Unsupported",
         }
     }
 }
@@ -241,6 +245,7 @@ fn op_type(kind: OpKind) -> OpType {
     match kind {
         OpKind::Move => OpType::Move,
         OpKind::Copy => OpType::Copy,
+        OpKind::Trash => OpType::Trash,
     }
 }
 
@@ -504,7 +509,7 @@ pub async fn execute(
                 &NewOp {
                     op_type: op_type(op.kind),
                     source: op.source.clone(),
-                    dest: Some(op.dest.clone()),
+                    dest: (op.kind != OpKind::Trash).then(|| op.dest.clone()),
                     size: Some(op.size),
                     undo_of: None,
                 },
@@ -553,6 +558,11 @@ async fn execute_one(
     steps: &Steps<'_>,
     platform: &dyn Platform,
 ) -> Result<Result<PathBuf, OpError>> {
+    if op.kind == OpKind::Trash {
+        let e = OpError::with(FailCode::Unsupported, "trash is not executed yet");
+        steps.failed(op_id, &e).await?;
+        return Ok(Err(e));
+    }
     let ready = (|| {
         precheck(op, platform)?;
         let hash = hash_file(platform, &op.source).map_err(|e| OpError::io(&e))?;
@@ -564,7 +574,7 @@ async fn execute_one(
         // its temp file, and undoing a copy trashes the copy.
         let needs_trash = match op.kind {
             OpKind::Move => !same_volume,
-            OpKind::Copy => true,
+            OpKind::Copy | OpKind::Trash => true,
         };
         if needs_trash
             && !(platform.can_trash(dir)

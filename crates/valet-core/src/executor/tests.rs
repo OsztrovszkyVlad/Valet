@@ -294,6 +294,37 @@ async fn placeholder_is_never_hashed_or_moved() {
 }
 
 #[tokio::test]
+async fn trash_op_fails_unsupported_and_touches_nothing() {
+    let env = Env::new().await;
+    let src = env.path("in/old.exe");
+    write(&src, b"setup");
+    let ok = env.path("in/ok.txt");
+    write(&ok, b"ok");
+    let p = env.fake();
+    let ops = [
+        planned(&src, Path::new(""), OpKind::Trash),
+        planned(&ok, &env.path("out/ok.txt"), OpKind::Move),
+    ];
+
+    let rep = execute(&ops, &env.journal, &p).await.unwrap();
+    let r = &rep.results[0];
+    assert_eq!(code(r), Some(FailCode::Unsupported));
+    assert_eq!(r.kind, OpKind::Trash);
+    assert_eq!(r.dest, PathBuf::new());
+    let rec = env.op(r.op_id).await;
+    assert_eq!(rec.state, OpState::Failed);
+    assert_eq!(rec.op_type, OpType::Trash);
+    assert!(rec.dest_path.is_none());
+    assert!(rec.hash_before.is_none(), "not even hashed");
+    assert!(rec.error.unwrap().starts_with("Unsupported"));
+    assert_eq!(fs::read(&src).unwrap(), b"setup");
+    assert!(trashed(&env).is_empty());
+    // The rest of the batch still runs.
+    assert!(rep.results[1].error.is_none());
+    assert_eq!(rep.done_count(), 1);
+}
+
+#[tokio::test]
 async fn locked_source_is_skipped() {
     let env = Env::new().await;
     let src = env.path("in/locked.xlsx");

@@ -42,7 +42,7 @@ fn short_hash(path: &Path) -> Result<String> {
 /// Returns the number of indexed files.
 pub async fn index_paths(paths: &[PathBuf], db: &Db, platform: &dyn Platform) -> Result<usize> {
     let mut files = Vec::new();
-    scan(paths, platform, SystemTime::now(), |found| {
+    scan(paths, platform, SystemTime::now(), false, |found| {
         if let Found::File(f) = found
             && !f.hidden
         {
