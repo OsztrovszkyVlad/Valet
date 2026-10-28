@@ -33,4 +33,4 @@ chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.0", features = ["v4", "serde"] }
 valet-core = { path = "../../../crates/valet-core" }
 valet-platform = { path = "../../../crates/valet-platform", features = ["valet-core"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }

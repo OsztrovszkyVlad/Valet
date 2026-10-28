@@ -53,7 +53,6 @@ pub(crate) fn notify<R: Runtime>(app: &AppHandle<R>, title: &str, body: &str) {
 
 /// The short notification after a batch, in the UI language. Nothing when
 /// the batch did nothing.
-#[allow(dead_code)] // Called from the batch code once auto-apply (A3) uses it.
 pub(crate) fn notify_batch_done<R: Runtime>(app: &AppHandle<R>, done: usize, failed: usize) {
     if done == 0 && failed == 0 {
         return;
