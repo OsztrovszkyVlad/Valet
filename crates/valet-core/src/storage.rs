@@ -78,7 +78,8 @@ impl Db {
 
     /// Removes the rows of `rules` (by id) and inserts them again in the
     /// given order, in one transaction, so they come after every other rule
-    /// in `list_rules` order. Other rules are not touched.
+    /// of their group (user or preset) in `list_rules` order. Other rules are
+    /// not touched.
     pub async fn reinsert_rules(&self, rules: &[Rule]) -> Result<()> {
         let mut tx = self.pool.begin().await?;
         for rule in rules {
@@ -100,14 +101,22 @@ impl Db {
         Ok(())
     }
 
+    /// Every rule in evaluation order (the planner gives a file to the first
+    /// matching rule): the user's own rules first, in insertion order, then
+    /// preset rules ([`Rule::is_preset`]) in insertion order, which
+    /// `presets::install` keeps equal to `evalOrder`. So a rule the user
+    /// writes after installing presets still wins over an overlapping preset.
+    /// Rows are not renumbered; the order is applied when listing.
     pub async fn list_rules(&self) -> Result<Vec<Rule>> {
         let rows = sqlx::query_scalar::<_, String>(r#"SELECT json FROM rules ORDER BY rowid"#)
             .fetch_all(&self.pool)
             .await?;
-        let mut out = Vec::with_capacity(rows.len());
+        let mut out: Vec<Rule> = Vec::with_capacity(rows.len());
         for j in rows {
             out.push(serde_json::from_str(&j)?);
         }
+        // Stable: keeps insertion order within each group.
+        out.sort_by_key(Rule::is_preset);
         Ok(out)
     }
 
@@ -383,6 +392,51 @@ mod tests {
             .map(|r| (r.id.as_u128(), r.name))
             .collect();
         assert_eq!(got, [(3, "r3".into()), (2, "r2".into()), (1, "new".into())]);
+    }
+
+    #[tokio::test]
+    async fn list_rules_puts_user_rules_before_preset_rules() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Db::connect(&tmp.path().join("valet.sqlite3"))
+            .await
+            .unwrap();
+        let rule = |n: u128, preset: Option<&str>| -> Rule {
+            let options = match preset {
+                Some(p) => serde_json::json!({ "presetId": p }),
+                None => serde_json::json!({}),
+            };
+            serde_json::from_value(serde_json::json!({
+                "id": uuid::Uuid::from_u128(n),
+                "name": format!("r{n}"),
+                "enabled": true,
+                "conditions": [],
+                "actions": [{ "type": "report" }],
+                "options": options,
+            }))
+            .unwrap()
+        };
+        // Insertion order: preset, user, preset, user, preset.
+        for (n, preset) in [
+            (1, Some("invoices")),
+            (2, None),
+            (3, Some("screenshots")),
+            (4, None),
+            (5, Some("invoices")),
+        ] {
+            db.upsert_rule(&rule(n, preset)).await.unwrap();
+        }
+        // Editing a rule keeps its place.
+        let mut edited = rule(2, None);
+        edited.name = "edited".into();
+        db.upsert_rule(&edited).await.unwrap();
+        let got: Vec<u128> = db
+            .list_rules()
+            .await
+            .unwrap()
+            .iter()
+            .map(|r| r.id.as_u128())
+            .collect();
+        assert_eq!(got, [2, 4, 1, 3, 5]);
     }
 
     #[tokio::test]

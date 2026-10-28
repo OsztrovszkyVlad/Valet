@@ -30,6 +30,15 @@ impl Rule {
         self.options.get(key).and_then(serde_json::Value::as_bool) == Some(true)
     }
 
+    /// Installed from a shipped preset: `options.presetId` is a non-empty
+    /// string. `Db::list_rules` lists these after the user's own rules.
+    pub fn is_preset(&self) -> bool {
+        self.options
+            .get("presetId")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|s| !s.is_empty())
+    }
+
     /// Equal in every field except `version`.
     pub fn same_content(&self, other: &Rule) -> bool {
         let strip = |r: &Rule| {
@@ -113,6 +122,22 @@ mod tests {
         r.options = json!({ "topLevelOnly": "true", "includeHidden": true });
         assert!(!r.option_flag("topLevelOnly"));
         assert!(r.option_flag("includeHidden"));
+    }
+
+    #[test]
+    fn preset_rules_are_those_with_a_preset_id() {
+        let mut r = rule("a", 1);
+        assert!(!r.is_preset());
+        for not in [
+            json!({ "presetId": "" }),
+            json!({ "presetId": 3 }),
+            json!([]),
+        ] {
+            r.options = not.clone();
+            assert!(!r.is_preset(), "{not}");
+        }
+        r.options = json!({ "presetId": "invoices", "topLevelOnly": true });
+        assert!(r.is_preset());
     }
 }
 

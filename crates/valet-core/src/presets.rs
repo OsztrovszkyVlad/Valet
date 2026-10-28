@@ -23,8 +23,9 @@
 //! screenshots, old installers, downloads by type, clean desktop, large
 //! files, duplicates, empty folders), and in file order within a preset.
 //! [`install`] removes every installed preset rule and inserts them again in
-//! that order, after all user rules: user rules are never touched and stay
-//! before the preset rules, so a rule the user wrote wins over a preset.
+//! that order; user rules are never touched. `Db::list_rules` lists user
+//! rules before preset rules whenever they were added, so a rule the user
+//! wrote wins over a preset.
 
 use std::sync::OnceLock;
 
@@ -487,6 +488,73 @@ mod tests {
             "actions": [{ "type": "report" }],
         }))
         .unwrap()
+    }
+
+    #[tokio::test]
+    async fn user_rule_written_after_presets_wins_over_them() {
+        use crate::planner::{PlanContext, plan};
+        use crate::platform::testing::FakePlatform;
+
+        let (tmp, db) = db().await;
+        let downloads = tmp.path().join("Downloads");
+        std::fs::create_dir_all(&downloads).unwrap();
+        std::fs::write(downloads.join("factura 12.pdf"), b"pdf").unwrap();
+        install(&db, &ids(&["invoices"]), Lang::Ro).await.unwrap();
+        let mine: Rule = serde_json::from_value(serde_json::json!({
+            "id": Uuid::from_u128(1),
+            "name": "mine",
+            "enabled": true,
+            "conditions": [{ "type": "ext", "value": "pdf" }],
+            "actions": [{ "type": "moveTo", "params": { "path": "Mine" } }],
+        }))
+        .unwrap();
+        db.upsert_rule(&mine).await.unwrap();
+        let mut second = user_rule(2);
+        second.name = "second".into();
+        db.upsert_rule(&second).await.unwrap();
+
+        let rules = db.list_rules().await.unwrap();
+        assert_eq!(rules[0].id, mine.id, "user rules first");
+        assert_eq!(rules[1].id, second.id);
+        let ctx = PlanContext {
+            now: std::time::SystemTime::now() + std::time::Duration::from_secs(3600),
+            home_dir: None,
+            env: Box::new(|_| None),
+            folders: [
+                ("downloads".to_owned(), downloads.clone()),
+                ("documents".to_owned(), tmp.path().join("Documents")),
+            ]
+            .into_iter()
+            .collect(),
+        };
+        let p = plan(
+            std::slice::from_ref(&downloads),
+            &rules,
+            &FakePlatform::default(),
+            &ctx,
+        );
+        assert_eq!(p.ops.len(), 1);
+        assert_eq!(p.ops[0].rule_id, mine.id, "the user rule wins");
+        assert_eq!(p.ops[0].dest, downloads.join("Mine").join("factura 12.pdf"));
+        // Without the user rule the preset takes the file.
+        let presets_only: Vec<Rule> = rules.iter().filter(|r| r.is_preset()).cloned().collect();
+        let p = plan(
+            std::slice::from_ref(&downloads),
+            &presets_only,
+            &FakePlatform::default(),
+            &ctx,
+        );
+        assert_eq!(p.ops[0].rule_id, rule_id("invoices", "move"));
+
+        // Installing presets again does not change the user rules' order.
+        install(&db, &ids(&["invoices", "old-installers"]), Lang::Ro)
+            .await
+            .unwrap();
+        let after = db.list_rules().await.unwrap();
+        assert_eq!(after[0].id, mine.id);
+        assert_eq!(after[1].id, second.id);
+        assert!(after[2..].iter().all(Rule::is_preset));
+        assert_eq!(after[2].id, rule_id("invoices", "move"), "evalOrder");
     }
 
     #[tokio::test]
