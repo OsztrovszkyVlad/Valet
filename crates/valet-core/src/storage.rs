@@ -87,6 +87,28 @@ impl Db {
         Ok(out)
     }
 
+    /// The stored rule with this id, if any.
+    pub async fn get_rule(&self, id: uuid::Uuid) -> Result<Option<Rule>> {
+        let json = sqlx::query_scalar::<_, String>(r#"SELECT json FROM rules WHERE id = ?1"#)
+            .bind(id.to_string())
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(match json {
+            Some(j) => Some(serde_json::from_str(&j)?),
+            None => None,
+        })
+    }
+
+    /// Removes the rule row. Touches no file and no journal entry (journal
+    /// rows keep the rule name). Returns false when no rule had this id.
+    pub async fn delete_rule(&self, id: uuid::Uuid) -> Result<bool> {
+        let res = sqlx::query(r#"DELETE FROM rules WHERE id = ?1"#)
+            .bind(id.to_string())
+            .execute(&self.pool)
+            .await?;
+        Ok(res.rows_affected() > 0)
+    }
+
     pub async fn load_sample_rules_if_empty(&self) -> Result<()> {
         let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM rules")
             .fetch_one(&self.pool)
@@ -327,6 +349,33 @@ mod tests {
 
         db.load_sample_rules_if_empty().await.unwrap();
         assert_eq!(db.list_rules().await.unwrap().len(), expected.len());
+    }
+
+    #[tokio::test]
+    async fn get_and_delete_rule_by_id() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Db::connect(&tmp.path().join("valet.sqlite3"))
+            .await
+            .unwrap();
+        let rule: Rule = serde_json::from_value(serde_json::json!({
+            "id": uuid::Uuid::from_u128(5),
+            "name": "r",
+            "enabled": true,
+            "conditions": [],
+            "actions": [{ "type": "report" }],
+            "scope": ["{downloads}"],
+        }))
+        .unwrap();
+        let other = uuid::Uuid::from_u128(6);
+        assert!(db.get_rule(rule.id).await.unwrap().is_none());
+        db.upsert_rule(&rule).await.unwrap();
+        let got = db.get_rule(rule.id).await.unwrap().unwrap();
+        assert_eq!(got.scope, vec!["{downloads}".to_string()]);
+        assert!(!db.delete_rule(other).await.unwrap());
+        assert!(db.delete_rule(rule.id).await.unwrap());
+        assert!(db.get_rule(rule.id).await.unwrap().is_none());
+        assert!(db.list_rules().await.unwrap().is_empty());
+        assert!(!db.delete_rule(rule.id).await.unwrap());
     }
 
     #[tokio::test]

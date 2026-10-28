@@ -938,6 +938,26 @@ fn expand_prefix<'t>(
     Ok((None, template))
 }
 
+/// The `{name}` tokens in a destination template are all known: a folder
+/// token as the whole first component, `{year}`, `{month}`, `{day}` and
+/// `{ext}` anywhere. Does not resolve anything (for rule validation).
+pub fn template_tokens_valid(template: &str) -> bool {
+    let mut rest = template;
+    if let Some((0, end)) = find_token(rest)
+        && FOLDER_TOKENS.contains(&&rest[1..end - 1])
+        && (rest[end..].is_empty() || rest[end..].starts_with(['/', '\\']))
+    {
+        rest = &rest[end..];
+    }
+    while let Some((start, end)) = find_token(rest) {
+        if !matches!(&rest[start + 1..end - 1], "year" | "month" | "day" | "ext") {
+            return false;
+        }
+        rest = &rest[end..];
+    }
+    true
+}
+
 /// Byte range `start..end` of the first `{name}` in `s` whose name is one or
 /// more ASCII letters or `_`. Other braces are literal text.
 fn find_token(s: &str) -> Option<(usize, usize)> {

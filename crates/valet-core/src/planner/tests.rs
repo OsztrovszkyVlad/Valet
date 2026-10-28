@@ -1981,3 +1981,27 @@ fn keeper_alone_does_not_block_later_rules() {
         vec![(b, SkipReason::Conflict, Some("move".into()))]
     );
 }
+
+#[test]
+fn template_tokens_valid_accepts_known_tokens_only() {
+    for ok in [
+        "Out",
+        "{downloads}",
+        "{downloads}/Imagini/{year}",
+        "{home}\\Docs\\{year}-{month}-{day}",
+        "Arhiva/{ext}",
+        "Out/{2024}/{}",
+        "~/Documents/{year}",
+    ] {
+        assert!(template_tokens_valid(ok), "{ok}");
+    }
+    for bad in [
+        "{nope}",
+        "Out/{downloads}",
+        "{downloads}x",
+        "Out/{YEAR}",
+        "{desktop}/{documents}",
+    ] {
+        assert!(!template_tokens_valid(bad), "{bad}");
+    }
+}
