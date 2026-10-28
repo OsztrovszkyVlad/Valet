@@ -1,8 +1,7 @@
 //! Platform commands: notifications, auto-start, Explorer.
 
-use tauri::Manager;
-
 use crate::commands::settings::AppSettings;
+use crate::state::config_dir;
 
 #[derive(Clone)]
 #[allow(dead_code)]
@@ -21,10 +20,7 @@ pub(crate) async fn send_notification(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     // Check if notifications are enabled in settings
-    let app_cfg_dir = app
-        .path()
-        .app_config_dir()
-        .map_err(|e| format!("Failed to get config directory: {}", e))?;
+    let app_cfg_dir = config_dir(&app)?;
     let settings_path = app_cfg_dir.join("app_settings.json");
 
     if settings_path.exists() {

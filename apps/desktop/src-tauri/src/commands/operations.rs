@@ -7,7 +7,7 @@ use valet_core::{model::DryRunAction, storage::Db};
 
 use crate::commands::platform::{send_notification, NotificationLevel};
 use crate::commands::settings::{get_app_settings, Config};
-use crate::state::AppState;
+use crate::state::{config_dir, AppState};
 
 // Tauri command types
 #[derive(serde::Serialize, Clone)]
@@ -54,10 +54,7 @@ pub(crate) async fn dry_run(app: tauri::AppHandle) -> Result<serde_json::Value, 
         .map_err(|e| format!("Database connection failed: {}", e))?;
 
     // Get configured paths from config
-    let app_cfg_dir = app
-        .path()
-        .app_config_dir()
-        .map_err(|e| format!("Failed to get config directory: {}", e))?;
+    let app_cfg_dir = config_dir(&app)?;
     let cfg_path = app_cfg_dir.join("config.json");
 
     let paths = if cfg_path.exists() {
@@ -151,10 +148,7 @@ pub(crate) async fn execute_operations(app: tauri::AppHandle) -> Result<ExecuteR
     let settings = get_app_settings(app.clone()).await.unwrap_or_default();
 
     // Get configured paths from config
-    let app_cfg_dir = app
-        .path()
-        .app_config_dir()
-        .map_err(|e| format!("Failed to get config directory: {}", e))?;
+    let app_cfg_dir = config_dir(&app)?;
     let cfg_path = app_cfg_dir.join("config.json");
 
     let paths = if cfg_path.exists() {

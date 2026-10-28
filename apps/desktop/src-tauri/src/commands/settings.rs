@@ -1,6 +1,6 @@
 //! Settings commands: watched-folder config (`config.json`) and app settings (`app_settings.json`).
 
-use tauri::Manager;
+use crate::state::config_dir;
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub(crate) struct Config {
@@ -16,10 +16,7 @@ fn default_quarantine_days() -> u32 {
 
 #[tauri::command]
 pub(crate) async fn get_config(app: tauri::AppHandle) -> Result<Config, String> {
-    let app_cfg_dir = app
-        .path()
-        .app_config_dir()
-        .map_err(|e| format!("Failed to get config directory: {}", e))?;
+    let app_cfg_dir = config_dir(&app)?;
     let cfg_path = app_cfg_dir.join("config.json");
 
     if !cfg_path.exists() {
@@ -52,10 +49,7 @@ pub(crate) async fn save_config(config: Config, app: tauri::AppHandle) -> Result
         }
     }
 
-    let app_cfg_dir = app
-        .path()
-        .app_config_dir()
-        .map_err(|e| format!("Failed to get config directory: {}", e))?;
+    let app_cfg_dir = config_dir(&app)?;
 
     // Ensure config directory exists
     std::fs::create_dir_all(&app_cfg_dir)
@@ -144,10 +138,7 @@ impl Default for AppSettings {
 
 #[tauri::command]
 pub(crate) async fn get_app_settings(app: tauri::AppHandle) -> Result<AppSettings, String> {
-    let app_cfg_dir = app
-        .path()
-        .app_config_dir()
-        .map_err(|e| format!("Failed to get config directory: {}", e))?;
+    let app_cfg_dir = config_dir(&app)?;
     let settings_path = app_cfg_dir.join("app_settings.json");
 
     if !settings_path.exists() {
@@ -168,10 +159,7 @@ pub(crate) async fn save_app_settings(
 ) -> Result<AppSettings, String> {
     log::info!("Saving app settings");
 
-    let app_cfg_dir = app
-        .path()
-        .app_config_dir()
-        .map_err(|e| format!("Failed to get config directory: {}", e))?;
+    let app_cfg_dir = config_dir(&app)?;
 
     // Ensure config directory exists
     std::fs::create_dir_all(&app_cfg_dir)

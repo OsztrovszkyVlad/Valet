@@ -11,15 +11,15 @@ use tauri::{
     tray::TrayIconBuilder,
     Emitter, Manager,
 };
-use valet_core::{config, storage::Db};
+use valet_core::storage::Db;
 
 use crate::commands::operations::execute_operations;
 use crate::commands::platform::{send_notification, show_in_explorer_internal};
-use crate::state::AppState;
+use crate::state::{config_dir, AppState};
 
 pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     // --- DB init & seed sample rules ---
-    let cfg_dir = config::config_dir().expect("config dir");
+    let cfg_dir = config_dir(app).expect("config dir");
     let db_path = cfg_dir.join("valet.sqlite3");
     tauri::async_runtime::block_on(async {
         let db = Db::connect(&db_path).await.expect("db connect");
@@ -27,8 +27,7 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
     });
 
     // --- Log config path and contents ---
-    let app_cfg_dir = app.path().app_config_dir().expect("app_config_dir");
-    let cfg_path = app_cfg_dir.join("config.json");
+    let cfg_path = cfg_dir.join("config.json");
     log::info!("Valet config path: {:?}", cfg_path);
 
     match std::fs::read_to_string(&cfg_path) {
@@ -216,8 +215,8 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
             }
             "open-config" => {
                 log::info!("Tray: open-config clicked");
-                if let Ok(config_dir) = app.path().app_config_dir() {
-                    let _ = show_in_explorer_internal(&config_dir.to_string_lossy());
+                if let Ok(dir) = config_dir(app) {
+                    let _ = show_in_explorer_internal(&dir.to_string_lossy());
                 }
             }
             "pause" => {

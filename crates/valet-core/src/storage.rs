@@ -86,9 +86,8 @@ impl Db {
             .fetch_one(&self.pool)
             .await?;
         if count == 0 {
-            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("sample_rules.json");
-            let bytes = std::fs::read(path)?;
-            let rules: Vec<crate::rules::Rule> = serde_json::from_slice(&bytes)?;
+            let rules: Vec<crate::rules::Rule> =
+                serde_json::from_str(include_str!("../sample_rules.json"))?;
             for r in rules {
                 self.upsert_rule(&r).await?;
             }
@@ -281,5 +280,27 @@ impl Db {
             .execute(&self.pool)
             .await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn sample_rules_load_once_from_embedded_json() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Db::connect(&tmp.path().join("valet.sqlite3"))
+            .await
+            .unwrap();
+        let expected: Vec<crate::rules::Rule> =
+            serde_json::from_str(include_str!("../sample_rules.json")).unwrap();
+        assert!(!expected.is_empty());
+
+        db.load_sample_rules_if_empty().await.unwrap();
+        assert_eq!(db.list_rules().await.unwrap().len(), expected.len());
+
+        db.load_sample_rules_if_empty().await.unwrap();
+        assert_eq!(db.list_rules().await.unwrap().len(), expected.len());
     }
 }
