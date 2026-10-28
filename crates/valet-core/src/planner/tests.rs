@@ -1696,6 +1696,134 @@ fn file_rules_never_see_directories() {
     assert_eq!(p.ops[1].kind, OpKind::Trash);
 }
 
+#[test]
+fn static_prefix_stops_before_the_folder_with_the_first_file_token() {
+    assert_eq!(static_prefix("Imagini"), "Imagini");
+    assert_eq!(
+        static_prefix("{pictures}/Capturi/{year}"),
+        "{pictures}/Capturi"
+    );
+    assert_eq!(
+        static_prefix("{documents}\\De pe Desktop\\{year}-{month}"),
+        "{documents}\\De pe Desktop"
+    );
+    assert_eq!(static_prefix("Out-{ext}/x"), "");
+    assert_eq!(static_prefix("{downloads}/{year}"), "{downloads}");
+    assert_eq!(static_prefix("A/{unknown}/B/{day}"), "A/{unknown}/B");
+}
+
+/// "Descărcări după tip" with an empty `Audio` folder and a "Foldere goale" rule.
+fn sorted_downloads() -> (tempfile::TempDir, PathBuf, Vec<PathBuf>) {
+    let (tmp, root) = tmp_root();
+    let audio = root.join("Audio");
+    let parent = root.join("Media");
+    let below = parent.join("Video");
+    let other = root.join("Gol");
+    for d in [&audio, &below, &other] {
+        fs::create_dir_all(d).unwrap();
+    }
+    (tmp, root, vec![audio, below, other, parent])
+}
+
+#[test]
+fn empty_folder_used_as_a_rule_destination_is_kept() {
+    let (_tmp, root, dirs) = sorted_downloads();
+    let (audio, below, other) = (&dirs[0], &dirs[1], &dirs[2]);
+    let to_audio = acts(
+        2,
+        "audio",
+        json!([{ "type": "typeGroup", "value": "audio" }]),
+        json!([{ "type": "moveTo", "params": { "path": "Audio" } }]),
+    );
+    let to_video = acts(
+        3,
+        "video",
+        json!([{ "type": "typeGroup", "value": "video" }]),
+        json!([{ "type": "moveTo", "params": { "path": "Media/Video/{year}" } }]),
+    );
+    let rules = [to_audio.clone(), to_video.clone(), trash_empty()];
+    let p = run(std::slice::from_ref(&root), &rules);
+    assert_eq!(sources(&p), vec![other.clone()]);
+    assert_eq!(
+        skips(&p),
+        vec![
+            (
+                audio.clone(),
+                SkipReason::RuleDestination,
+                Some("goale".into())
+            ),
+            (
+                below.clone(),
+                SkipReason::RuleDestination,
+                Some("goale".into())
+            ),
+        ]
+    );
+
+    // Disabled destination rules protect nothing.
+    let mut off = to_audio;
+    off.enabled = false;
+    let p = run(std::slice::from_ref(&root), &[off, trash_empty()]);
+    assert_eq!(
+        sources(&p),
+        vec![audio.clone(), other.clone(), below.clone()]
+    );
+}
+
+#[test]
+fn folder_token_destination_protects_its_folders() {
+    let (tmp, root) = tmp_root();
+    let docs = root.join("Docs");
+    let invoices = docs.join("Facturi");
+    fs::create_dir_all(&invoices).unwrap();
+    let c = ctx_folders(&[("documents", docs.clone())]);
+    let mv = acts(
+        2,
+        "facturi",
+        json!([{ "type": "ext", "value": "pdf" }]),
+        json!([{ "type": "moveTo", "params": { "path": "{documents}/Facturi/{year}" } }]),
+    );
+    let p = plan_with(std::slice::from_ref(&root), &[mv, trash_empty()], &c);
+    assert!(p.ops.is_empty(), "{:?}", p.ops);
+    assert_eq!(
+        reasons_for(&p, &invoices),
+        vec![SkipReason::RuleDestination]
+    );
+    drop(tmp);
+}
+
+#[test]
+fn empty_folder_receiving_a_planned_move_is_kept() {
+    let (_tmp, root) = tmp_root();
+    let a = root.join("a.pdf");
+    write(&a);
+    set_mtime(
+        &a,
+        SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000),
+    );
+    let year = DateTime::<Local>::from(SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000))
+        .year()
+        .to_string();
+    // `Arhiva` is not a static destination (it holds a {year} folder), but the
+    // planned move goes into Arhiva/<year>, which exists and is empty.
+    let target = root.join("Arhiva").join(&year);
+    fs::create_dir_all(&target).unwrap();
+    let unrelated = root.join("Arhiva").join("1999");
+    fs::create_dir_all(&unrelated).unwrap();
+    let mv = acts(
+        2,
+        "arhiva",
+        json!([{ "type": "ext", "value": "pdf" }]),
+        json!([{ "type": "moveTo", "params": { "path": "Arhiva/{year}" } }]),
+    );
+    let p = run(std::slice::from_ref(&root), &[mv, trash_empty()]);
+    assert_eq!(sources(&p), vec![unrelated, a]);
+    assert_eq!(
+        skips(&p),
+        vec![(target, SkipReason::RuleDestination, Some("goale".into()))]
+    );
+}
+
 // ---------------------------------------------------------------- duplicate
 
 fn put(path: &Path, body: &[u8], mtime_secs: u64) {

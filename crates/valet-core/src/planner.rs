@@ -143,6 +143,13 @@ pub enum SkipReason {
     InvalidDestination,
     UnsupportedAction,
     Unreadable,
+    /// An empty folder an `emptyFolder` rule would trash, kept because it is,
+    /// or contains, the destination folder of an enabled `moveTo`/`copyTo`
+    /// rule (the template up to the last folder before the first
+    /// `{year}`/`{month}`/`{day}`/`{ext}` token), or the folder of a move or
+    /// copy planned in the same plan. Example: the empty `Downloads/Audio`
+    /// of "Descărcări după tip" is not sent to the Recycle Bin.
+    RuleDestination,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -203,22 +210,142 @@ pub fn plan(roots: &[PathBuf], rules: &[Rule], platform: &dyn Platform, ctx: &Pl
     let mut found = Vec::new();
     scan(roots, platform, ctx.now, want_dirs, |f| found.push(f));
     let dups = find_duplicates(&found, &prepared, platform, ctx);
+    let protected = if want_dirs {
+        destination_prefixes(roots, &prepared, ctx)
+    } else {
+        Vec::new()
+    };
+    // Indexes into `out.ops` of planned folder trashes.
+    let mut dir_ops: Vec<usize> = Vec::new();
     for f in found {
         match f {
             Found::Skip(s) => out.skipped.push(s),
-            Found::File(f) => plan_file(
-                &f,
-                &prepared,
-                &dups,
-                platform,
-                ctx,
-                &mut reserved,
-                &mut marker_cache,
-                &mut out,
-            ),
+            Found::File(f) => {
+                let n = out.ops.len();
+                plan_file(
+                    &f,
+                    &prepared,
+                    &dups,
+                    &protected,
+                    platform,
+                    ctx,
+                    &mut reserved,
+                    &mut marker_cache,
+                    &mut out,
+                );
+                if f.is_dir && out.ops.len() > n {
+                    dir_ops.push(n);
+                }
+            }
+        }
+    }
+    keep_planned_destinations(&mut out, &dir_ops);
+    out
+}
+
+// ---------------------------------------------------------------- rule destinations
+
+/// `folder` (folded) is `dest` or one of its ancestors.
+fn is_same_or_ancestor(folder: &str, dest: &str) -> bool {
+    Path::new(dest).starts_with(Path::new(folder))
+}
+
+/// Folded destination folders of the enabled `moveTo`/`copyTo` rules: each
+/// template cut before the folder holding the first file token, expanded,
+/// and for relative templates joined to every root the rule applies under.
+/// Templates that cannot be expanded add nothing.
+fn destination_prefixes(roots: &[PathBuf], rules: &[Prepared], ctx: &PlanContext) -> Vec<String> {
+    let mut out = Vec::new();
+    for p in rules.iter().filter(|p| p.rule.enabled) {
+        let Some((OpKind::Move | OpKind::Copy, action)) = first_mutation(p.rule) else {
+            continue;
+        };
+        let Some(template) = action
+            .params
+            .get("path")
+            .and_then(serde_json::Value::as_str)
+        else {
+            continue;
+        };
+        let prefix = static_prefix(template);
+        let Ok((base, rest)) = expand_prefix(prefix.trim(), ctx) else {
+            continue;
+        };
+        let Ok(rest) = expand_env(rest, ctx) else {
+            continue;
+        };
+        if find_token(&rest).is_some() {
+            continue;
+        }
+        let folder = match base {
+            Some(b) if rest.is_empty() => b,
+            Some(b) => b.join(&rest),
+            None => PathBuf::from(&rest),
+        };
+        if folder.is_absolute() {
+            out.push(fold(&folder));
+        } else {
+            for (root, _) in roots.iter().zip(&p.in_roots).filter(|(_, sees)| **sees) {
+                out.push(fold(&root.join(&folder)));
+            }
         }
     }
     out
+}
+
+/// `template` up to the last separator before its first `{year}`,
+/// `{month}`, `{day}` or `{ext}` token (the whole template without one).
+fn static_prefix(template: &str) -> &str {
+    let mut from = 0;
+    while let Some((start, end)) = find_token(&template[from..]) {
+        let name = &template[from + start + 1..from + end - 1];
+        if matches!(name, "year" | "month" | "day" | "ext") {
+            let head = &template[..from + start];
+            return match head.rfind(['/', '\\']) {
+                Some(i) => &head[..i],
+                None => "",
+            };
+        }
+        from += end;
+    }
+    template
+}
+
+/// Turns planned folder trashes into `RuleDestination` skips when a planned
+/// move or copy puts a file into that folder or below it.
+fn keep_planned_destinations(out: &mut Plan, dir_ops: &[usize]) {
+    if dir_ops.is_empty() {
+        return;
+    }
+    let dest_dirs: Vec<String> = out
+        .ops
+        .iter()
+        .filter(|o| o.kind != OpKind::Trash)
+        .filter_map(|o| o.dest.parent().map(fold))
+        .collect();
+    let drop: HashSet<usize> = dir_ops
+        .iter()
+        .copied()
+        .filter(|&i| {
+            let folder = fold(&out.ops[i].source);
+            dest_dirs.iter().any(|d| is_same_or_ancestor(&folder, d))
+        })
+        .collect();
+    if drop.is_empty() {
+        return;
+    }
+    let ops = std::mem::take(&mut out.ops);
+    for (i, op) in ops.into_iter().enumerate() {
+        if drop.contains(&i) {
+            out.skipped.push(Skipped {
+                path: op.source,
+                reason: SkipReason::RuleDestination,
+                rule_name: Some(op.rule_name),
+            });
+        } else {
+            out.ops.push(op);
+        }
+    }
 }
 
 // ---------------------------------------------------------------- duplicates
@@ -716,6 +843,7 @@ fn plan_file(
     f: &FoundFile,
     rules: &[Prepared],
     dups: &Duplicates,
+    protected: &[String],
     platform: &dyn Platform,
     ctx: &PlanContext,
     reserved: &mut HashSet<String>,
@@ -784,6 +912,14 @@ fn plan_file(
             .mutation()
             .expect("winner has a mutating action");
         let dest = match kind {
+            OpKind::Trash
+                if f.is_dir && {
+                    let folder = fold(&f.path);
+                    protected.iter().any(|d| is_same_or_ancestor(&folder, d))
+                } =>
+            {
+                Err(SkipReason::RuleDestination)
+            }
             OpKind::Trash => Ok(PathBuf::new()),
             // Folders are only ever trashed.
             OpKind::Move | OpKind::Copy if f.is_dir => Err(SkipReason::UnsupportedAction),
