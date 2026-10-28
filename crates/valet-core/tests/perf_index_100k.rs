@@ -1,7 +1,7 @@
 //! Timing of `index::index_paths` on 100,000 files (PLAN.md 2.6: index of
 //! 100k files < 60 s). Writes 100k small files (about 400 MB of disk blocks).
-//! Measured 2026-10-28 on the dev VM (release): 70.8 s, over budget; see the
-//! ignore reason.
+//! Measured 2026-10-28 on the dev VM (release): 70.8 s before batching (80e7213),
+//! about 10 s after.
 //! Run: `cargo test -p valet-core --release --test perf_index_100k -- --ignored --nocapture`
 
 use std::fs::{self, File};
