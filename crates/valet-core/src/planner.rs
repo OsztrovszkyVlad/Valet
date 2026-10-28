@@ -51,21 +51,63 @@ pub const RECENT_WRITE_WINDOW: Duration = Duration::from_secs(10);
 /// Environment variable lookup (`None` when unset).
 pub type EnvLookup = Box<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
+/// Folder tokens (names without braces) usable at the start of a destination
+/// template and as rule scope entries: `{home}`, `{desktop}`, ...
+pub const FOLDER_TOKENS: &[&str] = &[
+    "home",
+    "desktop",
+    "documents",
+    "downloads",
+    "pictures",
+    "videos",
+    "music",
+];
+
 /// Inputs from the environment, injected so plans are deterministic in tests.
 pub struct PlanContext {
     pub now: SystemTime,
     pub home_dir: Option<PathBuf>,
     pub env: EnvLookup,
+    /// Known folders by token name without braces (`"downloads"`). A token
+    /// missing here makes the destination invalid; `{home}` falls back to
+    /// `home_dir`.
+    pub folders: HashMap<String, PathBuf>,
 }
 
 impl PlanContext {
-    /// Current time, the user's home directory and the process environment.
+    /// Current time, the user's home directory, the process environment and
+    /// the user's known folders (`directories::UserDirs`; Windows known folders).
     pub fn from_system() -> Self {
+        let mut folders = HashMap::new();
+        if let Some(u) = directories::UserDirs::new() {
+            folders.insert("home".to_owned(), u.home_dir().to_path_buf());
+            for (token, dir) in [
+                ("desktop", u.desktop_dir()),
+                ("documents", u.document_dir()),
+                ("downloads", u.download_dir()),
+                ("pictures", u.picture_dir()),
+                ("videos", u.video_dir()),
+                ("music", u.audio_dir()),
+            ] {
+                if let Some(dir) = dir {
+                    folders.insert(token.to_owned(), dir.to_path_buf());
+                }
+            }
+        }
         Self {
             now: SystemTime::now(),
             home_dir: directories::BaseDirs::new().map(|d| d.home_dir().to_path_buf()),
             env: Box::new(|key| std::env::var(key).ok()),
+            folders,
         }
+    }
+
+    /// Path for folder token `name` (without braces).
+    fn folder(&self, name: &str) -> Option<PathBuf> {
+        self.folders
+            .get(name)
+            .cloned()
+            .or_else(|| (name == "home").then(|| self.home_dir.clone()).flatten())
     }
 }
 
@@ -128,11 +170,12 @@ pub fn plan(roots: &[PathBuf], rules: &[Rule], platform: &dyn Platform, ctx: &Pl
     let mut out = Plan::default();
     let mut reserved: HashSet<String> = HashSet::new();
     let mut marker_cache: HashMap<PathBuf, bool> = HashMap::new();
+    let prepared = prepare(roots, rules, ctx);
     scan(roots, platform, ctx.now, |found| match found {
         Found::Skip(s) => out.skipped.push(s),
         Found::File(f) => plan_file(
             &f,
-            rules,
+            &prepared,
             platform,
             ctx,
             &mut reserved,
@@ -143,11 +186,75 @@ pub fn plan(roots: &[PathBuf], rules: &[Rule], platform: &dyn Platform, ctx: &Pl
     out
 }
 
+// ---------------------------------------------------------------- rule scope
+
+/// A rule with its scope resolved against the roots of one plan.
+struct Prepared<'r> {
+    rule: &'r Rule,
+    /// `in_roots[i]`: the rule applies under `roots[i]`.
+    in_roots: Vec<bool>,
+    /// `options.topLevelOnly`: only entries directly inside a root.
+    top_level_only: bool,
+}
+
+impl Prepared<'_> {
+    fn sees(&self, f: &FoundFile) -> bool {
+        self.in_roots.get(f.root_idx).copied().unwrap_or(false)
+            && (!self.top_level_only || f.depth <= 1)
+    }
+}
+
+fn prepare<'r>(roots: &[PathBuf], rules: &'r [Rule], ctx: &PlanContext) -> Vec<Prepared<'r>> {
+    let root_keys: Vec<String> = roots.iter().map(|r| fold(r)).collect();
+    rules
+        .iter()
+        .map(|rule| {
+            let in_roots = if rule.scope.is_empty() {
+                vec![true; roots.len()]
+            } else {
+                let scope: HashSet<String> = rule
+                    .scope
+                    .iter()
+                    .filter_map(|e| expand_scope_entry(e, ctx))
+                    .map(|p| fold(&p))
+                    .collect();
+                root_keys.iter().map(|k| scope.contains(k)).collect()
+            };
+            Prepared {
+                rule,
+                in_roots,
+                top_level_only: rule.option_flag("topLevelOnly"),
+            }
+        })
+        .collect()
+}
+
+/// Absolute folder for a scope entry: a folder token, `~`, `%VAR%` or an
+/// absolute path. `None` (the entry matches no root) when it cannot be
+/// resolved, contains another `{token}`, or is relative.
+fn expand_scope_entry(entry: &str, ctx: &PlanContext) -> Option<PathBuf> {
+    let (base, rest) = expand_prefix(entry.trim(), ctx).ok()?;
+    let rest = expand_env(rest, ctx).ok()?;
+    if find_token(&rest).is_some() {
+        return None;
+    }
+    let p = match base {
+        Some(b) if rest.is_empty() => b,
+        Some(b) => b.join(rest),
+        None => PathBuf::from(rest),
+    };
+    p.is_absolute().then_some(p)
+}
+
 // ---------------------------------------------------------------- walker
 
 /// A regular file that passed the walker's checks.
 pub(crate) struct FoundFile {
     pub path: PathBuf,
+    /// Index of the scan root in the `roots` given to `scan`.
+    pub root_idx: usize,
+    /// Depth below the root (1 = directly inside; 0 = the root is this file).
+    pub depth: usize,
     /// Folder that relative destinations resolve against (the scan root,
     /// or its parent when the root is a file).
     pub base: PathBuf,
@@ -185,7 +292,7 @@ pub(crate) fn scan(
     // A directory the user chose as a root is never excluded, also when it
     // lies inside another root.
     let explicit: HashSet<PathBuf> = roots.iter().map(|r| normalize(r)).collect();
-    for root in roots {
+    for (root_idx, root) in roots.iter().enumerate() {
         let root = normalize(root);
         let os_root = platform.os_path(&root);
         if fs::symlink_metadata(&os_root).is_err() {
@@ -291,6 +398,8 @@ pub(crate) fn scan(
                 !is_root && (is_dot_name(entry.file_name()) || platform.is_hidden_or_system(&path));
             emit(Found::File(FoundFile {
                 path,
+                root_idx,
+                depth: entry.depth(),
                 base: base.clone(),
                 size: meta.len(),
                 mtime,
@@ -380,15 +489,12 @@ fn has_unsupported_action(rule: &Rule) -> bool {
 }
 
 fn include_hidden(rule: &Rule) -> bool {
-    rule.options
-        .get("includeHidden")
-        .and_then(serde_json::Value::as_bool)
-        == Some(true)
+    rule.option_flag("includeHidden")
 }
 
 fn plan_file(
     f: &FoundFile,
-    rules: &[Rule],
+    rules: &[Prepared],
     platform: &dyn Platform,
     ctx: &PlanContext,
     reserved: &mut HashSet<String>,
@@ -405,7 +511,11 @@ fn plan_file(
         is_empty_dir: false,
         now: Some(ctx.now),
     };
-    let matching: Vec<&Rule> = rules.iter().filter(|r| rule_matches(r, &facts)).collect();
+    let matching: Vec<&Rule> = rules
+        .iter()
+        .filter(|p| p.sees(f) && rule_matches(p.rule, &facts))
+        .map(|p| p.rule)
+        .collect();
     let winner = matching.iter().position(|r| first_transfer(r).is_some());
 
     let push_skip = |out: &mut Plan, reason, rule: Option<&Rule>| {
@@ -537,38 +647,94 @@ fn under_ignore_marker(
     hit
 }
 
-/// Expands a destination folder template, in this order: leading `~`,
-/// `%VAR%`, `{year}` / `{month}` (file mtime, local time), `{ext}`.
-fn expand_folder(template: &str, f: &FoundFile, ctx: &PlanContext) -> Result<PathBuf, SkipReason> {
-    let (home, rest) =
-        if template == "~" || template.starts_with("~/") || template.starts_with("~\\") {
-            let home = ctx.home_dir.clone().ok_or(SkipReason::InvalidDestination)?;
-            (Some(home), template[1..].trim_start_matches(['/', '\\']))
-        } else {
-            (None, template)
-        };
+/// Splits a leading `~` or folder token (`{downloads}`, see
+/// [`FOLDER_TOKENS`]) off `template`. A folder token counts only as the whole
+/// first component. Unset home or an unknown folder: invalid destination.
+fn expand_prefix<'t>(
+    template: &'t str,
+    ctx: &PlanContext,
+) -> Result<(Option<PathBuf>, &'t str), SkipReason> {
+    let sep = |r: &str| r.is_empty() || r.starts_with(['/', '\\']);
+    if let Some(rest) = template.strip_prefix('~')
+        && sep(rest)
+    {
+        let home = ctx.home_dir.clone().ok_or(SkipReason::InvalidDestination)?;
+        return Ok((Some(home), rest.trim_start_matches(['/', '\\'])));
+    }
+    if let Some((start, end)) = find_token(template)
+        && start == 0
+        && FOLDER_TOKENS.contains(&&template[1..end - 1])
+        && sep(&template[end..])
+    {
+        let dir = ctx
+            .folder(&template[1..end - 1])
+            .ok_or(SkipReason::InvalidDestination)?;
+        return Ok((Some(dir), template[end..].trim_start_matches(['/', '\\'])));
+    }
+    Ok((None, template))
+}
 
-    let mut s = expand_env(rest, ctx)?;
-    if s.contains("{year}") || s.contains("{month}") {
-        let local: DateTime<Local> = f.mtime.into();
-        s = s
-            .replace("{year}", &format!("{:04}", local.year()))
-            .replace("{month}", &format!("{:02}", local.month()));
+/// Byte range `start..end` of the first `{name}` in `s` whose name is one or
+/// more ASCII letters or `_`. Other braces are literal text.
+fn find_token(s: &str) -> Option<(usize, usize)> {
+    let mut from = 0;
+    while let Some(i) = s[from..].find('{') {
+        let start = from + i;
+        let after = &s[start + 1..];
+        let len = after
+            .bytes()
+            .take_while(|b| b.is_ascii_alphabetic() || *b == b'_')
+            .count();
+        if len > 0 && after.as_bytes().get(len) == Some(&b'}') {
+            return Some((start, start + len + 2));
+        }
+        from = start + 1;
     }
-    if s.contains("{ext}") {
-        let ext = f
-            .path
-            .extension()
-            .map(|e| e.to_string_lossy().to_lowercase())
-            .filter(|e| !e.is_empty())
-            .ok_or(SkipReason::NoExtension)?;
-        s = s.replace("{ext}", &ext);
-    }
-    Ok(match home {
-        Some(h) if s.is_empty() => h,
-        Some(h) => h.join(s),
+    None
+}
+
+/// Expands a destination folder template, in this order: a leading `~` or
+/// folder token, `%VAR%`, then `{year}` / `{month}` / `{day}` (file mtime,
+/// local time) and `{ext}`. Token names are lowercase; any other `{name}`
+/// (including a folder token after the first component) is an invalid
+/// destination.
+fn expand_folder(template: &str, f: &FoundFile, ctx: &PlanContext) -> Result<PathBuf, SkipReason> {
+    let (base, rest) = expand_prefix(template, ctx)?;
+    let s = expand_env(rest, ctx)?;
+    let s = expand_file_tokens(&s, f)?;
+    Ok(match base {
+        Some(b) if s.is_empty() => b,
+        Some(b) => b.join(s),
         None => PathBuf::from(s),
     })
+}
+
+fn expand_file_tokens(s: &str, f: &FoundFile) -> Result<String, SkipReason> {
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    let mut local: Option<DateTime<Local>> = None;
+    while let Some((start, end)) = find_token(rest) {
+        out.push_str(&rest[..start]);
+        let mut date = || *local.get_or_insert_with(|| f.mtime.into());
+        match &rest[start + 1..end - 1] {
+            "year" => out.push_str(&format!("{:04}", date().year())),
+            "month" => out.push_str(&format!("{:02}", date().month())),
+            "day" => out.push_str(&format!("{:02}", date().day())),
+            "ext" => {
+                let ext = f
+                    .path
+                    .extension()
+                    .map(|e| e.to_string_lossy().to_lowercase())
+                    .filter(|e| !e.is_empty())
+                    .ok_or(SkipReason::NoExtension)?;
+                out.push_str(&ext);
+            }
+            _ => return Err(SkipReason::InvalidDestination),
+        }
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
+    Ok(out)
 }
 
 /// Replaces `%NAME%` with the variable's value. A lone `%` stays literal;

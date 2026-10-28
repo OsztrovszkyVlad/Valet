@@ -14,6 +14,7 @@ fn ctx_with(home: Option<PathBuf>, env: HashMap<String, String>) -> PlanContext 
         now: SystemTime::now() + Duration::from_secs(3600),
         home_dir: home,
         env: Box::new(move |k| env.get(k).cloned()),
+        folders: HashMap::new(),
     }
 }
 
@@ -1082,4 +1083,265 @@ fn expand_env_keeps_lone_percent() {
 fn normalize_resolves_dot_segments() {
     assert_eq!(normalize(Path::new("a/./b/../c")), PathBuf::from("a/c"));
     assert_eq!(normalize(Path::new("../a")), PathBuf::from("../a"));
+}
+
+// ---------------------------------------------------------------- folder tokens
+
+fn ctx_folders(folders: &[(&str, PathBuf)]) -> PlanContext {
+    let mut c = ctx();
+    c.folders = folders
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.clone()))
+        .collect();
+    c
+}
+
+fn plan_with(roots: &[PathBuf], rules: &[Rule], c: &PlanContext) -> Plan {
+    plan(roots, rules, &FakePlatform::default(), c)
+}
+
+#[test]
+fn folder_tokens_expand_from_context() {
+    let (tmp, root) = tmp_root();
+    write(&root.join("a.pdf"));
+    let mut pairs = Vec::new();
+    for t in FOLDER_TOKENS {
+        pairs.push((*t, tmp.path().join(format!("known-{t}"))));
+    }
+    let c = ctx_folders(&pairs);
+    for (t, dir) in &pairs {
+        for tpl in [
+            format!("{{{t}}}"),
+            format!("{{{t}}}/Sub"),
+            format!("{{{t}}}\\Sub"),
+        ] {
+            let p = plan_with(std::slice::from_ref(&root), &[move_all(&tpl)], &c);
+            let want = if tpl.len() == t.len() + 2 {
+                dir.join("a.pdf")
+            } else {
+                dir.join("Sub").join("a.pdf")
+            };
+            assert_eq!(p.ops[0].dest, want, "{tpl}");
+        }
+    }
+}
+
+#[test]
+fn missing_folder_or_unknown_token_is_invalid_destination() {
+    let (tmp, root) = tmp_root();
+    let f = root.join("a.pdf");
+    write(&f);
+    let c = ctx_folders(&[("downloads", tmp.path().join("dl"))]);
+    for tpl in [
+        "{desktop}/x",     // known token, folder not in the context
+        "{nope}",          // unknown token
+        "Out/{downloads}", // folder token after the first component
+        "{downloads}x",    // not a whole component
+        "Out/{YEAR}",      // token names are lowercase
+        "Out/{date}",
+    ] {
+        let p = plan_with(std::slice::from_ref(&root), &[move_all(tpl)], &c);
+        assert_eq!(
+            skips(&p),
+            vec![(f.clone(), SkipReason::InvalidDestination, Some("r".into()))],
+            "{tpl}"
+        );
+    }
+}
+
+#[test]
+fn home_token_falls_back_to_home_dir() {
+    let (tmp, root) = tmp_root();
+    write(&root.join("a.pdf"));
+    let home = tmp.path().join("home");
+    let c = ctx_with(Some(home.clone()), HashMap::new());
+    let p = plan_with(std::slice::from_ref(&root), &[move_all("{home}/D")], &c);
+    assert_eq!(p.ops[0].dest, home.join("D").join("a.pdf"));
+}
+
+#[test]
+fn braces_that_are_not_tokens_stay_literal() {
+    let (_tmp, root) = tmp_root();
+    write(&root.join("a.pdf"));
+    let p = run(
+        std::slice::from_ref(&root),
+        &[move_all("Out/{2024}/{}/{a b}")],
+    );
+    assert_eq!(
+        p.ops[0].dest,
+        root.join("Out")
+            .join("{2024}")
+            .join("{}")
+            .join("{a b}")
+            .join("a.pdf")
+    );
+}
+
+#[test]
+fn day_token_has_two_digits() {
+    let (_tmp, root) = tmp_root();
+    let f = root.join("a.pdf");
+    write(&f);
+    // 2023-06-05 12:00 UTC: the 5th in every time zone.
+    set_mtime(
+        &f,
+        SystemTime::UNIX_EPOCH + Duration::from_secs(1_685_966_400),
+    );
+    let p = run(
+        std::slice::from_ref(&root),
+        &[move_all("A/{year}-{month}-{day}")],
+    );
+    assert_eq!(
+        p.ops[0].dest,
+        root.join("A").join("2023-06-05").join("a.pdf")
+    );
+}
+
+#[test]
+fn find_token_finds_letter_names_only() {
+    assert_eq!(find_token("a{year}b"), Some((1, 7)));
+    assert_eq!(find_token("{1}{x_y}"), Some((3, 8)));
+    assert_eq!(find_token("{}{ a}{a"), None);
+}
+
+// ---------------------------------------------------------------- scope
+
+fn scoped(n: u128, scope: Value, dest: &str) -> Rule {
+    let mut r = all(n, &format!("s{n}"), "moveTo", dest);
+    r.scope = serde_json::from_value(scope).unwrap();
+    r
+}
+
+#[test]
+fn empty_scope_applies_under_every_root() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (r1, r2) = (tmp.path().join("A"), tmp.path().join("B"));
+    write(&r1.join("a.pdf"));
+    write(&r2.join("b.pdf"));
+    let p = run(&[r1.clone(), r2.clone()], &[scoped(1, json!([]), "Out")]);
+    assert_eq!(sources(&p), vec![r1.join("a.pdf"), r2.join("b.pdf")]);
+}
+
+#[test]
+fn scope_path_limits_rule_to_that_root_case_insensitively() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (r1, r2) = (tmp.path().join("Downloads"), tmp.path().join("Desktop"));
+    write(&r1.join("sub").join("a.pdf"));
+    write(&r2.join("b.pdf"));
+    let entry = tmp.path().join("DOWNLOADS").join("x").join("..");
+    let rules = [
+        scoped(1, json!([entry.to_string_lossy()]), "Out1"),
+        scoped(2, json!([]), "Out2"),
+    ];
+    let p = run(&[r1.clone(), r2.clone()], &rules);
+    let got: Vec<(PathBuf, String)> = p
+        .ops
+        .iter()
+        .map(|o| (o.source.clone(), o.rule_name.clone()))
+        .collect();
+    assert_eq!(
+        got,
+        vec![
+            (r1.join("sub").join("a.pdf"), "s1".to_string()),
+            (r2.join("b.pdf"), "s2".to_string()),
+        ]
+    );
+}
+
+#[test]
+fn scope_token_resolves_from_context() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (dl, desk) = (tmp.path().join("dl"), tmp.path().join("desk"));
+    write(&dl.join("a.pdf"));
+    write(&desk.join("b.pdf"));
+    let c = ctx_folders(&[("downloads", dl.clone()), ("desktop", desk.clone())]);
+    let p = plan_with(
+        &[dl.clone(), desk.clone()],
+        &[scoped(1, json!(["{desktop}"]), "Out")],
+        &c,
+    );
+    assert_eq!(sources(&p), vec![desk.join("b.pdf")]);
+}
+
+#[test]
+fn unresolvable_or_relative_scope_entries_match_no_root() {
+    let (_tmp, root) = tmp_root();
+    write(&root.join("a.pdf"));
+    for scope in [
+        json!(["{pictures}"]),
+        json!(["{nope}"]),
+        json!(["root"]),
+        json!(["%NOPE%"]),
+        json!([format!("{}/{{year}}", root.display())]),
+    ] {
+        let p = run(
+            std::slice::from_ref(&root),
+            &[scoped(1, scope.clone(), "Out")],
+        );
+        assert!(p.ops.is_empty(), "{scope}");
+        assert!(p.skipped.is_empty(), "{scope}: out of scope is not a skip");
+    }
+}
+
+#[test]
+fn scope_is_exact_root_not_ancestor() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("A").join("B");
+    write(&root.join("a.pdf"));
+    let parent = tmp.path().join("A");
+    let p = run(
+        std::slice::from_ref(&root),
+        &[scoped(1, json!([parent.to_string_lossy()]), "Out")],
+    );
+    assert!(p.ops.is_empty());
+}
+
+#[test]
+fn rule_json_without_scope_deserializes_to_empty_scope() {
+    let r = move_all("Out");
+    assert!(r.scope.is_empty());
+}
+
+// ---------------------------------------------------------------- topLevelOnly
+
+#[test]
+fn top_level_only_sees_direct_children_of_the_root() {
+    let (_tmp, root) = tmp_root();
+    write(&root.join("a.pdf"));
+    write(&root.join("sub").join("b.pdf"));
+    let top = rule_json(
+        1,
+        "top",
+        json!([]),
+        json!([{ "type": "moveTo", "params": { "path": "/abs/out" } }]),
+        json!({ "topLevelOnly": true }),
+    );
+    let p = run(std::slice::from_ref(&root), std::slice::from_ref(&top));
+    assert_eq!(sources(&p), vec![root.join("a.pdf")]);
+    assert!(p.skipped.is_empty());
+
+    // A file given as a root is "directly inside" its folder.
+    let p = run(&[root.join("sub").join("b.pdf")], &[top]);
+    assert_eq!(sources(&p), vec![root.join("sub").join("b.pdf")]);
+}
+
+#[test]
+fn top_level_only_false_or_malformed_sees_everything() {
+    let (_tmp, root) = tmp_root();
+    write(&root.join("a.pdf"));
+    write(&root.join("sub").join("b.pdf"));
+    for opt in [
+        json!({ "topLevelOnly": false }),
+        json!({ "topLevelOnly": "yes" }),
+    ] {
+        let r = rule_json(
+            1,
+            "r",
+            json!([]),
+            json!([{ "type": "moveTo", "params": { "path": "/abs/out" } }]),
+            opt,
+        );
+        let p = run(std::slice::from_ref(&root), &[r]);
+        assert_eq!(p.ops.len(), 2);
+    }
 }

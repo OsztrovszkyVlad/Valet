@@ -228,6 +228,8 @@ fn ctx() -> PlanContext {
         now: SystemTime::now(),
         home_dir: None,
         env: Box::new(|_| None),
+        // Phase 2: changed intentionally: PlanContext gained folders
+        folders: Default::default(),
     }
 }
 

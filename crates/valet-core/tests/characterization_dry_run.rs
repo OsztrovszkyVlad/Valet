@@ -63,6 +63,8 @@ impl Env {
             now: SystemTime::now() + Duration::from_secs(3600),
             home_dir: Some(self.home()),
             env: Box::new(|_| None),
+            // Phase 2: changed intentionally: PlanContext gained folders
+            folders: Default::default(),
         };
         plan(roots, &rules, &FakePlatform::default(), &ctx)
     }
