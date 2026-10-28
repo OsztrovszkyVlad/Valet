@@ -1,177 +1,495 @@
-//! Settings commands: watched-folder config (`config.json`) and app settings (`app_settings.json`).
+//! Settings commands: watched-folder config (`config.json`) and app settings
+//! (`app_settings.json`, settings v2).
+//!
+//! Both files are Valet's own; they are the only files Valet overwrites.
+//!
+//! Errors are stable codes the UI translates: `config.driveRoot`,
+//! `config.excludedFolder` and `config.missing` (each as `code: <path>`),
+//! `config.noFolders` (from `dry_run`), `settings.io` and `config.io`
+//! (detail in the log).
+
+use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Deserializer, Serialize};
+use valet_core::planner::is_excluded_dir_name;
 
 use crate::state::config_dir;
 
-#[derive(serde::Serialize, serde::Deserialize)]
+pub(crate) const ERR_DRIVE_ROOT: &str = "config.driveRoot";
+pub(crate) const ERR_EXCLUDED_FOLDER: &str = "config.excludedFolder";
+pub(crate) const ERR_MISSING: &str = "config.missing";
+pub(crate) const ERR_NO_FOLDERS: &str = "config.noFolders";
+pub(crate) const ERR_CONFIG_IO: &str = "config.io";
+pub(crate) const ERR_SETTINGS_IO: &str = "settings.io";
+
+const CONFIG_FILE: &str = "config.json";
+const SETTINGS_FILE: &str = "app_settings.json";
+
+// ---------------------------------------------------------------- config.json
+
+/// `config.json`. Fields of older versions are ignored when loading and
+/// dropped on the next save.
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
+#[serde(default)]
 pub(crate) struct Config {
+    /// Watched folders.
     pub(crate) inbox_paths: Vec<String>,
-    pause_watchers: bool,
-    #[serde(default = "default_quarantine_days")]
-    quarantine_retention_days: u32,
 }
 
-fn default_quarantine_days() -> u32 {
-    30
+/// `path` is a drive or share root: `C:`, `C:\`, `C:/`, `\\server`,
+/// `\\server\share` (with or without a trailing separator), the same with a
+/// `\\?\` or `\\?\UNC\` prefix, or `/`. Pure string check (no disk access),
+/// so Windows paths can be tested on any OS.
+pub(crate) fn is_drive_root(path: &str) -> bool {
+    let p = path.trim();
+    let (p, unc) = if let Some(rest) = p
+        .strip_prefix(r"\\?\UNC\")
+        .or_else(|| p.strip_prefix("//?/UNC/"))
+    {
+        (rest, true)
+    } else if let Some(rest) = p.strip_prefix(r"\\?\").or_else(|| p.strip_prefix("//?/")) {
+        (rest, false)
+    } else if let Some(rest) = p.strip_prefix(r"\\").or_else(|| p.strip_prefix("//")) {
+        (rest, true)
+    } else {
+        (p, false)
+    };
+    let parts: Vec<&str> = p.split(['\\', '/']).filter(|s| !s.is_empty()).collect();
+    if unc {
+        // server, or server\share
+        return parts.len() <= 2;
+    }
+    if path.trim().starts_with('/') && parts.is_empty() {
+        return true;
+    }
+    let b = p.as_bytes();
+    let drive = b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':';
+    drive && parts.len() == 1
+}
+
+/// A component of `path` (split on `\` and `/`) is a default-excluded folder
+/// name (`AppData`, `Program Files`, `node_modules`, ...).
+pub(crate) fn in_excluded_folder(path: &str) -> bool {
+    path.split(['\\', '/']).any(is_excluded_dir_name)
+}
+
+/// Checks each watched folder: no drive or share root, nothing inside a
+/// default-excluded folder, and it must exist. The user profile folder itself
+/// is allowed. Returns `code: <path>` for the first problem.
+pub(crate) fn validate_config(
+    config: &Config,
+    exists: impl Fn(&Path) -> bool,
+) -> Result<(), String> {
+    for path in &config.inbox_paths {
+        let code = if is_drive_root(path) {
+            Some(ERR_DRIVE_ROOT)
+        } else if in_excluded_folder(path) {
+            Some(ERR_EXCLUDED_FOLDER)
+        } else if !exists(Path::new(path)) {
+            Some(ERR_MISSING)
+        } else {
+            None
+        };
+        if let Some(code) = code {
+            return Err(format!("{code}: {path}"));
+        }
+    }
+    Ok(())
+}
+
+fn read_config(dir: &Path) -> Result<Config, String> {
+    let path = dir.join(CONFIG_FILE);
+    if !path.exists() {
+        return Ok(Config::default());
+    }
+    let text = std::fs::read_to_string(&path).map_err(|e| io_err(ERR_CONFIG_IO, e))?;
+    serde_json::from_str(&text).map_err(|e| io_err(ERR_CONFIG_IO, e))
+}
+
+fn write_json<T: Serialize>(dir: &Path, file: &str, value: &T, code: &str) -> Result<(), String> {
+    std::fs::create_dir_all(dir).map_err(|e| io_err(code, e))?;
+    let json = serde_json::to_string_pretty(value).map_err(|e| io_err(code, e))?;
+    std::fs::write(dir.join(file), json).map_err(|e| io_err(code, e))
+}
+
+fn io_err(code: &str, e: impl std::fmt::Display) -> String {
+    log::warn!("{code}: {e}");
+    code.to_string()
+}
+
+/// Watched folders from `config.json` that exist. `config.noFolders` when
+/// there are none.
+pub(crate) fn watched_folders(dir: &Path) -> Result<Vec<PathBuf>, String> {
+    let paths: Vec<PathBuf> = read_config(dir)?
+        .inbox_paths
+        .into_iter()
+        .map(PathBuf::from)
+        .filter(|p| p.exists())
+        .collect();
+    if paths.is_empty() {
+        Err(ERR_NO_FOLDERS.to_string())
+    } else {
+        Ok(paths)
+    }
 }
 
 #[tauri::command]
 pub(crate) async fn get_config(app: tauri::AppHandle) -> Result<Config, String> {
-    let app_cfg_dir = config_dir(&app)?;
-    let cfg_path = app_cfg_dir.join("config.json");
+    read_config(&config_dir(&app)?)
+}
 
-    if !cfg_path.exists() {
-        // Return default config
-        return Ok(Config {
-            inbox_paths: vec![],
-            pause_watchers: false,
-            quarantine_retention_days: 30,
-        });
-    }
-
-    let contents = std::fs::read_to_string(&cfg_path)
-        .map_err(|e| format!("Failed to read config file: {}", e))?;
-
-    serde_json::from_str(&contents).map_err(|e| format!("Failed to parse config JSON: {}", e))
+fn save_config_in(dir: &Path, config: Config) -> Result<Config, String> {
+    validate_config(&config, Path::exists)?;
+    write_json(dir, CONFIG_FILE, &config, ERR_CONFIG_IO)?;
+    Ok(config)
 }
 
 #[tauri::command]
 pub(crate) async fn save_config(config: Config, app: tauri::AppHandle) -> Result<Config, String> {
+    let saved = save_config_in(&config_dir(&app)?, config)?;
     log::info!(
-        "Saving config with {} inbox paths",
-        config.inbox_paths.len()
+        "Config saved: {} watched folder(s)",
+        saved.inbox_paths.len()
     );
-
-    // Validate paths exist
-    for path in &config.inbox_paths {
-        let path_buf = std::path::PathBuf::from(path);
-        if !path_buf.exists() {
-            return Err(format!("Path does not exist: {}", path));
-        }
-    }
-
-    let app_cfg_dir = config_dir(&app)?;
-
-    // Ensure config directory exists
-    std::fs::create_dir_all(&app_cfg_dir)
-        .map_err(|e| format!("Failed to create config directory: {}", e))?;
-
-    let cfg_path = app_cfg_dir.join("config.json");
-    let json = serde_json::to_string_pretty(&config)
-        .map_err(|e| format!("Failed to serialize config: {}", e))?;
-
-    std::fs::write(&cfg_path, json).map_err(|e| format!("Failed to write config file: {}", e))?;
-
-    log::info!("Config saved: {} inbox folder(s)", config.inbox_paths.len());
-    Ok(config)
+    Ok(saved)
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+// ---------------------------------------------------------------- app_settings.json
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum Language {
+    #[default]
+    Ro,
+    En,
+}
+
+/// Unknown or malformed values load as the default (Romanian).
+fn lenient_language<'de, D: Deserializer<'de>>(d: D) -> Result<Language, D::Error> {
+    let v = serde_json::Value::deserialize(d)?;
+    Ok(serde_json::from_value(v).unwrap_or_default())
+}
+
+/// `app_settings.json`, settings v2. Missing fields take their defaults, so
+/// files from older versions load; their other fields are dropped on save.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(default)]
 pub(crate) struct AppSettings {
-    // Appearance
-    theme: String,
-    compact_mode: bool,
-
-    // Notifications
+    #[serde(deserialize_with = "lenient_language")]
+    pub(crate) language: Language,
     pub(crate) notifications_enabled: bool,
-    notification_types: NotificationTypes,
-
-    // System Integration
-    auto_start: bool,
-    minimize_to_tray: bool,
-    close_to_tray: bool,
-    show_context_menu: bool,
-
-    // File Operations
-    confirm_operations: bool,
-    create_backups: bool,
-    backup_location: String,
-    max_backup_age_days: u32,
-
-    // Performance
-    max_concurrent_operations: u32,
-    file_size_limit_mb: u32,
-    enable_file_watching: bool,
-    watch_interval_ms: u32,
-
-    // Advanced
-    log_level: String,
-    max_log_files: u32,
-    enable_telemetry: bool,
-}
-
-#[derive(serde::Serialize, serde::Deserialize)]
-struct NotificationTypes {
-    file_operations: bool,
-    errors: bool,
-    daily_summary: bool,
+    pub(crate) auto_start: bool,
+    /// Auto-apply from the watcher; takes effect only with `first_preview_approved`.
+    pub(crate) auto_apply_enabled: bool,
+    /// Set by the backend once the user approved a preview. `save_app_settings`
+    /// keeps the stored value whatever the UI sends.
+    pub(crate) first_preview_approved: bool,
+    pub(crate) onboarding_done: bool,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
-            theme: "system".to_string(),
-            compact_mode: false,
+            language: Language::Ro,
             notifications_enabled: true,
-            notification_types: NotificationTypes {
-                file_operations: true,
-                errors: true,
-                daily_summary: false,
-            },
             auto_start: false,
-            minimize_to_tray: true,
-            close_to_tray: false,
-            show_context_menu: true,
-            confirm_operations: false,
-            create_backups: true,
-            backup_location: String::new(),
-            max_backup_age_days: 30,
-            max_concurrent_operations: 5,
-            file_size_limit_mb: 1024,
-            enable_file_watching: true,
-            watch_interval_ms: 500,
-            log_level: "info".to_string(),
-            max_log_files: 10,
-            enable_telemetry: false,
+            auto_apply_enabled: false,
+            first_preview_approved: false,
+            onboarding_done: false,
         }
     }
 }
 
-#[tauri::command]
-pub(crate) async fn get_app_settings(app: tauri::AppHandle) -> Result<AppSettings, String> {
-    let app_cfg_dir = config_dir(&app)?;
-    let settings_path = app_cfg_dir.join("app_settings.json");
-
-    if !settings_path.exists() {
-        // Return default settings
-        return Ok(AppSettings::default());
+/// Stored settings; defaults when the file is missing or unreadable.
+pub(crate) fn load_app_settings(dir: &Path) -> AppSettings {
+    let path = dir.join(SETTINGS_FILE);
+    if !path.exists() {
+        return AppSettings::default();
     }
-
-    let contents = std::fs::read_to_string(&settings_path)
-        .map_err(|e| format!("Failed to read settings file: {}", e))?;
-
-    serde_json::from_str(&contents).map_err(|e| format!("Failed to parse settings JSON: {}", e))
+    match std::fs::read_to_string(&path)
+        .map_err(|e| e.to_string())
+        .and_then(|t| serde_json::from_str(&t).map_err(|e| e.to_string()))
+    {
+        Ok(s) => s,
+        Err(e) => {
+            log::warn!("app_settings.json unreadable, using defaults: {e}");
+            AppSettings::default()
+        }
+    }
 }
 
+fn save_app_settings_in(dir: &Path, incoming: AppSettings) -> Result<AppSettings, String> {
+    let stored = load_app_settings(dir);
+    let settings = AppSettings {
+        first_preview_approved: stored.first_preview_approved,
+        ..incoming
+    };
+    write_json(dir, SETTINGS_FILE, &settings, ERR_SETTINGS_IO)?;
+    Ok(settings)
+}
+
+#[tauri::command]
+pub(crate) async fn get_app_settings(app: tauri::AppHandle) -> Result<AppSettings, String> {
+    Ok(load_app_settings(&config_dir(&app)?))
+}
+
+/// Saves the settings the UI sends, except `first_preview_approved`, which
+/// keeps its stored value. Returns the saved settings.
 #[tauri::command]
 pub(crate) async fn save_app_settings(
     settings: AppSettings,
     app: tauri::AppHandle,
 ) -> Result<AppSettings, String> {
-    log::info!("Saving app settings");
-
-    let app_cfg_dir = config_dir(&app)?;
-
-    // Ensure config directory exists
-    std::fs::create_dir_all(&app_cfg_dir)
-        .map_err(|e| format!("Failed to create config directory: {}", e))?;
-
-    let settings_path = app_cfg_dir.join("app_settings.json");
-    let json = serde_json::to_string_pretty(&settings)
-        .map_err(|e| format!("Failed to serialize settings: {}", e))?;
-
-    std::fs::write(&settings_path, json)
-        .map_err(|e| format!("Failed to write settings file: {}", e))?;
-
+    let saved = save_app_settings_in(&config_dir(&app)?, settings)?;
     log::info!("App settings saved");
-    Ok(settings)
+    Ok(saved)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn drive_and_share_roots_are_detected() {
+        for root in [
+            "C:",
+            "C:\\",
+            "c:/",
+            "D:\\\\",
+            "  E:\\ ",
+            "\\\\server",
+            "\\\\server\\share",
+            "\\\\server\\share\\",
+            "//server/share",
+            "\\\\?\\C:\\",
+            "\\\\?\\UNC\\server\\share",
+            "/",
+        ] {
+            assert!(is_drive_root(root), "{root:?}");
+        }
+        for not_root in [
+            "C:\\Users",
+            "C:\\Users\\Ana",
+            "C:/Users/Ana/Downloads",
+            "\\\\server\\share\\in",
+            "\\\\?\\C:\\Data",
+            "\\\\?\\UNC\\server\\share\\x",
+            "/home/ana",
+            "Downloads",
+            "",
+            "CC:\\",
+        ] {
+            assert!(!is_drive_root(not_root), "{not_root:?}");
+        }
+    }
+
+    #[test]
+    fn excluded_folders_match_by_component() {
+        for p in [
+            "C:\\Users\\Ana\\AppData\\Roaming\\x",
+            "C:\\Program Files\\App",
+            "C:\\WINDOWS",
+            "D:\\code\\proj\\node_modules",
+            "/home/ana/.git/objects",
+        ] {
+            assert!(in_excluded_folder(p), "{p}");
+        }
+        for p in [
+            "C:\\Users\\Ana",
+            "C:\\Users\\Ana\\Downloads",
+            "D:\\AppData2",
+            "C:\\Users\\Ana\\targets",
+        ] {
+            assert!(!in_excluded_folder(p), "{p}");
+        }
+    }
+
+    fn cfg(paths: &[&str]) -> Config {
+        Config {
+            inbox_paths: paths.iter().map(|p| p.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn validate_config_returns_code_and_path() {
+        let all = |_: &Path| true;
+        assert_eq!(validate_config(&cfg(&["C:\\Users\\Ana"]), all), Ok(()));
+        assert_eq!(
+            validate_config(&cfg(&["C:\\Users\\Ana", "D:\\"]), all),
+            Err("config.driveRoot: D:\\".to_string())
+        );
+        assert_eq!(
+            validate_config(&cfg(&["\\\\nas\\share"]), all),
+            Err("config.driveRoot: \\\\nas\\share".to_string())
+        );
+        assert_eq!(
+            validate_config(&cfg(&["C:\\Users\\Ana\\AppData\\Local"]), all),
+            Err("config.excludedFolder: C:\\Users\\Ana\\AppData\\Local".to_string())
+        );
+        assert_eq!(
+            validate_config(&cfg(&["C:\\Nope"]), |_| false),
+            Err("config.missing: C:\\Nope".to_string())
+        );
+        // A drive root is reported as such even when it exists.
+        assert!(validate_config(&cfg(&["C:\\"]), all)
+            .unwrap_err()
+            .starts_with(ERR_DRIVE_ROOT));
+    }
+
+    #[test]
+    fn save_config_writes_only_valid_config_and_returns_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("cfg");
+        let watched = tmp.path().join("Downloads");
+        std::fs::create_dir_all(&watched).unwrap();
+        let ok = cfg(&[watched.to_str().unwrap()]);
+        assert_eq!(save_config_in(&dir, ok.clone()).unwrap(), ok);
+        assert_eq!(read_config(&dir).unwrap(), ok);
+
+        let missing = tmp.path().join("nope");
+        let err = save_config_in(&dir, cfg(&[missing.to_str().unwrap()])).unwrap_err();
+        assert!(err.starts_with("config.missing: "), "{err}");
+        assert_eq!(read_config(&dir).unwrap(), ok, "unchanged after a refusal");
+    }
+
+    #[test]
+    fn old_config_files_load_and_drop_unused_fields() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join(CONFIG_FILE),
+            r#"{"inbox_paths":["C:\\in"],"pause_watchers":true,"quarantine_retention_days":30}"#,
+        )
+        .unwrap();
+        let c = read_config(tmp.path()).unwrap();
+        assert_eq!(c, cfg(&["C:\\in"]));
+        assert_eq!(
+            serde_json::to_value(&c).unwrap(),
+            json!({ "inbox_paths": ["C:\\in"] })
+        );
+        assert_eq!(
+            read_config(&tmp.path().join("none")).unwrap(),
+            Config::default()
+        );
+    }
+
+    #[test]
+    fn watched_folders_without_existing_folders_is_no_folders() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert_eq!(watched_folders(tmp.path()).unwrap_err(), ERR_NO_FOLDERS);
+        let dir = tmp.path().join("in");
+        std::fs::create_dir_all(&dir).unwrap();
+        let gone = tmp.path().join("gone");
+        write_json(
+            tmp.path(),
+            CONFIG_FILE,
+            &cfg(&[gone.to_str().unwrap()]),
+            ERR_CONFIG_IO,
+        )
+        .unwrap();
+        assert_eq!(watched_folders(tmp.path()).unwrap_err(), ERR_NO_FOLDERS);
+        write_json(
+            tmp.path(),
+            CONFIG_FILE,
+            &cfg(&[gone.to_str().unwrap(), dir.to_str().unwrap()]),
+            ERR_CONFIG_IO,
+        )
+        .unwrap();
+        assert_eq!(watched_folders(tmp.path()).unwrap(), vec![dir]);
+    }
+
+    #[test]
+    fn settings_defaults() {
+        let s = AppSettings::default();
+        assert_eq!(
+            serde_json::to_value(&s).unwrap(),
+            json!({
+                "language": "ro",
+                "notifications_enabled": true,
+                "auto_start": false,
+                "auto_apply_enabled": false,
+                "first_preview_approved": false,
+                "onboarding_done": false,
+            })
+        );
+        let tmp = tempfile::tempdir().unwrap();
+        assert_eq!(load_app_settings(tmp.path()), s, "missing file");
+    }
+
+    #[test]
+    fn old_settings_files_keep_known_fields() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join(SETTINGS_FILE),
+            r#"{"theme":"dark","compact_mode":true,"notifications_enabled":false,
+               "notification_types":{"errors":true},"auto_start":true,"log_level":"info"}"#,
+        )
+        .unwrap();
+        let s = load_app_settings(tmp.path());
+        assert_eq!(
+            s,
+            AppSettings {
+                notifications_enabled: false,
+                auto_start: true,
+                ..AppSettings::default()
+            }
+        );
+    }
+
+    #[test]
+    fn unknown_language_and_corrupt_file_load_as_defaults() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join(SETTINGS_FILE),
+            r#"{"language":"de","onboarding_done":true}"#,
+        )
+        .unwrap();
+        let s = load_app_settings(tmp.path());
+        assert_eq!(s.language, Language::Ro);
+        assert!(s.onboarding_done);
+        let en: AppSettings = serde_json::from_value(json!({ "language": "en" })).unwrap();
+        assert_eq!(en.language, Language::En);
+
+        std::fs::write(tmp.path().join(SETTINGS_FILE), "{ not json").unwrap();
+        assert_eq!(load_app_settings(tmp.path()), AppSettings::default());
+    }
+
+    #[test]
+    fn save_keeps_stored_first_preview_approved() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        let ui = AppSettings {
+            language: Language::En,
+            auto_apply_enabled: true,
+            first_preview_approved: true,
+            onboarding_done: true,
+            ..AppSettings::default()
+        };
+        let saved = save_app_settings_in(dir, ui.clone()).unwrap();
+        assert!(!saved.first_preview_approved, "the UI cannot set it");
+        assert_eq!(saved.language, Language::En);
+        assert!(saved.auto_apply_enabled && saved.onboarding_done);
+        assert_eq!(load_app_settings(dir), saved);
+
+        // Once the backend stored true, the UI cannot clear it either.
+        write_json(
+            dir,
+            SETTINGS_FILE,
+            &AppSettings {
+                first_preview_approved: true,
+                ..saved
+            },
+            ERR_SETTINGS_IO,
+        )
+        .unwrap();
+        let saved = save_app_settings_in(
+            dir,
+            AppSettings {
+                first_preview_approved: false,
+                ..ui
+            },
+        )
+        .unwrap();
+        assert!(saved.first_preview_approved);
+    }
 }

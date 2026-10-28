@@ -589,18 +589,20 @@ pub(crate) fn scan(
 }
 
 fn dir_skip_reason(platform: &dyn Platform, path: &Path, name: &OsStr) -> Option<SkipReason> {
-    let name_str = name.to_str().unwrap_or("");
-    if DEFAULT_EXCLUDED_DIRS
-        .iter()
-        .any(|ex| ex.eq_ignore_ascii_case(name_str))
-        || has_ignore_marker(platform, path)
-    {
+    if is_excluded_dir_name(name.to_str().unwrap_or("")) || has_ignore_marker(platform, path) {
         Some(SkipReason::Excluded)
     } else if is_dot_name(name) || platform.is_hidden_or_system(path) {
         Some(SkipReason::Hidden)
     } else {
         None
     }
+}
+
+/// `name` is one of [`DEFAULT_EXCLUDED_DIRS`] (ASCII case-insensitive).
+pub fn is_excluded_dir_name(name: &str) -> bool {
+    DEFAULT_EXCLUDED_DIRS
+        .iter()
+        .any(|ex| ex.eq_ignore_ascii_case(name))
 }
 
 fn has_ignore_marker(platform: &dyn Platform, dir: &Path) -> bool {
@@ -882,12 +884,7 @@ fn in_excluded_dir(folder: &Path, base: &Path) -> bool {
         })
         .count();
     folder.components().skip(shared).any(|c| match c {
-        Component::Normal(name) => {
-            let name = name.to_string_lossy();
-            DEFAULT_EXCLUDED_DIRS
-                .iter()
-                .any(|ex| ex.eq_ignore_ascii_case(&name))
-        }
+        Component::Normal(name) => is_excluded_dir_name(&name.to_string_lossy()),
         _ => false,
     })
 }

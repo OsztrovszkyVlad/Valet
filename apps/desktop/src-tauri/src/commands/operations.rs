@@ -12,7 +12,7 @@ use valet_core::{
 };
 
 use crate::commands::platform::{send_notification, NotificationLevel};
-use crate::commands::settings::{get_app_settings, Config};
+use crate::commands::settings::{get_app_settings, watched_folders};
 use crate::state::{config_dir, AppState};
 
 /// Plans moves and copies for `paths` with the rules stored in `db`.
@@ -59,32 +59,8 @@ pub(crate) async fn dry_run(app: tauri::AppHandle) -> Result<serde_json::Value, 
         .await
         .map_err(|e| format!("Database connection failed: {}", e))?;
 
-    // Get configured paths from config
-    let app_cfg_dir = config_dir(&app)?;
-    let cfg_path = app_cfg_dir.join("config.json");
-
-    let paths = if cfg_path.exists() {
-        let contents = std::fs::read_to_string(&cfg_path)
-            .map_err(|e| format!("Failed to read config file: {}", e))?;
-        let config: Config = serde_json::from_str(&contents)
-            .map_err(|e| format!("Failed to parse config JSON: {}", e))?;
-
-        config
-            .inbox_paths
-            .into_iter()
-            .map(std::path::PathBuf::from)
-            .filter(|p| p.exists())
-            .collect()
-    } else {
-        vec![]
-    };
-
-    if paths.is_empty() {
-        return Err(
-            "No valid configured paths found. Please set up your inbox paths in Preferences."
-                .to_string(),
-        );
-    }
+    // Watched folders that exist; `config.noFolders` when there are none.
+    let paths = watched_folders(&config_dir(&app)?)?;
 
     let plan = plan_for_paths(&paths, &db, state.platform.as_ref())
         .await

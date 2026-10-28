@@ -2005,3 +2005,19 @@ fn template_tokens_valid_accepts_known_tokens_only() {
         assert!(!template_tokens_valid(bad), "{bad}");
     }
 }
+
+#[test]
+fn excluded_dir_name_ignores_ascii_case() {
+    for n in [
+        "AppData",
+        "appdata",
+        "PROGRAM FILES",
+        "node_modules",
+        "$Recycle.Bin",
+    ] {
+        assert!(is_excluded_dir_name(n), "{n}");
+    }
+    for n in ["Downloads", "AppData2", "", "targets"] {
+        assert!(!is_excluded_dir_name(n), "{n}");
+    }
+}
