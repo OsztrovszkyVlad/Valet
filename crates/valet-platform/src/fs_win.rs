@@ -181,6 +181,35 @@ pub fn same_volume(a: &Path, b: &Path) -> io::Result<bool> {
     }
 }
 
+/// Renames `from` to `to` without ever replacing an existing `to`; fails with
+/// `io::ErrorKind::AlreadyExists` if `to` exists, leaving both untouched.
+///
+/// Windows: `MoveFileExW(from, to, 0)` on the absolute `\\?\` forms of both
+/// paths (flags 0: no MOVEFILE_REPLACE_EXISTING, no MOVEFILE_COPY_ALLOWED, so
+/// it never copies; a cross-volume rename fails with `CrossesDevices`). The
+/// existence check and the rename are one atomic file system operation.
+///
+/// Off Windows: returns AlreadyExists if `symlink_metadata(to)` succeeds,
+/// otherwise calls `std::fs::rename`. This is check-then-act: another process
+/// can create `to` in between and `rename` would then replace it. Linux is
+/// not a product target; the gap is accepted there.
+pub fn rename_no_replace(from: &Path, to: &Path) -> io::Result<()> {
+    #[cfg(windows)]
+    {
+        win::rename_no_replace(from, to)
+    }
+    #[cfg(not(windows))]
+    {
+        if std::fs::symlink_metadata(to).is_ok() {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "destination exists",
+            ));
+        }
+        std::fs::rename(from, to)
+    }
+}
+
 /// True if sending `path` to the trash keeps it recoverable.
 ///
 /// Windows: the volume must be a fixed local drive (removable drives and
@@ -317,11 +346,13 @@ mod win {
     use std::io;
     use std::os::windows::ffi::OsStrExt;
     use std::path::Path;
-    use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+    use windows_sys::Win32::Foundation::{
+        ERROR_ALREADY_EXISTS, ERROR_FILE_EXISTS, INVALID_HANDLE_VALUE,
+    };
     use windows_sys::Win32::Storage::FileSystem::{
         FindClose, FindFirstFileW, GetDriveTypeW, GetFileAttributesW,
         GetVolumeNameForVolumeMountPointW, GetVolumePathNameW, INVALID_FILE_ATTRIBUTES,
-        WIN32_FIND_DATAW,
+        MoveFileExW, WIN32_FIND_DATAW,
     };
     use windows_sys::Win32::System::Registry::{
         HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, RRF_RT_REG_DWORD, RegGetValueW,
@@ -368,6 +399,24 @@ mod win {
         // SAFETY: `handle` is a valid search handle returned above.
         unsafe { FindClose(handle) };
         super::attrs_reparse_point(data.dwFileAttributes).then_some(data.dwReserved0)
+    }
+
+    pub(super) fn rename_no_replace(from: &Path, to: &Path) -> io::Result<()> {
+        let from_w = long_abs_wide(from)?;
+        let to_w = long_abs_wide(to)?;
+        // SAFETY: both strings are NUL-terminated and outlive the call. Flags 0:
+        // fail if `to` exists, never copy across volumes.
+        let ok = unsafe { MoveFileExW(from_w.as_ptr(), to_w.as_ptr(), 0) };
+        if ok != 0 {
+            return Ok(());
+        }
+        let err = io::Error::last_os_error();
+        match err.raw_os_error().map(|c| c as u32) {
+            Some(ERROR_ALREADY_EXISTS) | Some(ERROR_FILE_EXISTS) => {
+                Err(io::Error::new(io::ErrorKind::AlreadyExists, err))
+            }
+            _ => Err(err),
+        }
     }
 
     struct Volume {
@@ -612,6 +661,51 @@ mod tests {
         assert!(!is_locked(&f));
         assert!(!is_reparse_point(&f));
         assert!(can_trash(&f));
+    }
+
+    #[test]
+    fn rename_no_replace_moves_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let from = dir.path().join("from.txt");
+        let to = dir.path().join("to.txt");
+        std::fs::write(&from, b"payload").unwrap();
+        rename_no_replace(&from, &to).unwrap();
+        assert!(std::fs::symlink_metadata(&from).is_err());
+        assert_eq!(std::fs::read(&to).unwrap(), b"payload");
+    }
+
+    #[test]
+    fn rename_no_replace_refuses_existing_destination() {
+        let dir = tempfile::tempdir().unwrap();
+        let from = dir.path().join("from.txt");
+        let to = dir.path().join("to.txt");
+        std::fs::write(&from, b"new contents").unwrap();
+        std::fs::write(&to, b"old").unwrap();
+        let err = rename_no_replace(&from, &to).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read(&from).unwrap(), b"new contents");
+        assert_eq!(std::fs::read(&to).unwrap(), b"old");
+    }
+
+    #[test]
+    fn rename_no_replace_refuses_existing_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let from = dir.path().join("from.txt");
+        let to = dir.path().join("to");
+        std::fs::write(&from, b"x").unwrap();
+        std::fs::create_dir(&to).unwrap();
+        let err = rename_no_replace(&from, &to).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read(&from).unwrap(), b"x");
+        assert!(to.is_dir());
+    }
+
+    #[test]
+    fn rename_no_replace_missing_source_is_not_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let err =
+            rename_no_replace(&dir.path().join("missing"), &dir.path().join("to")).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::NotFound);
     }
 
     #[cfg(unix)]

@@ -8,8 +8,8 @@ use std::os::windows::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
 use valet_platform::{
-    can_trash, is_cloud_placeholder, is_hidden_or_system, is_locked, is_reparse_point, same_volume,
-    to_long_path, trash_path,
+    can_trash, is_cloud_placeholder, is_hidden_or_system, is_locked, is_reparse_point,
+    rename_no_replace, same_volume, to_long_path, trash_path,
 };
 use windows_sys::Win32::Storage::FileSystem::{
     FILE_ATTRIBUTE_HIDDEN, FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_OFFLINE, FILE_ATTRIBUTE_SYSTEM,
@@ -171,6 +171,28 @@ fn long_path_create_rename_read() {
     assert!(!is_locked(&b));
     assert!(same_volume(&b, dir.path()).unwrap());
     assert!(can_trash(&b));
+}
+
+#[test]
+fn long_path_rename_no_replace() {
+    let dir = tempfile::tempdir().unwrap();
+    let deep = deep_dir(dir.path());
+    let a = deep.join("a.txt");
+    let b = deep.join("b.txt");
+    let c = deep.join("c.txt");
+    assert!(a.as_os_str().len() > 300);
+    std::fs::write(to_long_path(&a), b"from a").unwrap();
+    std::fs::write(to_long_path(&b), b"from b").unwrap();
+
+    // Plain (unprefixed) long paths are accepted.
+    let err = rename_no_replace(&a, &b).unwrap_err();
+    assert_eq!(err.kind(), std::io::ErrorKind::AlreadyExists);
+    assert_eq!(std::fs::read(to_long_path(&a)).unwrap(), b"from a");
+    assert_eq!(std::fs::read(to_long_path(&b)).unwrap(), b"from b");
+
+    rename_no_replace(&a, &c).unwrap();
+    assert!(std::fs::symlink_metadata(to_long_path(&a)).is_err());
+    assert_eq!(std::fs::read(to_long_path(&c)).unwrap(), b"from a");
 }
 
 #[test]

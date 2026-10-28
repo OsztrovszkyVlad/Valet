@@ -5098,6 +5098,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "trash",
+ "valet-core",
  "windows-sys 0.61.2",
 ]
 
