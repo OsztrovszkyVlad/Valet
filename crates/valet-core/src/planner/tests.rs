@@ -613,21 +613,26 @@ fn unmatched_file_is_neither_planned_nor_reported() {
 
 #[test]
 fn file_already_in_destination_folder_is_already_in_place() {
-    let (_tmp, root) = tmp_root();
-    let f = root.join("Imagini").join("a.jpg");
-    let g = root.join("imagini").join("b.jpg");
-    write(&f);
-    write(&g);
-    let p = run(std::slice::from_ref(&root), &[move_all("Imagini")]);
-    assert!(p.ops.is_empty());
-    assert_eq!(
-        skips(&p),
-        vec![
-            (f, SkipReason::AlreadyInPlace, Some("r".into())),
-            (g, SkipReason::AlreadyInPlace, Some("r".into())),
-        ],
-        "folder comparison ignores case"
-    );
+    // One folder per root: on a case-insensitive file system (NTFS)
+    // `Imagini` and `imagini` siblings would be the same folder and the scan
+    // would report both files under the first spelling.
+    for (on_disk, template) in [
+        ("Imagini", "Imagini"),
+        ("Imagini", "imagini"),
+        ("imagini", "IMAGINI"),
+        ("Imagini", "./Imagini/sub/.."),
+    ] {
+        let (_tmp, root) = tmp_root();
+        let f = root.join(on_disk).join("a.jpg");
+        write(&f);
+        let p = run(std::slice::from_ref(&root), &[move_all(template)]);
+        assert!(p.ops.is_empty(), "{on_disk} vs {template}: {p:?}");
+        assert_eq!(
+            skips(&p),
+            vec![(f, SkipReason::AlreadyInPlace, Some("r".into()))],
+            "folder comparison ignores case: {on_disk} vs {template}"
+        );
+    }
 }
 
 #[test]
