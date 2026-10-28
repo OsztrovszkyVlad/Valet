@@ -442,15 +442,22 @@ mod tests {
 
     #[test]
     fn save_config_writes_only_valid_config_and_returns_it() {
+        // The system temp dir is under AppData on Windows, which save_config
+        // refuses, so the crate folder stands in for an existing watched
+        // folder. It is only checked for existence, never written.
+        let watched = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let w = watched.to_str().unwrap();
+        assert!(
+            !in_excluded_folder(w),
+            "checkout inside an excluded folder: {w}"
+        );
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path().join("cfg");
-        let watched = tmp.path().join("Downloads");
-        std::fs::create_dir_all(&watched).unwrap();
-        let ok = cfg(&[watched.to_str().unwrap()]);
+        let ok = cfg(&[w]);
         assert_eq!(save_config_in(&dir, ok.clone()).unwrap(), ok);
         assert_eq!(read_config(&dir).unwrap(), ok);
 
-        let missing = tmp.path().join("nope");
+        let missing = watched.join("valet-test-missing");
         let err = save_config_in(&dir, cfg(&[missing.to_str().unwrap()])).unwrap_err();
         assert!(err.starts_with("config.missing: "), "{err}");
         assert_eq!(read_config(&dir).unwrap(), ok, "unchanged after a refusal");

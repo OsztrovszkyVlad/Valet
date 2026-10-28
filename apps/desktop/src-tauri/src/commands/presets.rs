@@ -297,15 +297,17 @@ mod tests {
 
     #[test]
     fn onboarding_expands_tokens_and_validates_like_save_config() {
-        let tmp = tempfile::tempdir().unwrap();
-        let downloads = tmp.path().join("Downloads");
-        let desktop = tmp.path().join("Desktop");
-        std::fs::create_dir_all(downloads.join("sub")).unwrap();
-        std::fs::create_dir_all(&desktop).unwrap();
+        // Folders exist only in `exists`: a real temp dir is under AppData on
+        // Windows, which validation refuses before checking existence.
+        let home = Path::new(env!("CARGO_MANIFEST_DIR")).join("valet-test-home");
+        let downloads = home.join("Downloads");
+        let desktop = home.join("Desktop");
+        let present = [downloads.clone(), downloads.join("sub"), desktop.clone()];
+        let exists = |p: &Path| present.iter().any(|q| q == p);
         let known: HashMap<String, PathBuf> = [
             ("downloads".to_string(), downloads.clone()),
             ("desktop".to_string(), desktop.clone()),
-            ("pictures".to_string(), tmp.path().join("Pictures")),
+            ("pictures".to_string(), home.join("Pictures")),
         ]
         .into_iter()
         .collect();
@@ -314,7 +316,7 @@ mod tests {
         let c = onboarding_config(
             &ids(&["{downloads}", "{desktop}", "{downloads}/sub", "{downloads}"]),
             &known,
-            Path::exists,
+            &exists,
         )
         .unwrap();
         assert_eq!(
@@ -322,7 +324,7 @@ mod tests {
             [s(&downloads), s(&desktop), s(&downloads.join("sub"))]
         );
         // Absolute paths pass through.
-        let c = onboarding_config(&[s(&desktop)], &known, Path::exists).unwrap();
+        let c = onboarding_config(&[s(&desktop)], &known, &exists).unwrap();
         assert_eq!(c.inbox_paths, [s(&desktop)]);
 
         for (entry, code) in [
@@ -331,14 +333,14 @@ mod tests {
             ("{downloads}x", "config.missing: {downloads}x"),
         ] {
             assert_eq!(
-                onboarding_config(&ids(&[entry]), &known, Path::exists).unwrap_err(),
+                onboarding_config(&ids(&[entry]), &known, &exists).unwrap_err(),
                 code
             );
         }
-        let missing = onboarding_config(&ids(&["{pictures}"]), &known, Path::exists).unwrap_err();
+        let missing = onboarding_config(&ids(&["{pictures}"]), &known, &exists).unwrap_err();
         assert_eq!(
             missing,
-            format!("config.missing: {}", s(&tmp.path().join("Pictures")))
+            format!("config.missing: {}", s(&home.join("Pictures")))
         );
         let all = |_: &Path| true;
         assert!(onboarding_config(&ids(&["C:\\"]), &known, all)
