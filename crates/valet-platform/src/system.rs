@@ -2,6 +2,7 @@
 
 use std::io;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use valet_core::platform::Platform;
 
@@ -14,6 +15,12 @@ impl Platform for SystemPlatform {
     /// [`crate::trash_path`]: refuses with `Unsupported` when [`crate::can_trash`] is false.
     fn trash(&self, path: &Path) -> io::Result<()> {
         crate::trash_path(path)
+    }
+
+    /// [`crate::restore_from_trash`]: `AlreadyExists` when `original` is taken
+    /// (the item stays in the bin), `NotFound` when no item matches.
+    fn restore_from_trash(&self, original: &Path, trashed_after: SystemTime) -> io::Result<()> {
+        crate::restore_from_trash(original, trashed_after)
     }
 
     fn can_trash(&self, path: &Path) -> bool {
@@ -80,6 +87,13 @@ mod tests {
         assert_eq!(
             p.trash(&dir.path().join("missing")).unwrap_err().kind(),
             io::ErrorKind::NotFound
+        );
+        // Occupied original: refused before the bin is looked at.
+        assert_eq!(
+            p.restore_from_trash(&c, SystemTime::UNIX_EPOCH)
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::AlreadyExists
         );
     }
 }

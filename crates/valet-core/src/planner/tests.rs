@@ -318,6 +318,9 @@ impl Platform for ReparseAt {
     fn trash(&self, p: &Path) -> std::io::Result<()> {
         self.1.trash(p)
     }
+    fn restore_from_trash(&self, p: &Path, after: std::time::SystemTime) -> std::io::Result<()> {
+        self.1.restore_from_trash(p, after)
+    }
     fn can_trash(&self, p: &Path) -> bool {
         self.1.can_trash(p)
     }
