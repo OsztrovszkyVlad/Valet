@@ -44,6 +44,60 @@ jobs:
       - name: Perf plan 10k, index 100k and integration 10k (release)
         shell: bash
         run: bash scripts/ci-test.sh -p valet-core --release --features test-support --test perf_plan_10k --test integration_10k --test perf_index_100k -- --include-ignored --nocapture
+      # Report only (timings on shared runners are noisy): never fails the job.
+      # One notice annotation per bench so the numbers are readable through
+      # the checks API.
+      - name: Benches (criterion --quick, report only)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo bench -p valet-core --features test-support --bench '*' -- --quick 2>&1 | tee bench.log
+          code=${PIPESTATUS[0]}
+          awk '
+            /time:[[:space:]]+\[/ {
+              name = $0; sub(/time:.*/, "", name); gsub(/^[[:space:]]+|[[:space:]]+$/, "", name)
+              if (name == "") name = prev
+              t = $0; sub(/.*time:[[:space:]]+/, "", t)
+              print "::notice title=bench::" name " " t
+            }
+            NF { prev = $0; gsub(/^[[:space:]]+|[[:space:]]+$/, "", prev) }
+          ' bench.log
+          exit "$code"
+
+  frontend:
+    name: frontend (Linux)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: apps/desktop/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Lint
+        run: pnpm lint
+      - name: Test (vitest)
+        if: ${{ !cancelled() }}
+        run: pnpm test
+      - name: i18n keys (ro.json and en.json)
+        if: ${{ !cancelled() }}
+        run: pnpm check:i18n
+      - name: Type check
+        if: ${{ !cancelled() }}
+        run: npx tsc -p tsconfig.app.json --noEmit
+      - name: Build
+        if: ${{ !cancelled() }}
+        run: pnpm build
 
   windows:
     name: workspace (Windows)
@@ -89,3 +143,15 @@ jobs:
         if: ${{ !cancelled() }}
         shell: bash
         run: bash scripts/ci-test.sh -p valet-platform --features valet-core -- --nocapture
+      # Report only: startup and idle numbers (PLAN.md 2.6) as notice
+      # annotations. `tauri/custom-protocol` makes the binary serve the
+      # embedded dist/ (as `tauri build` does) instead of the dev server URL.
+      - name: Build app (release) for idle measurement
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: cargo build --release -p app --features tauri/custom-protocol
+      - name: Measure startup and idle (report only)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        shell: pwsh
+        run: ./scripts/measure-idle.ps1 -AppPath target/release/app.exe

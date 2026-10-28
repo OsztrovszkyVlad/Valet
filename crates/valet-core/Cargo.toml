@@ -23,6 +23,9 @@ test-support = []
 [dev-dependencies]
 tempfile = "3"
 proptest = "1"
+# Benches in benches/: `cargo bench -p valet-core --features test-support --bench '*' -- --quick`
+# (`--bench '*'` keeps the lib's libtest harness from receiving `--quick`).
+criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 # Self dev-dependency so integration tests get FakePlatform.
 valet-core = { path = ".", features = ["test-support"] }
 
@@ -43,3 +46,12 @@ required-features = ["test-support"]
 [[test]]
 name = "integration_10k"
 required-features = ["test-support"]
+
+[[bench]]
+name = "plan_10k"
+harness = false
+required-features = ["test-support"]
+
+[[bench]]
+name = "collision_next_free_name"
+harness = false
