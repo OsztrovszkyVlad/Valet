@@ -18,6 +18,9 @@ pub trait Platform: Send + Sync {
     /// Hidden or system attribute (Windows). Dot-files are handled by the planner itself.
     fn is_hidden_or_system(&self, path: &Path) -> bool;
     /// Junction, symlink or other reparse point: never traversed, never moved.
+    /// Means "points somewhere else" (name-surrogate tags: symlink, junction, mount point).
+    /// Cloud-file reparse points (OneDrive/Dropbox, hydrated or not) must return false here:
+    /// placeholders are reported by `is_cloud_placeholder`, hydrated cloud files are normal files.
     fn is_reparse_point(&self, path: &Path) -> bool;
     /// Both existing paths are on the same volume (rename is atomic).
     fn same_volume(&self, a: &Path, b: &Path) -> io::Result<bool>;
