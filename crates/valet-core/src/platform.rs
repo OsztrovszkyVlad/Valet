@@ -44,7 +44,8 @@ pub mod testing {
     /// Test double for [`Platform`].
     ///
     /// - `trash` renames the file into `trash_dir` under a unique name (nothing is deleted);
-    ///   with `trash_dir == None` it fails with `Unsupported`.
+    ///   with `trash_dir == None` it fails with `Unsupported`; for paths in `trash_fails`
+    ///   it fails with `PermissionDenied` and leaves the file.
     /// - placeholder / locked / hidden answers are membership in the public sets (exact path).
     /// - `is_reparse_point` is `symlink_metadata().is_symlink()`.
     /// - `rename_no_replace` checks that `to` is absent, then calls `std::fs::rename`.
@@ -58,6 +59,8 @@ pub mod testing {
         pub placeholders: HashSet<PathBuf>,
         pub locked: HashSet<PathBuf>,
         pub hidden: HashSet<PathBuf>,
+        /// Paths whose `trash` fails (exact path).
+        pub trash_fails: HashSet<PathBuf>,
         /// Answer of `same_volume` (default true).
         pub same_volume: bool,
         /// Answer of `can_trash` (default true).
@@ -72,6 +75,7 @@ pub mod testing {
                 placeholders: HashSet::new(),
                 locked: HashSet::new(),
                 hidden: HashSet::new(),
+                trash_fails: HashSet::new(),
                 same_volume: true,
                 can_trash: true,
                 trash_counter: AtomicU64::new(0),
@@ -91,6 +95,12 @@ pub mod testing {
 
     impl Platform for FakePlatform {
         fn trash(&self, path: &Path) -> io::Result<()> {
+            if self.trash_fails.contains(path) {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "FakePlatform: trash refused for this path",
+                ));
+            }
             let dir = self.trash_dir.as_ref().ok_or_else(|| {
                 io::Error::new(io::ErrorKind::Unsupported, "FakePlatform has no trash_dir")
             })?;
@@ -185,6 +195,22 @@ pub mod testing {
             let err = FakePlatform::default().trash(&f).unwrap_err();
             assert_eq!(err.kind(), io::ErrorKind::Unsupported);
             assert!(f.exists());
+        }
+
+        #[test]
+        fn trash_fails_only_for_listed_paths() {
+            let tmp = tempfile::tempdir().unwrap();
+            let mut p = FakePlatform::with_trash_dir(tmp.path().join("trash"));
+            let keep = tmp.path().join("keep.txt");
+            let go = tmp.path().join("go.txt");
+            fs::write(&keep, "k").unwrap();
+            fs::write(&go, "g").unwrap();
+            p.trash_fails.insert(keep.clone());
+            let err = p.trash(&keep).unwrap_err();
+            assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
+            assert!(keep.exists());
+            p.trash(&go).unwrap();
+            assert!(!go.exists());
         }
 
         #[test]
