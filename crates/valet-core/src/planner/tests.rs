@@ -799,6 +799,113 @@ fn file_root_resolves_relative_folder_against_its_parent() {
     assert_eq!(p.ops[0].dest, root.join("Out").join("a.pdf"));
 }
 
+/// Plans `moveTo <dest>` for two files under a fresh root and asserts both are
+/// skipped as `InvalidDestination` with nothing planned.
+fn assert_invalid_destination(root: &Path, dest: &str) {
+    let a = root.join("a.pdf");
+    let b = root.join("b.pdf");
+    write(&a);
+    write(&b);
+    let p = run(&[root.to_path_buf()], &[move_all(dest)]);
+    assert!(p.ops.is_empty(), "{dest}: {:?}", p.ops);
+    assert_eq!(
+        skips(&p),
+        vec![
+            (a, SkipReason::InvalidDestination, Some("r".into())),
+            (b, SkipReason::InvalidDestination, Some("r".into())),
+        ],
+        "{dest}"
+    );
+}
+
+fn abs(p: PathBuf) -> String {
+    p.to_string_lossy().into_owned()
+}
+
+#[test]
+fn destination_inside_windows_dir_is_invalid() {
+    let (tmp, root) = tmp_root();
+    assert_invalid_destination(&root, &abs(tmp.path().join("Windows").join("x")));
+    assert_invalid_destination(&root, &abs(tmp.path().join("WINDOWS").join("System32")));
+}
+
+#[test]
+fn destination_inside_appdata_is_invalid() {
+    let (tmp, root) = tmp_root();
+    let dest = tmp
+        .path()
+        .join("Users")
+        .join("u")
+        .join("AppData")
+        .join("Roaming");
+    assert_invalid_destination(&root, &abs(dest));
+}
+
+#[test]
+fn destination_inside_node_modules_or_git_is_invalid() {
+    let (_tmp, root) = tmp_root();
+    assert_invalid_destination(&root, "proj/node_modules/pkg");
+    assert_invalid_destination(&root, "repo/.git");
+}
+
+#[test]
+fn every_default_excluded_name_is_an_invalid_destination() {
+    let (_tmp, root) = tmp_root();
+    for name in DEFAULT_EXCLUDED_DIRS {
+        assert_invalid_destination(&root, &format!("Sorted/{name}/x"));
+    }
+}
+
+#[test]
+fn destination_with_valetignore_in_folder_or_ancestor_is_invalid() {
+    let (tmp, root) = tmp_root();
+    let dest = tmp.path().join("dest");
+    write(&dest.join(IGNORE_MARKER));
+    assert_invalid_destination(&root, &abs(dest.clone()));
+    // Marker in an existing ancestor; the folder itself does not exist yet.
+    assert_invalid_destination(&root, &abs(dest.join("sub").join("deeper")));
+}
+
+#[test]
+fn excluded_name_in_the_chosen_root_does_not_block_destinations_below_it() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("AppData").join("root");
+    let f = root.join("a.pdf");
+    write(&f);
+    let p = run(std::slice::from_ref(&root), &[move_all("Sorted")]);
+    assert_eq!(p.ops.len(), 1, "{:?}", p.skipped);
+    assert_eq!(p.ops[0].dest, root.join("Sorted").join("a.pdf"));
+
+    // A sibling of the root inside the same excluded dir is shared prefix too.
+    let sibling = tmp.path().join("AppData").join("other");
+    let p = run(
+        std::slice::from_ref(&root),
+        &[move_all(&abs(sibling.clone()))],
+    );
+    assert_eq!(p.ops[0].dest, sibling.join("a.pdf"));
+
+    // But a new excluded component below the root is not.
+    let p = run(std::slice::from_ref(&root), &[move_all("x/target")]);
+    assert_eq!(reasons_for(&p, &f), vec![SkipReason::InvalidDestination]);
+}
+
+#[test]
+fn normal_destination_outside_root_still_plans() {
+    let (tmp, root) = tmp_root();
+    let f = root.join("a.pdf");
+    write(&f);
+    // Names that only contain an excluded word are fine.
+    let dest = tmp
+        .path()
+        .join("Documents")
+        .join("Windows notes")
+        .join("targets");
+    write(&tmp.path().join("Documents").join("unrelated.valetignore"));
+    let p = run(std::slice::from_ref(&root), &[move_all(&abs(dest.clone()))]);
+    assert!(p.skipped.is_empty(), "{:?}", p.skipped);
+    assert_eq!(p.ops[0].dest, dest.join("a.pdf"));
+}
+
 // ---------------------------------------------------------------- collisions
 
 #[test]

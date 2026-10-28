@@ -3,7 +3,7 @@
 //! metadata; it never opens, hashes, moves or writes a file.
 
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     ffi::OsStr,
     fs,
     path::{Component, Path, PathBuf},
@@ -87,6 +87,9 @@ pub enum SkipReason {
     Conflict,
     AlreadyInPlace,
     NoExtension,
+    /// No usable destination folder: missing or empty path, unset `~` or
+    /// `%VAR%`, a folder inside a default-excluded directory (outside the
+    /// file's own scan root), or a folder at or under a `.valetignore` marker.
     InvalidDestination,
     UnsupportedAction,
     Unreadable,
@@ -124,9 +127,18 @@ pub struct Plan {
 pub fn plan(roots: &[PathBuf], rules: &[Rule], platform: &dyn Platform, ctx: &PlanContext) -> Plan {
     let mut out = Plan::default();
     let mut reserved: HashSet<String> = HashSet::new();
+    let mut marker_cache: HashMap<PathBuf, bool> = HashMap::new();
     scan(roots, platform, ctx.now, |found| match found {
         Found::Skip(s) => out.skipped.push(s),
-        Found::File(f) => plan_file(&f, rules, platform, ctx, &mut reserved, &mut out),
+        Found::File(f) => plan_file(
+            &f,
+            rules,
+            platform,
+            ctx,
+            &mut reserved,
+            &mut marker_cache,
+            &mut out,
+        ),
     });
     out
 }
@@ -378,6 +390,7 @@ fn plan_file(
     platform: &dyn Platform,
     ctx: &PlanContext,
     reserved: &mut HashSet<String>,
+    marker_cache: &mut HashMap<PathBuf, bool>,
     out: &mut Plan,
 ) {
     let path_str = f.path.to_string_lossy();
@@ -408,7 +421,7 @@ fn plan_file(
     if let Some(wi) = winner {
         let rule = matching[wi];
         let (kind, action) = first_transfer(rule).expect("winner has a transfer action");
-        match destination(f, action, platform, ctx, reserved) {
+        match destination(f, action, platform, ctx, reserved, marker_cache) {
             Ok(dest) => {
                 out.ops.push(PlannedOp {
                     source: f.path.clone(),
@@ -444,6 +457,7 @@ fn destination(
     platform: &dyn Platform,
     ctx: &PlanContext,
     reserved: &mut HashSet<String>,
+    marker_cache: &mut HashMap<PathBuf, bool>,
 ) -> Result<PathBuf, SkipReason> {
     let template = action
         .params
@@ -458,6 +472,9 @@ fn destination(
         f.base.join(folder)
     };
     let folder = normalize(&folder);
+    if in_excluded_dir(&folder, &f.base) || under_ignore_marker(platform, &folder, marker_cache) {
+        return Err(SkipReason::InvalidDestination);
+    }
     let file_name = f.path.file_name().ok_or(SkipReason::InvalidDestination)?;
     if f.path.parent().is_some_and(|p| fold(p) == fold(&folder)) {
         return Err(SkipReason::AlreadyInPlace);
@@ -467,6 +484,50 @@ fn destination(
     });
     reserved.insert(fold(&dest));
     Ok(dest)
+}
+
+/// True when a component of `folder` is a default-excluded directory name
+/// (ASCII case-insensitive). Leading components shared with `base` (the scan
+/// root the user chose) are not checked: the scan does not exclude them either,
+/// and on Windows temp and test folders live under `AppData`.
+fn in_excluded_dir(folder: &Path, base: &Path) -> bool {
+    let shared = folder
+        .components()
+        .zip(base.components())
+        .take_while(|(a, b)| {
+            a.as_os_str()
+                .to_string_lossy()
+                .eq_ignore_ascii_case(&b.as_os_str().to_string_lossy())
+        })
+        .count();
+    folder.components().skip(shared).any(|c| match c {
+        Component::Normal(name) => {
+            let name = name.to_string_lossy();
+            DEFAULT_EXCLUDED_DIRS
+                .iter()
+                .any(|ex| ex.eq_ignore_ascii_case(&name))
+        }
+        _ => false,
+    })
+}
+
+/// True when `folder` or any ancestor up to the filesystem root contains a
+/// `.valetignore` marker. Results are cached per directory for one plan, so
+/// sibling destinations share the ancestor lookups.
+fn under_ignore_marker(
+    platform: &dyn Platform,
+    folder: &Path,
+    cache: &mut HashMap<PathBuf, bool>,
+) -> bool {
+    if let Some(&hit) = cache.get(folder) {
+        return hit;
+    }
+    let hit = has_ignore_marker(platform, folder)
+        || folder
+            .parent()
+            .is_some_and(|p| !p.as_os_str().is_empty() && under_ignore_marker(platform, p, cache));
+    cache.insert(folder.to_path_buf(), hit);
+    hit
 }
 
 /// Expands a destination folder template, in this order: leading `~`,
