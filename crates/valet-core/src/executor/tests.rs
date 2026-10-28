@@ -400,3 +400,354 @@ async fn copy_with_hash_mismatch_trashes_temp_and_fails() {
     assert_eq!(trashed(&env), vec![b"real bytes".to_vec()]);
     assert_eq!(fs::read(&src).unwrap(), b"real bytes");
 }
+
+// ---------------------------------------------------------------- recover
+
+/// Journals an operation that a crash left `in_progress` (or `planned` when
+/// `started` is false), with the hash of `body` as `hash_before`.
+async fn interrupted(
+    env: &Env,
+    op_type: OpType,
+    src: &Path,
+    dest: &Path,
+    body: &[u8],
+    started: bool,
+) -> (String, i64) {
+    let b = env.journal.create_batch(BatchKind::Apply).await.unwrap();
+    let id = env
+        .journal
+        .insert_planned(
+            &b,
+            0,
+            &NewOp {
+                op_type,
+                source: src.to_path_buf(),
+                dest: Some(dest.to_path_buf()),
+                size: Some(body.len() as u64),
+                undo_of: None,
+            },
+        )
+        .await
+        .unwrap();
+    if started {
+        env.journal.start(id, Some(&hash(body))).await.unwrap();
+    }
+    (b, id)
+}
+
+fn decision(rep: &RecoveryReport, op_id: i64) -> &RecoveryDecision {
+    rep.decisions.iter().find(|d| d.op_id == op_id).unwrap()
+}
+
+#[tokio::test]
+async fn recover_with_nothing_open_writes_no_batch() {
+    let env = Env::new().await;
+    let rep = recover(&env.journal, &env.fake()).await.unwrap();
+    assert_eq!(rep, RecoveryReport::default());
+    assert!(env.journal.list_batches(10).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn recover_planned_op_fails_and_closes_batch() {
+    let env = Env::new().await;
+    let src = env.path("in/p.txt");
+    write(&src, b"p");
+    let (b, id) = interrupted(
+        &env,
+        OpType::Move,
+        &src,
+        &env.path("out/p.txt"),
+        b"p",
+        false,
+    )
+    .await;
+
+    let rep = recover(&env.journal, &env.fake()).await.unwrap();
+    let d = decision(&rep, id);
+    assert_eq!(
+        (d.previous_state, d.new_state),
+        (OpState::Planned, OpState::Failed)
+    );
+    let op = env.op(id).await;
+    assert!(op.error.unwrap().starts_with("Interrupted"));
+    assert!(src.exists());
+    assert_eq!(rep.closed_batches, vec![b.clone()]);
+    let closed = env.journal.get_batch(&b).await.unwrap().unwrap();
+    assert!(closed.finished_at.is_some());
+    assert!(closed.summary.unwrap().starts_with("interrupted"));
+    let rb = env
+        .journal
+        .get_batch(rep.batch_id.as_ref().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(rb.kind, BatchKind::Recovery);
+    assert!(rb.summary.unwrap().contains(&format!("operation {id} ")));
+    // Idempotent: nothing left for a second run.
+    assert_eq!(
+        recover(&env.journal, &env.fake()).await.unwrap(),
+        RecoveryReport::default()
+    );
+}
+
+#[tokio::test]
+async fn recover_move_already_at_destination_is_done() {
+    let env = Env::new().await;
+    let src = env.path("in/m.txt");
+    let dest = env.path("out/m.txt");
+    write(&dest, b"moved");
+    let (_b, id) = interrupted(&env, OpType::Move, &src, &dest, b"moved", true).await;
+
+    let rep = recover(&env.journal, &env.fake()).await.unwrap();
+    assert_eq!(decision(&rep, id).new_state, OpState::Done);
+    let op = env.op(id).await;
+    assert_eq!(op.hash_after.as_deref(), Some(hash(b"moved").as_str()));
+    assert_eq!(fs::read(&dest).unwrap(), b"moved");
+}
+
+#[tokio::test]
+async fn recover_move_copied_but_source_not_trashed_trashes_source() {
+    let env = Env::new().await;
+    let src = env.path("in/x.txt");
+    let dest = env.path("out/x.txt");
+    write(&src, b"both");
+    write(&dest, b"both");
+    let (_b, id) = interrupted(&env, OpType::Move, &src, &dest, b"both", true).await;
+
+    let rep = recover(&env.journal, &env.fake()).await.unwrap();
+    assert_eq!(decision(&rep, id).new_state, OpState::Done);
+    assert!(!src.exists());
+    assert_eq!(fs::read(&dest).unwrap(), b"both");
+    assert_eq!(trashed(&env), vec![b"both".to_vec()]);
+    // The trash was journaled in the recovery batch.
+    let ops = env
+        .journal
+        .list_ops(rep.batch_id.as_ref().unwrap())
+        .await
+        .unwrap();
+    assert_eq!(ops.len(), 1);
+    assert_eq!(
+        (ops[0].op_type, ops[0].state),
+        (OpType::Trash, OpState::Done)
+    );
+    assert_eq!(ops[0].source_path, src);
+}
+
+#[tokio::test]
+async fn recover_move_source_trash_failure_removes_copy() {
+    let env = Env::new().await;
+    let src = env.path("in/x.txt");
+    let dest = env.path("out/x.txt");
+    write(&src, b"both");
+    write(&dest, b"both");
+    let (_b, id) = interrupted(&env, OpType::Move, &src, &dest, b"both", true).await;
+    let mut p = env.fake();
+    p.trash_fails.insert(src.clone());
+
+    let rep = recover(&env.journal, &p).await.unwrap();
+    assert_eq!(decision(&rep, id).new_state, OpState::Failed);
+    assert!(env.op(id).await.error.unwrap().starts_with("TrashFailed"));
+    assert_eq!(fs::read(&src).unwrap(), b"both");
+    assert!(!dest.exists());
+}
+
+#[tokio::test]
+async fn recover_move_changed_source_keeps_source_and_trashes_copy() {
+    let env = Env::new().await;
+    let src = env.path("in/x.txt");
+    let dest = env.path("out/x.txt");
+    write(&src, b"edited after crash");
+    write(&dest, b"orig");
+    let (_b, id) = interrupted(&env, OpType::Move, &src, &dest, b"orig", true).await;
+
+    let rep = recover(&env.journal, &env.fake()).await.unwrap();
+    assert_eq!(decision(&rep, id).new_state, OpState::Failed);
+    assert_eq!(fs::read(&src).unwrap(), b"edited after crash");
+    assert!(!dest.exists());
+    assert_eq!(trashed(&env), vec![b"orig".to_vec()]);
+}
+
+#[tokio::test]
+async fn recover_move_interrupted_mid_copy_trashes_temp_keeps_source() {
+    let env = Env::new().await;
+    let src = env.path("in/big.bin");
+    let dest = env.path("out/big.bin");
+    write(&src, b"full content");
+    let (_b, id) = interrupted(&env, OpType::Move, &src, &dest, b"full content", true).await;
+    let temp = temp_path(&env.path("out"), id);
+    write(&temp, b"full");
+
+    let rep = recover(&env.journal, &env.fake()).await.unwrap();
+    assert_eq!(decision(&rep, id).new_state, OpState::Failed);
+    assert_eq!(fs::read(&src).unwrap(), b"full content");
+    assert!(!temp.exists() && !dest.exists());
+    assert_eq!(trashed(&env), vec![b"full".to_vec()]);
+}
+
+#[tokio::test]
+async fn recover_move_not_started_on_disk_fails_without_cleanup() {
+    let env = Env::new().await;
+    let src = env.path("in/s.txt");
+    write(&src, b"s");
+    let (_b, id) = interrupted(&env, OpType::Move, &src, &env.path("out/s.txt"), b"s", true).await;
+
+    let rep = recover(&env.journal, &env.fake()).await.unwrap();
+    assert_eq!(decision(&rep, id).new_state, OpState::Failed);
+    assert!(src.exists());
+    assert!(trashed(&env).is_empty());
+    assert!(
+        env.journal
+            .list_ops(rep.batch_id.as_ref().unwrap())
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn recover_leaves_foreign_destination_alone() {
+    let env = Env::new().await;
+    let src = env.path("in/f.txt");
+    let dest = env.path("out/f.txt");
+    write(&src, b"mine");
+    write(&dest, b"someone else's");
+    let (_b, id) = interrupted(&env, OpType::Move, &src, &dest, b"mine", true).await;
+
+    let rep = recover(&env.journal, &env.fake()).await.unwrap();
+    assert_eq!(decision(&rep, id).new_state, OpState::Failed);
+    assert_eq!(fs::read(&src).unwrap(), b"mine");
+    assert_eq!(fs::read(&dest).unwrap(), b"someone else's");
+    assert!(trashed(&env).is_empty());
+}
+
+#[tokio::test]
+async fn recover_placeholder_source_is_not_trashed_or_hashed() {
+    let env = Env::new().await;
+    let src = env.path("in/c.txt");
+    let dest = env.path("out/c.txt");
+    write(&src, b"cloud");
+    write(&dest, b"cloud");
+    let (_b, id) = interrupted(&env, OpType::Move, &src, &dest, b"cloud", true).await;
+    let mut p = env.fake();
+    p.placeholders.insert(src.clone());
+
+    let rep = recover(&env.journal, &p).await.unwrap();
+    assert_eq!(decision(&rep, id).new_state, OpState::Failed);
+    assert!(src.exists(), "placeholder source stays");
+    assert!(!dest.exists(), "verified copy goes to the Recycle Bin");
+}
+
+#[tokio::test]
+async fn recover_placeholder_destination_with_source_gone_is_done_unhashed() {
+    let env = Env::new().await;
+    let src = env.path("in/c.txt");
+    let dest = env.path("out/c.txt");
+    write(&dest, b"cloud");
+    let (_b, id) = interrupted(&env, OpType::Move, &src, &dest, b"cloud", true).await;
+    let mut p = env.fake();
+    p.placeholders.insert(dest.clone());
+
+    let rep = recover(&env.journal, &p).await.unwrap();
+    assert_eq!(decision(&rep, id).new_state, OpState::Done);
+    assert!(env.op(id).await.hash_after.is_none());
+}
+
+#[tokio::test]
+async fn recover_copy_states() {
+    let env = Env::new().await;
+    let a = env.path("in/a.txt");
+    let a_dest = env.path("out/a.txt");
+    write(&a, b"a");
+    write(&a_dest, b"a");
+    let (_, done_id) = interrupted(&env, OpType::Copy, &a, &a_dest, b"a", true).await;
+
+    let b = env.path("in/b.txt");
+    let b_dest = env.path("out/b.txt");
+    write(&b, b"bbbb");
+    let (_, fail_id) = interrupted(&env, OpType::Copy, &b, &b_dest, b"bbbb", true).await;
+    let temp = temp_path(&env.path("out"), fail_id);
+    write(&temp, b"bb");
+
+    let rep = recover(&env.journal, &env.fake()).await.unwrap();
+    assert_eq!(decision(&rep, done_id).new_state, OpState::Done);
+    assert_eq!(decision(&rep, fail_id).new_state, OpState::Failed);
+    assert_eq!(fs::read(&a).unwrap(), b"a");
+    assert_eq!(fs::read(&a_dest).unwrap(), b"a");
+    assert_eq!(fs::read(&b).unwrap(), b"bbbb");
+    assert!(!temp.exists() && !b_dest.exists());
+    assert_eq!(trashed(&env), vec![b"bb".to_vec()]);
+}
+
+#[tokio::test]
+async fn recover_trash_op_by_disk_state() {
+    let env = Env::new().await;
+    let b = env.journal.create_batch(BatchKind::Recovery).await.unwrap();
+    let still = env.path("still.txt");
+    write(&still, b"s");
+    let mut ids = vec![];
+    for (seq, path) in [(0, still.clone()), (1, env.path("gone.txt"))] {
+        let id = env
+            .journal
+            .insert_planned(
+                &b,
+                seq,
+                &NewOp {
+                    op_type: OpType::Trash,
+                    source: path,
+                    dest: None,
+                    size: None,
+                    undo_of: None,
+                },
+            )
+            .await
+            .unwrap();
+        env.journal.start(id, None).await.unwrap();
+        ids.push(id);
+    }
+    let rep = recover(&env.journal, &env.fake()).await.unwrap();
+    assert_eq!(decision(&rep, ids[0]).new_state, OpState::Failed);
+    assert_eq!(decision(&rep, ids[1]).new_state, OpState::Done);
+    assert!(still.exists());
+}
+
+/// Every interrupted move ends with its file exactly once, at source or
+/// destination (Recycle Bin aside).
+#[tokio::test]
+async fn recover_leaves_every_moved_file_exactly_once() {
+    let env = Env::new().await;
+    // (name, at source, at dest, temp, started)
+    let cases: &[(&str, bool, bool, bool, bool)] = &[
+        ("planned", true, false, false, false),
+        ("not-started", true, false, false, true),
+        ("mid-copy", true, false, true, true),
+        ("placed", true, true, false, true),
+        ("finished", false, true, false, true),
+    ];
+    let mut files = vec![];
+    for (name, at_src, at_dest, temp, started) in cases {
+        let body = format!("content of {name}").into_bytes();
+        let src = env.path(&format!("in/{name}.txt"));
+        let dest = env.path(&format!("out/{name}.txt"));
+        if *at_src {
+            write(&src, &body);
+        }
+        if *at_dest {
+            write(&dest, &body);
+        }
+        let (_b, id) = interrupted(&env, OpType::Move, &src, &dest, &body, *started).await;
+        if *temp {
+            write(&temp_path(&env.path("out"), id), &body[..4]);
+        }
+        files.push((src, dest, body));
+    }
+    recover(&env.journal, &env.fake()).await.unwrap();
+    for (src, dest, body) in &files {
+        let copies = [src, dest]
+            .iter()
+            .filter(|p| fs::read(p).ok().as_deref() == Some(body.as_slice()))
+            .count();
+        assert_eq!(copies, 1, "{}", src.display());
+    }
+    assert!(temp_files(&env.path("out")).is_empty());
+    assert!(env.journal.unfinished_ops().await.unwrap().is_empty());
+}

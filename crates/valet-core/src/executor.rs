@@ -36,6 +36,9 @@ use crate::{
     platform::Platform,
 };
 
+mod recover;
+pub use recover::{RecoveryDecision, RecoveryReport, recover};
+
 /// Environment variable read by the fault-injection test hook (milliseconds).
 pub const FAULT_SLOW_ENV: &str = "VALET_FAULT_SLOW_MS";
 
@@ -183,6 +186,14 @@ impl Steps<'_> {
 
     async fn done(&self, op_id: i64, hash_after: Option<&str>) -> Result<()> {
         self.journal.mark_done(op_id, hash_after).await?;
+        fault_pause();
+        Ok(())
+    }
+
+    async fn undo_done(&self, op_id: i64, original: i64, hash_after: Option<&str>) -> Result<()> {
+        self.journal
+            .mark_undo_done(op_id, original, hash_after)
+            .await?;
         fault_pause();
         Ok(())
     }
