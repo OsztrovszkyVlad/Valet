@@ -18,11 +18,24 @@ export function flattenKeys(obj, file, errors, prefix = '', out = new Set()) {
     return out;
 }
 
-/** Keys present in one language and missing in the other. */
+/** i18next plural suffixes; the forms a language needs differ (ro has `_few`, en does not). */
+const PLURAL = /_(zero|one|two|few|many|other)$/;
+
+/**
+ * Keys present in one language and missing in the other. A plural key
+ * (`x_one`, `x_few`, ...) only needs `x_other` in the other language.
+ */
 export function parityErrors(ro, en) {
     const errors = [];
-    for (const k of ro) if (!en.has(k)) errors.push(`en.json: missing ${k}`);
-    for (const k of en) if (!ro.has(k)) errors.push(`ro.json: missing ${k}`);
+    const missing = (k, other) =>
+        PLURAL.test(k) ? !other.has(k.replace(PLURAL, '_other')) : !other.has(k);
+    const report = (k, other, file) => {
+        const key = PLURAL.test(k) ? k.replace(PLURAL, '_other') : k;
+        const line = `${file}: missing ${key}`;
+        if (!errors.includes(line)) errors.push(line);
+    };
+    for (const k of ro) if (missing(k, en)) report(k, en, 'en.json');
+    for (const k of en) if (missing(k, ro)) report(k, ro, 'ro.json');
     return errors;
 }
 
@@ -31,9 +44,9 @@ export function usedKeys(text) {
     return [...text.matchAll(/\bt\(\s*['"]([A-Za-z0-9_.]+)['"]/g)].map((m) => m[1]);
 }
 
-/** Literal keys in `text` that `known` does not contain, as error lines. */
+/** Literal keys in `text` that `known` does not contain (as a key or a plural `key_other`), as error lines. */
 export function unknownKeyErrors(text, file, known) {
     return usedKeys(text)
-        .filter((k) => !known.has(k))
+        .filter((k) => !known.has(k) && !known.has(`${k}_other`))
         .map((k) => `src/${file}: key ${k} not in ro.json`);
 }

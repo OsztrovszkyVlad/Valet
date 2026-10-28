@@ -1,23 +1,40 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
+    closePreview,
     dryRun,
     errorMessage,
     executeOperations as runExecute,
+    parseCommandError,
     PREVIEW_REQUIRED,
+    type DryRunResponse,
     type ExecuteResponse,
     type PlannedOperation,
+    type ReportEntry,
     type SkippedFile,
 } from '../api/commands';
 import type { LastBatch } from '../components/LastBatchBox';
-import { journalErrorText, skipReasonText } from '../i18n/format';
+import ReportsSection from '../components/ReportsSection';
+import { commandErrorMessage, journalErrorText, skipReasonText } from '../i18n/format';
 import './DryRunView.css';
+
+/** A preview that ran before this screen opened (onboarding), or its error. */
+export type InitialPreview = { preview: DryRunResponse } | { error: unknown };
+
+const NO_FOLDERS = 'config.noFolders';
 
 interface DryRunViewProps {
     /** A new batch ran; `null` when it did nothing that can be undone. */
     onBatchRan: (batch: LastBatch | null) => void;
     /** True while a batch runs, so other screens can hold back undo. */
     onBusyChange?: (busy: boolean) => void;
+    /** Shown instead of the idle state, e.g. the preview onboarding ran. */
+    initial?: InitialPreview | null;
+    /** Show the onboarding explanation above the list. */
+    intro?: boolean;
+    /** Id of the preview waiting for approval; null when there is none. */
+    onPlanChange?: (planId: string | null) => void;
+    onOpenSettings?: () => void;
 }
 
 function fileName(path: string): string {
@@ -29,23 +46,43 @@ function fileName(path: string): string {
  * Preview, then the user's approval ("Organize") runs exactly the previewed plan.
  * Nothing here starts a file operation without a plan id from a preview.
  */
-const DryRunView: React.FC<DryRunViewProps> = ({ onBatchRan, onBusyChange }) => {
+const DryRunView: React.FC<DryRunViewProps> = ({
+    onBatchRan,
+    onBusyChange,
+    initial,
+    intro,
+    onPlanChange,
+    onOpenSettings,
+}) => {
     const { t } = useTranslation();
-    const [results, setResults] = useState<PlannedOperation[]>([]);
-    const [skipped, setSkipped] = useState<SkippedFile[]>([]);
+    const first = initial && 'preview' in initial ? initial.preview : null;
+    const firstError = initial && 'error' in initial ? initial.error : undefined;
+    const [results, setResults] = useState<PlannedOperation[]>(first?.results ?? []);
+    const [skipped, setSkipped] = useState<SkippedFile[]>(first?.skipped ?? []);
+    const [reports, setReports] = useState<ReportEntry[]>(first?.reports ?? []);
     const [showSkipped, setShowSkipped] = useState(false);
     const [loading, setLoading] = useState(false);
     const [executing, setExecuting] = useState(false);
-    const [error, setError] = useState('');
+    const [noFolders, setNoFolders] = useState(parseCommandError(firstError)?.code === NO_FOLDERS);
+    const [error, setError] = useState(() =>
+        firstError === undefined || parseCommandError(firstError)?.code === NO_FOLDERS
+            ? ''
+            : t('preview.failed', { message: commandErrorMessage(t, firstError) }),
+    );
     const [successMessage, setSuccessMessage] = useState('');
-    const [hasRun, setHasRun] = useState(false);
+    const [hasRun, setHasRun] = useState(first !== null);
     const [executeResults, setExecuteResults] = useState<ExecuteResponse | null>(null);
     // Id of the last previewed plan; null once used, so Organize needs a new preview.
-    const [planId, setPlanId] = useState<string | null>(null);
+    const [planId, setPlanId] = useState<string | null>(first?.plan_id ?? null);
+
+    useEffect(() => {
+        onPlanChange?.(planId);
+    }, [planId, onPlanChange]);
 
     const runDryRun = async () => {
         setLoading(true);
         setError('');
+        setNoFolders(false);
         setSuccessMessage('');
         setExecuteResults(null);
         try {
@@ -53,19 +90,29 @@ const DryRunView: React.FC<DryRunViewProps> = ({ onBatchRan, onBusyChange }) => 
             setResults(response.results);
             setPlanId(response.plan_id);
             setSkipped(response.skipped);
+            setReports(response.reports ?? []);
             setShowSkipped(false);
             setHasRun(true);
         } catch (err) {
-            setError(t('preview.failed', { message: errorMessage(err) }));
+            if (parseCommandError(err)?.code === NO_FOLDERS) {
+                setNoFolders(true);
+            } else {
+                setError(t('preview.failed', { message: commandErrorMessage(t, err) }));
+            }
         } finally {
             setLoading(false);
         }
     };
 
     const clearResults = () => {
+        if (planId !== null) {
+            // Leaving the preview without executing it.
+            closePreview().catch((err: unknown) => console.error('close_preview failed:', errorMessage(err)));
+        }
         setResults([]);
         setPlanId(null);
         setSkipped([]);
+        setReports([]);
         setHasRun(false);
         setError('');
         setSuccessMessage('');
@@ -90,6 +137,7 @@ const DryRunView: React.FC<DryRunViewProps> = ({ onBatchRan, onBusyChange }) => 
                 setSuccessMessage(t('preview.done', { count: response.executed_count }));
                 setResults([]);
                 setSkipped([]);
+                setReports([]);
                 setHasRun(false);
             } else {
                 setError(
@@ -121,6 +169,15 @@ const DryRunView: React.FC<DryRunViewProps> = ({ onBatchRan, onBusyChange }) => 
             </div>
 
             <div className="view-content">
+                {intro && (
+                    <div className="notice-message preview-intro" role="note">
+                        <div>
+                            <strong>{t('preview.introStep')}</strong>
+                            <p>{t('preview.introText')}</p>
+                        </div>
+                    </div>
+                )}
+
                 {error && (
                     <div className="error-message" role="alert">
                         {error}
@@ -216,9 +273,13 @@ const DryRunView: React.FC<DryRunViewProps> = ({ onBatchRan, onBusyChange }) => 
                                                     <code className="path-code">{result.source_path}</code>
                                                 </td>
                                                 <td>
-                                                    <code className="path-code destination">
-                                                        {result.destination_path}
-                                                    </code>
+                                                    {result.operation === 'trash' ? (
+                                                        <span className="trash-badge">{t('preview.toTrash')}</span>
+                                                    ) : (
+                                                        <code className="path-code destination">
+                                                            {result.destination_path}
+                                                        </code>
+                                                    )}
                                                 </td>
                                                 <td>
                                                     <span className="rule-badge">{result.rule_name}</span>
@@ -231,6 +292,8 @@ const DryRunView: React.FC<DryRunViewProps> = ({ onBatchRan, onBusyChange }) => 
                         </div>
                     </div>
                 )}
+
+                <ReportsSection reports={reports} results={results} />
 
                 {skipped.length > 0 && (
                     <div className="skipped-files">
@@ -318,7 +381,19 @@ const DryRunView: React.FC<DryRunViewProps> = ({ onBatchRan, onBusyChange }) => 
                     </div>
                 )}
 
-                {!hasRun && !loading && !executeResults && (
+                {noFolders && !loading && (
+                    <div className="empty-state">
+                        <h3>{t('preview.noFoldersTitle')}</h3>
+                        <p>{t('preview.noFoldersText')}</p>
+                        {onOpenSettings && (
+                            <button className="btn-primary" onClick={onOpenSettings}>
+                                {t('preview.openSettings')}
+                            </button>
+                        )}
+                    </div>
+                )}
+
+                {!hasRun && !loading && !executeResults && !noFolders && (
                     <div className="placeholder-card">
                         <p>{t('preview.idleText')}</p>
                     </div>

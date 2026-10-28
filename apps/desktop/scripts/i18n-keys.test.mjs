@@ -32,6 +32,16 @@ describe('parityErrors', () => {
         expect(parityErrors(ro, en)).toEqual(['en.json: missing b.c', 'ro.json: missing d']);
     });
 
+    it('accepts different plural forms when both have _other', () => {
+        const ro = new Set(['n_one', 'n_few', 'n_other']);
+        const en = new Set(['n_one', 'n_other']);
+        expect(parityErrors(ro, en)).toEqual([]);
+        expect(parityErrors(new Set(['m_one', 'm_few']), new Set(['m_one']))).toEqual([
+            'en.json: missing m_other',
+            'ro.json: missing m_other',
+        ]);
+    });
+
     it('is empty for equal sets', () => {
         expect(parityErrors(new Set(['a']), new Set(['a']))).toEqual([]);
     });
@@ -49,6 +59,11 @@ describe('usedKeys and unknownKeyErrors', () => {
         expect(unknownKeyErrors(text, 'App.tsx', known)).toEqual([
             'src/App.tsx: key missing.key not in ro.json',
         ]);
+    });
+
+    it('accepts a plural key used without suffix', () => {
+        const known = new Set(['nav.preview', 'settings.title', 'missing.key_one', 'missing.key_other']);
+        expect(unknownKeyErrors(text, 'App.tsx', known)).toEqual([]);
     });
 });
 

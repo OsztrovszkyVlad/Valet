@@ -1,6 +1,7 @@
 // Typed client for the Tauri commands. New UI code calls these, not `invoke`.
 // Field names match the serde output of the Rust side.
 import { invoke } from '@tauri-apps/api/core';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 /** `valet_core::planner::SkipReason`, serialized camelCase. */
 export type SkipReason =
@@ -20,7 +21,19 @@ export interface PlannedOperation {
     source_path: string;
     destination_path: string;
     rule_name: string;
-    operation: 'move' | 'copy';
+    /** `trash` has an empty `destination_path`. */
+    operation: 'move' | 'copy' | 'trash';
+}
+
+/** A file (or empty folder) a `report` rule matched, or the copy a duplicate + trash rule keeps. */
+export interface ReportEntry {
+    path: string;
+    rule_id: string;
+    rule_name: string;
+    /** Bytes. */
+    size: number;
+    /** Duplicate group id (short content hash); null outside duplicate rules. */
+    group: string | null;
 }
 
 export interface SkippedFile {
@@ -36,6 +49,8 @@ export interface DryRunResponse {
     total_files: number;
     total_rules_applied: number;
     skipped: SkippedFile[];
+    /** Not operations: nothing happens to these files. */
+    reports: ReportEntry[];
     /** Id of the stored preview; `executeOperations` needs it. Single use. */
     plan_id: string;
 }
@@ -163,6 +178,11 @@ export function dryRun(): Promise<DryRunResponse> {
     return invoke<DryRunResponse>('dry_run');
 }
 
+/** The user left the Preview without executing it; the stored plan is dropped. */
+export function closePreview(): Promise<void> {
+    return invoke<void>('close_preview');
+}
+
 /** Runs the plan returned by the last `dryRun`. Rejects with `PREVIEW_REQUIRED` otherwise. */
 export function executeOperations(planId: string): Promise<ExecuteResponse> {
     return invoke<ExecuteResponse>('execute_operations', { planId });
@@ -270,24 +290,121 @@ export function errorMessage(err: unknown): string {
     return String(err);
 }
 
-/**
- * Temporary: the shape the Phase 1 RulesView sends. It does not match
- * `valet_core::rules::Rule`; the F1 Rules editor replaces it.
- */
-export interface LegacyRule {
-    id?: number;
+// ---------------------------------------------------------------- rules
+
+/** Condition types `upsert_rule` accepts (A1 schema in `src-tauri/src/commands/rules.rs`). */
+export const CONDITION_TYPES = [
+    'ext',
+    'extIn',
+    'extNotIn',
+    'typeGroup',
+    'nameContains',
+    'nameMatches',
+    'pathContains',
+    'sizeGt',
+    'sizeLt',
+    'modifiedOlderThanDays',
+    'createdOlderThanDays',
+    'emptyFolder',
+    'duplicate',
+] as const;
+export type ConditionType = (typeof CONDITION_TYPES)[number];
+
+export const TYPE_GROUPS = ['image', 'document', 'archive', 'installer', 'video', 'audio', 'code'] as const;
+export type TypeGroup = (typeof TYPE_GROUPS)[number];
+
+export const ACTION_TYPES = ['moveTo', 'copyTo', 'trash', 'report'] as const;
+export type ActionType = (typeof ACTION_TYPES)[number];
+
+export interface RuleCondition {
+    type: string;
+    value: unknown;
+}
+
+export interface RuleAction {
+    type: string;
+    /** `{ path }` for `moveTo`/`copyTo`; absent, null or `{}` otherwise. */
+    params?: unknown;
+}
+
+/** `valet_core::rules::Rule` as JSON. */
+export interface Rule {
+    /** UUID; the UI generates it for new rules. */
+    id: string;
     name: string;
-    pattern: string;
-    destination: string;
     enabled: boolean;
-    created_at?: string;
-    updated_at?: string;
+    alwaysApply: boolean;
+    conditions: RuleCondition[];
+    actions: RuleAction[];
+    /** Set by `upsert_rule`. */
+    version: number;
+    /** `includeHidden`, `topLevelOnly`; other keys are kept. Null when the rule has none. */
+    options: Record<string, unknown> | null;
+    /** Watched folders the rule applies to; empty: all. */
+    scope: string[];
 }
 
-export function getRulesLegacy(): Promise<LegacyRule[]> {
-    return invoke<LegacyRule[]>('get_rules');
+export function getRules(): Promise<Rule[]> {
+    return invoke<Rule[]>('get_rules');
 }
 
-export function upsertRuleLegacy(rule: LegacyRule): Promise<LegacyRule> {
-    return invoke<LegacyRule>('upsert_rule', { rule });
+/** Validates and stores the rule. Rejects with a `rule.*` code. */
+export function upsertRule(rule: Rule): Promise<Rule> {
+    return invoke<Rule>('upsert_rule', { rule });
+}
+
+/** Removes the rule; no file is touched. Rejects with `rule.notFound` or `rule.storage`. */
+export function deleteRule(ruleId: string): Promise<void> {
+    return invoke<void>('delete_rule', { ruleId });
+}
+
+// ---------------------------------------------------------------- presets and onboarding
+
+/** One shipped preset, localized by the saved language. */
+export interface Preset {
+    id: string;
+    name: string;
+    description: string;
+    displayOrder: number;
+    defaultChecked: boolean;
+    defaultScope: string[];
+    ruleCount: number;
+    actions: ActionType[];
+}
+
+export function listPresets(): Promise<Preset[]> {
+    return invoke<Preset[]>('list_presets');
+}
+
+export function installPresets(presetIds: string[]): Promise<Rule[]> {
+    return invoke<Rule[]>('install_presets', { presetIds });
+}
+
+export interface OnboardingResult {
+    config: Config;
+    rules: Rule[];
+}
+
+/**
+ * Saves the watched folders (tokens such as `{downloads}` are expanded by the
+ * backend), installs the presets and marks onboarding done. Rejects with the
+ * same `config.*` codes as `saveConfig`.
+ */
+export function completeOnboarding(folders: string[], presetIds: string[]): Promise<OnboardingResult> {
+    return invoke<OnboardingResult>('complete_onboarding', { folders, presetIds });
+}
+
+// ---------------------------------------------------------------- events
+
+/** Payload of the `batch-finished` event, sent after every batch (manual or auto-apply). */
+export interface BatchFinished {
+    batch_id: string;
+    done: number;
+    failed: number;
+    /** True for batches the watcher ran (auto-apply). */
+    auto: boolean;
+}
+
+export function onBatchFinished(handler: (event: BatchFinished) => void): Promise<UnlistenFn> {
+    return listen<BatchFinished>('batch-finished', (e) => handler(e.payload));
 }

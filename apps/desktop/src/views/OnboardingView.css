@@ -1,0 +1,89 @@
+.onboarding {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem;
+    height: 100vh;
+    overflow-y: auto;
+    color: #1f2937;
+    background: #fafafa;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+}
+
+.onboarding-app {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 600;
+}
+
+.onboarding-step {
+    margin: 0.25rem 0 1.5rem;
+    color: #6b7280;
+    font-size: 0.85rem;
+}
+
+.onboarding-folders {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin: 1.25rem 0;
+}
+
+.onboarding-add label {
+    display: block;
+    font-weight: 500;
+    font-size: 0.875rem;
+    margin-bottom: 0.4rem;
+}
+
+.onboarding-add-row {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.onboarding-buttons {
+    display: flex;
+    gap: 0.75rem;
+    justify-content: flex-end;
+    margin-top: 1.5rem;
+}
+
+.preset-list {
+    list-style: none;
+    margin: 1.25rem 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.preset-item {
+    background: white;
+    border: 1px solid #e1e5e9;
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+}
+
+.preset-item .checkbox-label {
+    display: inline-flex !important;
+    margin-right: 0.5rem;
+}
+
+.preset-item .badge {
+    margin-right: 0.35rem;
+}
+
+.preset-name {
+    font-weight: 600;
+}
+
+.preset-description {
+    margin: 0.35rem 0 0 1.6rem;
+    color: #374151;
+    font-size: 0.875rem;
+}
+
+.preset-meta {
+    margin: 0.2rem 0 0 1.6rem;
+    color: #6b7280;
+    font-size: 0.75rem;
+}

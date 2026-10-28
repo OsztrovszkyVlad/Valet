@@ -107,7 +107,12 @@ const HistoryView: React.FC<HistoryViewProps> = ({ onBatchUndone, reloadToken })
 
             {error && <p className="history-error">{error}</p>}
             {loading && <p>{t('common.loading')}</p>}
-            {!loading && !error && batches.length === 0 && <p>{t('history.empty')}</p>}
+            {!loading && !error && batches.length === 0 && (
+                <div className="empty-state">
+                    <h3>{t('history.emptyTitle')}</h3>
+                    <p>{t('history.emptyText')}</p>
+                </div>
+            )}
 
             {batches.length > 0 && (
                 <div className="results-table-container history-list">

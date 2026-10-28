@@ -7,6 +7,8 @@ import './LastBatchBox.css';
 export interface LastBatch {
     id: string;
     createdAt: string;
+    /** Run by auto-apply rather than from the Preview. */
+    auto?: boolean;
 }
 
 interface LastBatchBoxProps {
@@ -26,6 +28,7 @@ const LastBatchBox: React.FC<LastBatchBoxProps> = ({ batch, canUndo, onUndoRan, 
             <h2 className="last-batch-title">{t('lastBatch.title')}</h2>
             <p className="last-batch-date">
                 {t('lastBatch.startedAt', { date: formatDateTime(batch.createdAt) })}
+                {batch.auto && <span className="last-batch-auto">{t('lastBatch.auto')}</span>}
             </p>
             <UndoPanel
                 key={batch.id}

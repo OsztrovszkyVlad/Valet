@@ -402,3 +402,54 @@
     align-items: center;
     gap: 0.75rem;
 }
+
+.trash-badge {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    background: #fee2e2;
+    color: #991b1b;
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+
+.preview-intro p {
+    margin: 0.25rem 0 0;
+}
+
+.reports {
+    background: white;
+    border: 1px solid #e1e5e9;
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+}
+
+.report-group h4 {
+    margin: 1rem 0 0.5rem;
+    color: #1f2937;
+}
+
+.report-size {
+    white-space: nowrap;
+}
+
+.duplicate-group h5 {
+    margin: 0.75rem 0 0.25rem;
+    font-size: 0.85rem;
+    color: #374151;
+}
+
+.duplicate-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.duplicate-list li {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}

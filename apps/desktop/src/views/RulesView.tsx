@@ -1,258 +1,221 @@
-// Temporary (Phase 1 form): it sends a rule shape the backend does not accept.
-// The F1 Rules editor replaces this file.
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-    errorMessage,
-    getRulesLegacy,
-    upsertRuleLegacy,
-    type LegacyRule,
-} from '../api/commands';
+import { deleteRule, errorMessage, getConfig, getRules, upsertRule, type Rule } from '../api/commands';
+import RuleEditor from '../components/RuleEditor';
+import { commandErrorMessage, commandErrorText } from '../i18n/format';
+import { newDraft, presetIdOf, ruleToDraft, type RuleDraft } from '../rules/model';
+import { displayPath, ruleSummary } from '../rules/summary';
 import './RulesView.css';
 
-interface RuleForm {
-    name: string;
-    pattern: string;
-    destination: string;
-    enabled: boolean;
-}
+type Editing = { draft: RuleDraft; isNew: boolean } | null;
 
-const EMPTY_FORM: RuleForm = { name: '', pattern: '', destination: '', enabled: true };
-
+/** List of rules with on/off, summary, edit and delete. Rules never touch files by themselves. */
 const RulesView: React.FC = () => {
-    const { t } = useTranslation();
-    const [rules, setRules] = useState<LegacyRule[]>([]);
+    const { t, i18n } = useTranslation();
+    const [rules, setRules] = useState<Rule[]>([]);
+    const [folders, setFolders] = useState<string[]>([]);
     const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [showForm, setShowForm] = useState(false);
-    const [editingRule, setEditingRule] = useState<LegacyRule | null>(null);
-    const [formData, setFormData] = useState<RuleForm>(EMPTY_FORM);
+    const [loadError, setLoadError] = useState('');
+    const [error, setError] = useState('');
+    const [notice, setNotice] = useState('');
+    const [editing, setEditing] = useState<Editing>(null);
+    const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+    const [busy, setBusy] = useState(false);
 
-    const loadRules = useCallback(async () => {
+    const load = useCallback(async () => {
+        setLoading(true);
         try {
-            setLoading(true);
-            setRules(await getRulesLegacy());
-            setError(null);
+            setRules(await getRules());
+            setLoadError('');
         } catch (err) {
-            setError(t('rulesLegacy.loadFailed', { message: errorMessage(err) }));
+            setLoadError(t('rules.loadFailed', { message: commandErrorMessage(t, err) }));
         } finally {
             setLoading(false);
+        }
+        try {
+            setFolders((await getConfig()).inbox_paths);
+        } catch (err) {
+            console.error('Failed to read config:', errorMessage(err));
         }
     }, [t]);
 
     useEffect(() => {
-        void loadRules();
-    }, [loadRules]);
+        void load();
+    }, [load]);
 
-    const closeForm = () => {
-        setShowForm(false);
-        setEditingRule(null);
-        setFormData(EMPTY_FORM);
+    const startNew = () => {
+        setNotice('');
+        setError('');
+        setEditing({ draft: newDraft(crypto.randomUUID()), isNew: true });
     };
 
-    const saveRule = async () => {
+    const startEdit = (rule: Rule) => {
+        setNotice('');
+        setError('');
+        const draft = ruleToDraft(rule);
+        if (draft === null) {
+            setError(t('rules.notEditable'));
+            return;
+        }
+        setEditing({ draft, isNew: false });
+    };
+
+    const onSaved = (saved: Rule, isNew: boolean) => {
+        setRules((list) => (isNew ? [...list, saved] : list.map((r) => (r.id === saved.id ? saved : r))));
+        setEditing(null);
+        setNotice(isNew ? t('rules.savedNew') : t('rules.savedEdit'));
+    };
+
+    const toggle = async (rule: Rule, enabled: boolean) => {
+        setError('');
+        setNotice('');
+        setBusy(true);
         try {
-            await upsertRuleLegacy({ ...formData, id: editingRule?.id });
-            await loadRules();
-            closeForm();
-            setError(null);
+            const saved = await upsertRule({ ...rule, enabled });
+            setRules((list) => list.map((r) => (r.id === saved.id ? saved : r)));
+            if (enabled) setNotice(t('rules.savedEdit'));
         } catch (err) {
-            setError(t('rulesLegacy.saveFailed', { message: errorMessage(err) }));
+            setError(commandErrorText(t, err));
+        } finally {
+            setBusy(false);
         }
     };
 
-    const openNewForm = () => {
-        setFormData(EMPTY_FORM);
-        setEditingRule(null);
-        setShowForm(true);
-    };
-
-    const openEditForm = (rule: LegacyRule) => {
-        setFormData({
-            name: rule.name,
-            pattern: rule.pattern,
-            destination: rule.destination,
-            enabled: rule.enabled,
-        });
-        setEditingRule(rule);
-        setShowForm(true);
-    };
-
-    const toggleRule = async (rule: LegacyRule) => {
+    const remove = async (rule: Rule) => {
+        setError('');
+        setNotice('');
+        setBusy(true);
         try {
-            await upsertRuleLegacy({ ...rule, enabled: !rule.enabled });
-            await loadRules();
+            await deleteRule(rule.id);
+            setRules((list) => list.filter((r) => r.id !== rule.id));
+            setNotice(t('rules.deleted'));
         } catch (err) {
-            setError(t('rulesLegacy.saveFailed', { message: errorMessage(err) }));
+            setError(commandErrorText(t, err));
+            if (err === 'rule.notFound') void load();
+        } finally {
+            setConfirmDelete(null);
+            setBusy(false);
         }
     };
+
+    if (editing !== null) {
+        return (
+            <div className="rules-view">
+                <RuleEditor
+                    initial={editing.draft}
+                    isNew={editing.isNew}
+                    folders={folders}
+                    onSaved={onSaved}
+                    onCancel={() => setEditing(null)}
+                />
+            </div>
+        );
+    }
 
     return (
         <div className="rules-view">
-            <div className="view-header">
-                <div className="header-left">
-                    <h2 className="view-title">{t('rulesLegacy.title')}</h2>
-                    <p className="view-description">{t('rulesLegacy.description')}</p>
+            <div className="view-header rules-header">
+                <div>
+                    <h2 className="view-title">{t('rules.title')}</h2>
+                    <p className="view-description">{t('rules.description')}</p>
                 </div>
-                <div className="header-actions">
-                    <button className="btn-primary" onClick={openNewForm} disabled={loading}>
-                        {t('rulesLegacy.add')}
-                    </button>
-                    <button className="btn-secondary" onClick={() => void loadRules()} disabled={loading}>
-                        {t('common.refresh')}
-                    </button>
-                </div>
+                <button className="btn-primary" onClick={startNew}>
+                    {t('rules.add')}
+                </button>
             </div>
 
+            {loadError && (
+                <div className="error-message" role="alert">
+                    {loadError}
+                </div>
+            )}
             {error && (
                 <div className="error-message" role="alert">
                     {error}
-                    <button className="error-close" onClick={() => setError(null)} aria-label={t('common.close')}>
+                    <button className="error-close" onClick={() => setError('')} aria-label={t('common.close')}>
+                        ×
+                    </button>
+                </div>
+            )}
+            {notice && (
+                <div className="notice-message" role="status">
+                    {notice}
+                    <button className="error-close" onClick={() => setNotice('')} aria-label={t('common.close')}>
                         ×
                     </button>
                 </div>
             )}
 
-            <div className="view-content">
-                {loading ? (
-                    <div className="loading-state">
-                        <p>{t('common.loading')}</p>
-                    </div>
-                ) : rules.length === 0 ? (
-                    <div className="empty-state">
-                        <h3>{t('rulesLegacy.emptyTitle')}</h3>
-                        <p>{t('rulesLegacy.emptyText')}</p>
-                        <button className="btn-primary" onClick={openNewForm}>
-                            {t('rulesLegacy.add')}
-                        </button>
-                    </div>
-                ) : (
-                    <div className="rules-table-container">
-                        <table className="rules-table">
-                            <thead>
-                                <tr>
-                                    <th>{t('rulesLegacy.colStatus')}</th>
-                                    <th>{t('rulesLegacy.colName')}</th>
-                                    <th>{t('rulesLegacy.colPattern')}</th>
-                                    <th>{t('rulesLegacy.colDestination')}</th>
-                                    <th>{t('rulesLegacy.colCreated')}</th>
-                                    <th>{t('rulesLegacy.colActions')}</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {rules.map((rule, index) => (
-                                    <tr
-                                        key={rule.id ?? index}
-                                        className={rule.enabled ? 'rule-enabled' : 'rule-disabled'}
-                                    >
-                                        <td>
-                                            <button
-                                                className={`toggle-btn ${rule.enabled ? 'enabled' : 'disabled'}`}
-                                                onClick={() => void toggleRule(rule)}
-                                                title={rule.enabled ? t('rulesLegacy.disable') : t('rulesLegacy.enable')}
-                                            >
-                                                {rule.enabled ? t('rulesLegacy.on') : t('rulesLegacy.off')}
-                                            </button>
-                                        </td>
-                                        <td className="rule-name">{rule.name}</td>
-                                        <td className="rule-pattern">
-                                            <code>{rule.pattern}</code>
-                                        </td>
-                                        <td className="rule-destination">
-                                            <span className="path">{rule.destination}</span>
-                                        </td>
-                                        <td className="rule-date">
-                                            {rule.created_at ? new Date(rule.created_at).toLocaleDateString() : ''}
-                                        </td>
-                                        <td className="rule-actions">
-                                            <button className="btn-small btn-edit" onClick={() => openEditForm(rule)}>
-                                                {t('rulesLegacy.edit')}
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                )}
-            </div>
+            {loading && <p>{t('common.loading')}</p>}
 
-            {showForm && (
-                <div className="modal-overlay">
-                    <div className="modal-content" role="dialog" aria-modal="true">
-                        <div className="modal-header">
-                            <h3>{editingRule ? t('rulesLegacy.formEditTitle') : t('rulesLegacy.formNewTitle')}</h3>
-                            <button className="modal-close" onClick={closeForm} aria-label={t('common.close')}>
-                                ×
-                            </button>
-                        </div>
-
-                        <div className="modal-body">
-                            <div className="form-group">
-                                <label htmlFor="rule-name">{t('rulesLegacy.name')}</label>
-                                <input
-                                    id="rule-name"
-                                    type="text"
-                                    value={formData.name}
-                                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                                    placeholder={t('rulesLegacy.namePlaceholder')}
-                                    className="form-input"
-                                />
-                            </div>
-
-                            <div className="form-group">
-                                <label htmlFor="rule-pattern">{t('rulesLegacy.pattern')}</label>
-                                <input
-                                    id="rule-pattern"
-                                    type="text"
-                                    value={formData.pattern}
-                                    onChange={(e) => setFormData({ ...formData, pattern: e.target.value })}
-                                    placeholder={t('rulesLegacy.patternPlaceholder')}
-                                    className="form-input"
-                                />
-                                <small className="form-help">{t('rulesLegacy.patternHelp')}</small>
-                            </div>
-
-                            <div className="form-group">
-                                <label htmlFor="rule-destination">{t('rulesLegacy.destination')}</label>
-                                <input
-                                    id="rule-destination"
-                                    type="text"
-                                    value={formData.destination}
-                                    onChange={(e) => setFormData({ ...formData, destination: e.target.value })}
-                                    placeholder={t('rulesLegacy.destinationPlaceholder')}
-                                    className="form-input"
-                                />
-                                <small className="form-help">{t('rulesLegacy.destinationHelp')}</small>
-                            </div>
-
-                            <div className="form-group">
-                                <label className="checkbox-label">
-                                    <input
-                                        type="checkbox"
-                                        checked={formData.enabled}
-                                        onChange={(e) => setFormData({ ...formData, enabled: e.target.checked })}
-                                        className="form-checkbox"
-                                    />
-                                    <span className="checkbox-text">{t('rulesLegacy.enabledNow')}</span>
-                                </label>
-                            </div>
-                        </div>
-
-                        <div className="modal-footer">
-                            <button className="btn-secondary" onClick={closeForm}>
-                                {t('common.cancel')}
-                            </button>
-                            <button
-                                className="btn-primary"
-                                onClick={() => void saveRule()}
-                                disabled={!formData.name || !formData.pattern || !formData.destination}
-                            >
-                                {editingRule ? t('common.save') : t('rulesLegacy.create')}
-                            </button>
-                        </div>
-                    </div>
+            {!loading && !loadError && rules.length === 0 && (
+                <div className="empty-state">
+                    <h3>{t('rules.emptyTitle')}</h3>
+                    <p>{t('rules.emptyText')}</p>
+                    <button className="btn-primary" onClick={startNew}>
+                        {t('rules.add')}
+                    </button>
                 </div>
+            )}
+
+            {rules.length > 0 && (
+                <ul className="rule-list">
+                    {rules.map((rule) => (
+                        <li key={rule.id} className={rule.enabled ? 'rule-card' : 'rule-card rule-off'}>
+                            <label className="rule-toggle">
+                                <input
+                                    type="checkbox"
+                                    checked={rule.enabled}
+                                    disabled={busy}
+                                    aria-label={t('rules.toggleLabel', { name: rule.name })}
+                                    onChange={(e) => void toggle(rule, e.target.checked)}
+                                />
+                                <span aria-hidden="true">{t('rules.enabled')}</span>
+                            </label>
+                            <div className="rule-main">
+                                <div className="rule-title">
+                                    <span className="rule-name">{rule.name}</span>
+                                    {presetIdOf(rule) !== null && <span className="rule-preset">{t('rules.preset')}</span>}
+                                </div>
+                                <p className="rule-summary">{ruleSummary(t, rule, i18n.language)}</p>
+                                <p className="rule-scope">
+                                    {rule.scope.length === 0
+                                        ? t('rules.scopeAll')
+                                        : t('rules.scopeIn', {
+                                              folders: rule.scope.map((s) => displayPath(t, s)).join(', '),
+                                          })}
+                                </p>
+                                {confirmDelete === rule.id && (
+                                    <div className="rule-confirm" role="alertdialog" aria-label={t('rules.deleteYes')}>
+                                        <p>{t('rules.deleteConfirm', { name: rule.name })}</p>
+                                        <button className="btn-danger" disabled={busy} onClick={() => void remove(rule)}>
+                                            {t('rules.deleteYes')}
+                                        </button>
+                                        <button
+                                            className="btn-secondary"
+                                            disabled={busy}
+                                            onClick={() => setConfirmDelete(null)}
+                                        >
+                                            {t('common.cancel')}
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                            <div className="rule-buttons">
+                                <button className="btn-secondary" disabled={busy} onClick={() => startEdit(rule)}>
+                                    {t('rules.edit')}
+                                </button>
+                                <button
+                                    className="btn-secondary"
+                                    disabled={busy}
+                                    onClick={() => setConfirmDelete(rule.id)}
+                                >
+                                    {t('rules.delete')}
+                                </button>
+                            </div>
+                        </li>
+                    ))}
+                </ul>
             )}
         </div>
     );

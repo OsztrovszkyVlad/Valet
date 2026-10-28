@@ -35,17 +35,26 @@ export function opErrorText(t: TFunction, error: OpError): string {
 }
 
 /**
- * Text for a rejected command. Codes with an entry under `backendError`
- * (for example `config.driveRoot`) are translated; anything else is shown
- * as the backend sent it.
+ * The translated label for a rejected command whose code has an entry under
+ * `backendError` (for example `config.driveRoot`), with its detail; the text
+ * as the backend sent it otherwise.
  */
-export function commandErrorText(t: TFunction, err: unknown): string {
+export function commandErrorMessage(t: TFunction, err: unknown): string {
     const parsed = parseCommandError(err);
     if (parsed !== null) {
         const label = t(`backendError.${parsed.code}`, { defaultValue: '' });
         if (label !== '') {
             return parsed.detail ? `${label} (${parsed.detail})` : label;
         }
+    }
+    return errorMessage(err);
+}
+
+/** Like `commandErrorMessage`, with untranslated text prefixed by "Eroare:". */
+export function commandErrorText(t: TFunction, err: unknown): string {
+    const parsed = parseCommandError(err);
+    if (parsed !== null && t(`backendError.${parsed.code}`, { defaultValue: '' }) !== '') {
+        return commandErrorMessage(t, err);
     }
     return t('common.error', { message: errorMessage(err) });
 }
@@ -60,4 +69,18 @@ export function skipReasonText(t: TFunction, skipped: SkippedFile): string {
     return t(`skipReason.${skipped.reason}`, {
         defaultValue: t('skipReason.unknown', { reason: skipped.reason }),
     });
+}
+
+const BYTE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB'] as const;
+
+/** `1073741824` → `1 GB`; one decimal at most, in the given locale. */
+export function formatBytes(bytes: number, lng?: string): string {
+    let value = bytes;
+    let unit = 0;
+    while (value >= 1024 && unit < BYTE_UNITS.length - 1) {
+        value /= 1024;
+        unit += 1;
+    }
+    const n = new Intl.NumberFormat(lng, { maximumFractionDigits: unit === 0 ? 0 : 1 }).format(value);
+    return `${n} ${BYTE_UNITS[unit]}`;
 }

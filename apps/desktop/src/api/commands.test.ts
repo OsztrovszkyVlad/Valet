@@ -1,7 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import {
+    closePreview,
+    completeOnboarding,
     configureAutoStart,
+    deleteRule,
+    getRules,
+    installPresets,
+    listPresets,
+    upsertRule,
     errorMessage,
     executeOperations,
     getAppSettings,
@@ -66,6 +73,38 @@ describe('command wrappers', () => {
         expect(invokeMock).toHaveBeenLastCalledWith('get_app_settings');
         await getConfig();
         expect(invokeMock).toHaveBeenLastCalledWith('get_config');
+    });
+
+    it('call the rule, preset and onboarding commands with their argument names', async () => {
+        await getRules();
+        expect(invokeMock).toHaveBeenLastCalledWith('get_rules');
+        const rule = {
+            id: 'id-1',
+            name: 'r',
+            enabled: true,
+            alwaysApply: false,
+            conditions: [{ type: 'ext', value: 'pdf' }],
+            actions: [{ type: 'report', params: {} }],
+            version: 1,
+            options: {},
+            scope: [],
+        };
+        await upsertRule(rule);
+        expect(invokeMock).toHaveBeenLastCalledWith('upsert_rule', { rule });
+        await deleteRule('id-1');
+        expect(invokeMock).toHaveBeenLastCalledWith('delete_rule', { ruleId: 'id-1' });
+
+        await listPresets();
+        expect(invokeMock).toHaveBeenLastCalledWith('list_presets');
+        await installPresets(['a', 'b']);
+        expect(invokeMock).toHaveBeenLastCalledWith('install_presets', { presetIds: ['a', 'b'] });
+        await completeOnboarding(['{downloads}'], ['a']);
+        expect(invokeMock).toHaveBeenLastCalledWith('complete_onboarding', {
+            folders: ['{downloads}'],
+            presetIds: ['a'],
+        });
+        await closePreview();
+        expect(invokeMock).toHaveBeenLastCalledWith('close_preview');
     });
 
     it('pass rejections through unchanged', async () => {
