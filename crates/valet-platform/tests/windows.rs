@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use valet_platform::{
     can_trash, is_cloud_placeholder, is_hidden_or_system, is_locked, is_reparse_point,
-    rename_no_replace, same_volume, to_long_path, trash_path,
+    rename_no_replace, restore_from_trash, same_volume, to_long_path, trash_path,
 };
 use windows_sys::Win32::Storage::FileSystem::{
     FILE_ATTRIBUTE_HIDDEN, FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_OFFLINE, FILE_ATTRIBUTE_SYSTEM,
@@ -214,6 +214,47 @@ fn trash_long_path_never_loses_the_file_silently() {
         Err(e) => {
             eprintln!("trash_path on a long path returned an error: {e}");
             assert!(std::fs::symlink_metadata(to_long_path(&f)).is_ok());
+        }
+    }
+}
+
+#[test]
+fn restore_matches_location_ignoring_case_and_separators() {
+    let dir = tempfile::tempdir().unwrap();
+    let sub = dir.path().join("Restore Case");
+    std::fs::create_dir(&sub).unwrap();
+    let f = sub.join("Doc.txt");
+    std::fs::write(&f, b"case").unwrap();
+    let before = std::time::SystemTime::now();
+    trash_path(&f).unwrap();
+
+    let other_form = PathBuf::from(
+        f.to_string_lossy()
+            .replace("Restore Case", "restore case")
+            .replace('\\', "/"),
+    );
+    restore_from_trash(&other_form, before).unwrap();
+    assert_eq!(std::fs::read(&f).unwrap(), b"case");
+}
+
+#[test]
+fn restore_long_path_never_loses_the_file_silently() {
+    let dir = tempfile::tempdir().unwrap();
+    let deep = deep_dir(dir.path());
+    let f = deep.join("restore-me.txt");
+    std::fs::write(to_long_path(&f), b"x").unwrap();
+    let before = std::time::SystemTime::now();
+    if let Err(e) = trash_path(&f) {
+        eprintln!("trash_path on a long path returned an error: {e}");
+        return;
+    }
+    // The shell may refuse to restore paths over 260 characters. Ok means
+    // "back here"; Err means "not here" (still in the bin).
+    match restore_from_trash(&f, before) {
+        Ok(()) => assert_eq!(std::fs::read(to_long_path(&f)).unwrap(), b"x"),
+        Err(e) => {
+            eprintln!("restore_from_trash on a long path returned an error: {e}");
+            assert!(std::fs::symlink_metadata(to_long_path(&f)).is_err());
         }
     }
 }
