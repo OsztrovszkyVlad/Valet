@@ -38,6 +38,10 @@ use crate::{
 
 mod recover;
 pub use recover::{RecoveryDecision, RecoveryReport, recover};
+mod undo;
+pub use undo::{
+    ConfirmReason, NeedsConfirmation, Restored, SkippedOp, UndoFailure, UndoReport, undo_batch,
+};
 
 /// Environment variable read by the fault-injection test hook (milliseconds).
 pub const FAULT_SLOW_ENV: &str = "VALET_FAULT_SLOW_MS";

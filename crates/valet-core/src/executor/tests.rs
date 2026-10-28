@@ -751,3 +751,281 @@ async fn recover_leaves_every_moved_file_exactly_once() {
     assert!(temp_files(&env.path("out")).is_empty());
     assert!(env.journal.unfinished_ops().await.unwrap().is_empty());
 }
+
+// ---------------------------------------------------------------- undo
+
+/// A small tree under `root/in` plus an unrelated file already in `root/out`.
+fn undo_fixture(env: &Env) -> (PathBuf, Vec<PlannedOp>) {
+    let root = env.path("root");
+    write(&root.join("out/existing.txt"), b"was here before");
+    let files: &[(&str, &str, OpKind, &[u8])] = &[
+        ("in/a.pdf", "out/docs/a.pdf", OpKind::Move, b"pdf bytes"),
+        ("in/sub/b.jpg", "out/img/b.jpg", OpKind::Move, b"jpg bytes"),
+        ("in/c.txt", "out/copies/c.txt", OpKind::Copy, b"text"),
+        ("in/sub/deep/d.zip", "out/z/d.zip", OpKind::Move, b"zip"),
+    ];
+    let ops = files
+        .iter()
+        .map(|(src, dest, kind, body)| {
+            let s = root.join(src);
+            write(&s, body);
+            planned(&s, &root.join(dest), *kind)
+        })
+        .collect();
+    (root, ops)
+}
+
+#[tokio::test]
+async fn undo_restores_byte_identical_tree() {
+    for same_volume in [true, false] {
+        let env = Env::new().await;
+        let (root, ops) = undo_fixture(&env);
+        let before = tree(&root);
+        let mut p = env.fake();
+        p.same_volume = same_volume;
+
+        let rep = execute(&ops, &env.journal, &p).await.unwrap();
+        assert_eq!(rep.failed_count(), 0);
+        assert_ne!(tree(&root), before);
+
+        let u = undo_batch(&rep.batch_id, &env.journal, &p, false)
+            .await
+            .unwrap();
+        assert_eq!(u.undone.len(), 4, "{same_volume}");
+        assert!(u.needs_confirmation.is_empty() && u.failed.is_empty() && u.skipped.is_empty());
+        assert_eq!(tree(&root), before, "same_volume={same_volume}");
+
+        // Undone last-first; originals rolled back, undo ops point at them.
+        let ids: Vec<i64> = rep.results.iter().rev().map(|r| r.op_id).collect();
+        assert_eq!(u.undone, ids);
+        for r in &rep.results {
+            assert_eq!(env.op(r.op_id).await.state, OpState::RolledBack);
+        }
+        let ub = u.undo_batch_id.unwrap();
+        let undo_ops = env.journal.list_ops(&ub).await.unwrap();
+        assert_eq!(
+            undo_ops
+                .iter()
+                .map(|o| o.undo_of.unwrap())
+                .collect::<Vec<_>>(),
+            ids
+        );
+        assert!(undo_ops.iter().all(|o| o.state == OpState::Done));
+        assert_eq!(
+            env.journal.get_batch(&ub).await.unwrap().unwrap().kind,
+            BatchKind::Undo
+        );
+        // The copy was undone through the Recycle Bin, not deleted.
+        assert!(trashed(&env).contains(&b"text".to_vec()));
+
+        // A second undo finds nothing left to do and opens no batch.
+        let again = undo_batch(&rep.batch_id, &env.journal, &p, false)
+            .await
+            .unwrap();
+        assert!(again.undone.is_empty() && again.undo_batch_id.is_none());
+        assert_eq!(again.skipped.len(), 4);
+    }
+}
+
+#[tokio::test]
+async fn undo_with_modified_destination_needs_confirmation() {
+    let env = Env::new().await;
+    let src = env.path("in/m.txt");
+    let dest = env.path("out/m.txt");
+    write(&src, b"original");
+    let p = env.fake();
+    let rep = execute(&[planned(&src, &dest, OpKind::Move)], &env.journal, &p)
+        .await
+        .unwrap();
+    fs::write(&dest, b"user edited").unwrap();
+
+    let u = undo_batch(&rep.batch_id, &env.journal, &p, false)
+        .await
+        .unwrap();
+    assert!(u.undone.is_empty());
+    assert_eq!(u.needs_confirmation.len(), 1);
+    assert_eq!(
+        u.needs_confirmation[0].reasons,
+        vec![ConfirmReason::Modified]
+    );
+    assert_eq!(fs::read(&dest).unwrap(), b"user edited");
+    assert!(!src.exists());
+    assert!(u.undo_batch_id.is_none());
+    assert_eq!(env.op(rep.results[0].op_id).await.state, OpState::Done);
+
+    let forced = undo_batch(&rep.batch_id, &env.journal, &p, true)
+        .await
+        .unwrap();
+    assert_eq!(forced.undone, vec![rep.results[0].op_id]);
+    assert_eq!(fs::read(&src).unwrap(), b"user edited");
+    assert!(!dest.exists());
+}
+
+#[tokio::test]
+async fn undo_with_occupied_source_needs_confirmation() {
+    let env = Env::new().await;
+    let src = env.path("in/o.txt");
+    let dest = env.path("out/o.txt");
+    write(&src, b"moved away");
+    let p = env.fake();
+    let rep = execute(&[planned(&src, &dest, OpKind::Move)], &env.journal, &p)
+        .await
+        .unwrap();
+    write(&src, b"new file, same name");
+
+    let u = undo_batch(&rep.batch_id, &env.journal, &p, false)
+        .await
+        .unwrap();
+    assert_eq!(
+        u.needs_confirmation[0].reasons,
+        vec![ConfirmReason::SourceOccupied]
+    );
+    assert_eq!(fs::read(&src).unwrap(), b"new file, same name");
+    assert_eq!(fs::read(&dest).unwrap(), b"moved away");
+
+    // Confirmed: restored beside it, never over it.
+    let forced = undo_batch(&rep.batch_id, &env.journal, &p, true)
+        .await
+        .unwrap();
+    let beside = env.path("in/o (2).txt");
+    assert_eq!(
+        forced.restored_as,
+        vec![Restored {
+            op_id: rep.results[0].op_id,
+            path: beside.clone()
+        }]
+    );
+    assert_eq!(fs::read(&src).unwrap(), b"new file, same name");
+    assert_eq!(fs::read(&beside).unwrap(), b"moved away");
+    assert!(!dest.exists());
+}
+
+#[tokio::test]
+async fn undo_skips_failed_ops_and_lists_them() {
+    let env = Env::new().await;
+    let ok = env.path("in/ok.txt");
+    let locked = env.path("in/locked.txt");
+    write(&ok, b"ok");
+    write(&locked, b"locked");
+    let mut p = env.fake();
+    p.locked.insert(locked.clone());
+    let rep = execute(
+        &[
+            planned(&ok, &env.path("out/ok.txt"), OpKind::Move),
+            planned(&locked, &env.path("out/locked.txt"), OpKind::Move),
+        ],
+        &env.journal,
+        &p,
+    )
+    .await
+    .unwrap();
+
+    let u = undo_batch(&rep.batch_id, &env.journal, &p, false)
+        .await
+        .unwrap();
+    assert_eq!(u.undone, vec![rep.results[0].op_id]);
+    assert_eq!(
+        u.skipped,
+        vec![SkippedOp {
+            op_id: rep.results[1].op_id,
+            state: OpState::Failed
+        }]
+    );
+    assert!(ok.exists() && locked.exists());
+}
+
+#[tokio::test]
+async fn undo_copy_with_original_gone_needs_confirmation() {
+    let env = Env::new().await;
+    let src = env.path("in/c.txt");
+    let dest = env.path("out/c.txt");
+    write(&src, b"c");
+    let p = env.fake();
+    let rep = execute(&[planned(&src, &dest, OpKind::Copy)], &env.journal, &p)
+        .await
+        .unwrap();
+    p.trash(&src).unwrap();
+
+    let u = undo_batch(&rep.batch_id, &env.journal, &p, false)
+        .await
+        .unwrap();
+    assert_eq!(
+        u.needs_confirmation[0].reasons,
+        vec![ConfirmReason::OriginalMissing]
+    );
+    assert!(dest.exists());
+}
+
+#[tokio::test]
+async fn undo_cross_volume_without_recycle_bin_fails_untouched() {
+    let env = Env::new().await;
+    let src = env.path("in/x.txt");
+    let dest = env.path("out/x.txt");
+    write(&src, b"x");
+    let mut p = env.fake();
+    p.same_volume = false;
+    let rep = execute(&[planned(&src, &dest, OpKind::Move)], &env.journal, &p)
+        .await
+        .unwrap();
+    p.can_trash = false;
+
+    let u = undo_batch(&rep.batch_id, &env.journal, &p, false)
+        .await
+        .unwrap();
+    assert_eq!(u.failed[0].error.code, FailCode::NoRecycleBin);
+    assert_eq!(fs::read(&dest).unwrap(), b"x");
+    assert!(!src.exists());
+}
+
+#[tokio::test]
+async fn undo_rejects_unknown_open_and_non_apply_batches() {
+    let env = Env::new().await;
+    let p = env.fake();
+    assert!(
+        undo_batch("missing", &env.journal, &p, false)
+            .await
+            .is_err()
+    );
+    let open = env.journal.create_batch(BatchKind::Apply).await.unwrap();
+    assert!(undo_batch(&open, &env.journal, &p, false).await.is_err());
+    let undo = env.journal.create_batch(BatchKind::Undo).await.unwrap();
+    env.journal.finish_batch(&undo, "x").await.unwrap();
+    assert!(undo_batch(&undo, &env.journal, &p, false).await.is_err());
+}
+
+#[tokio::test]
+async fn recover_interrupted_undo_rolls_back_original() {
+    let env = Env::new().await;
+    let src = env.path("in/u.txt");
+    let dest = env.path("out/u.txt");
+    write(&src, b"u");
+    let p = env.fake();
+    let rep = execute(&[planned(&src, &dest, OpKind::Move)], &env.journal, &p)
+        .await
+        .unwrap();
+    let orig = rep.results[0].op_id;
+    // Crash right after the undo rename, before the journal said done.
+    let ub = env.journal.create_batch(BatchKind::Undo).await.unwrap();
+    let id = env
+        .journal
+        .insert_planned(
+            &ub,
+            0,
+            &NewOp {
+                op_type: OpType::Move,
+                source: dest.clone(),
+                dest: Some(src.clone()),
+                size: Some(1),
+                undo_of: Some(orig),
+            },
+        )
+        .await
+        .unwrap();
+    env.journal.start(id, Some(&hash(b"u"))).await.unwrap();
+    p.rename_no_replace(&dest, &src).unwrap();
+
+    let r = recover(&env.journal, &p).await.unwrap();
+    assert_eq!(decision(&r, id).new_state, OpState::Done);
+    assert_eq!(env.op(orig).await.state, OpState::RolledBack);
+    assert_eq!(fs::read(&src).unwrap(), b"u");
+}
