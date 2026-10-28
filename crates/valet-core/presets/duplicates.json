@@ -1,0 +1,38 @@
+{
+  "id": "duplicates",
+  "displayOrder": 5,
+  "defaultChecked": false,
+  "evalOrder": 7,
+  "name": {
+    "ro": "Duplicate",
+    "en": "Duplicates"
+  },
+  "description": {
+    "ro": "Arată fișierele cu conținut identic. Nu mută nimic.",
+    "en": "Lists files with identical content. Moves nothing."
+  },
+  "defaultScope": [
+    "{downloads}"
+  ],
+  "rules": [
+    {
+      "idSuffix": "report",
+      "name": {
+        "ro": "Duplicate",
+        "en": "Duplicates"
+      },
+      "conditions": [
+        {
+          "type": "duplicate",
+          "value": true
+        }
+      ],
+      "actions": [
+        {
+          "type": "report"
+        }
+      ],
+      "options": {}
+    }
+  ]
+}

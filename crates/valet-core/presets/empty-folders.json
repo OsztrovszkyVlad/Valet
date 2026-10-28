@@ -1,0 +1,42 @@
+{
+  "id": "empty-folders",
+  "displayOrder": 8,
+  "defaultChecked": false,
+  "evalOrder": 8,
+  "name": {
+    "ro": "Foldere goale",
+    "en": "Empty folders"
+  },
+  "description": {
+    "ro": "Trimite la Coșul de reciclare folderele goale din Descărcări mai vechi de 7 zile.",
+    "en": "Sends empty folders in Downloads older than 7 days to the Recycle Bin."
+  },
+  "defaultScope": [
+    "{downloads}"
+  ],
+  "rules": [
+    {
+      "idSuffix": "trash",
+      "name": {
+        "ro": "Foldere goale",
+        "en": "Empty folders"
+      },
+      "conditions": [
+        {
+          "type": "emptyFolder",
+          "value": true
+        },
+        {
+          "type": "modifiedOlderThanDays",
+          "value": 7
+        }
+      ],
+      "actions": [
+        {
+          "type": "trash"
+        }
+      ],
+      "options": {}
+    }
+  ]
+}

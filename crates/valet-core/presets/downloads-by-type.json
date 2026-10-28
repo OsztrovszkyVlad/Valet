@@ -1,0 +1,181 @@
+{
+  "id": "downloads-by-type",
+  "displayOrder": 1,
+  "defaultChecked": true,
+  "evalOrder": 4,
+  "name": {
+    "ro": "Descărcări după tip",
+    "en": "Downloads by type"
+  },
+  "description": {
+    "ro": "Mută fișierele din Descărcări în subfolderele Imagini, Documente, Arhive, Instalatoare, Video și Audio.",
+    "en": "Moves files from Downloads into the subfolders Images, Documents, Archives, Installers, Videos and Music."
+  },
+  "defaultScope": [
+    "{downloads}"
+  ],
+  "rules": [
+    {
+      "idSuffix": "image",
+      "name": {
+        "ro": "Descărcări după tip: imagini",
+        "en": "Downloads by type: images"
+      },
+      "conditions": [
+        {
+          "type": "typeGroup",
+          "value": "image"
+        }
+      ],
+      "actions": [
+        {
+          "type": "moveTo",
+          "params": {
+            "path": {
+              "ro": "Imagini",
+              "en": "Images"
+            }
+          }
+        }
+      ],
+      "options": {
+        "topLevelOnly": true
+      }
+    },
+    {
+      "idSuffix": "document",
+      "name": {
+        "ro": "Descărcări după tip: documente",
+        "en": "Downloads by type: documents"
+      },
+      "conditions": [
+        {
+          "type": "typeGroup",
+          "value": "document"
+        }
+      ],
+      "actions": [
+        {
+          "type": "moveTo",
+          "params": {
+            "path": {
+              "ro": "Documente",
+              "en": "Documents"
+            }
+          }
+        }
+      ],
+      "options": {
+        "topLevelOnly": true
+      }
+    },
+    {
+      "idSuffix": "archive",
+      "name": {
+        "ro": "Descărcări după tip: arhive",
+        "en": "Downloads by type: archives"
+      },
+      "conditions": [
+        {
+          "type": "typeGroup",
+          "value": "archive"
+        }
+      ],
+      "actions": [
+        {
+          "type": "moveTo",
+          "params": {
+            "path": {
+              "ro": "Arhive",
+              "en": "Archives"
+            }
+          }
+        }
+      ],
+      "options": {
+        "topLevelOnly": true
+      }
+    },
+    {
+      "idSuffix": "installer",
+      "name": {
+        "ro": "Descărcări după tip: instalatoare",
+        "en": "Downloads by type: installers"
+      },
+      "conditions": [
+        {
+          "type": "typeGroup",
+          "value": "installer"
+        }
+      ],
+      "actions": [
+        {
+          "type": "moveTo",
+          "params": {
+            "path": {
+              "ro": "Instalatoare",
+              "en": "Installers"
+            }
+          }
+        }
+      ],
+      "options": {
+        "topLevelOnly": true
+      }
+    },
+    {
+      "idSuffix": "video",
+      "name": {
+        "ro": "Descărcări după tip: video",
+        "en": "Downloads by type: videos"
+      },
+      "conditions": [
+        {
+          "type": "typeGroup",
+          "value": "video"
+        }
+      ],
+      "actions": [
+        {
+          "type": "moveTo",
+          "params": {
+            "path": {
+              "ro": "Video",
+              "en": "Videos"
+            }
+          }
+        }
+      ],
+      "options": {
+        "topLevelOnly": true
+      }
+    },
+    {
+      "idSuffix": "audio",
+      "name": {
+        "ro": "Descărcări după tip: audio",
+        "en": "Downloads by type: music"
+      },
+      "conditions": [
+        {
+          "type": "typeGroup",
+          "value": "audio"
+        }
+      ],
+      "actions": [
+        {
+          "type": "moveTo",
+          "params": {
+            "path": {
+              "ro": "Audio",
+              "en": "Music"
+            }
+          }
+        }
+      ],
+      "options": {
+        "topLevelOnly": true
+      }
+    }
+  ]
+}

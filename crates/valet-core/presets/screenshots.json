@@ -1,0 +1,52 @@
+{
+  "id": "screenshots",
+  "displayOrder": 2,
+  "defaultChecked": true,
+  "evalOrder": 2,
+  "name": {
+    "ro": "Capturi de ecran",
+    "en": "Screenshots"
+  },
+  "description": {
+    "ro": "Mută imaginile cu Screenshot, Captură, Snip sau Clipboard în nume în Imagini/Capturi de ecran/AAAA.",
+    "en": "Moves images named Screenshot, Captură, Snip or Clipboard to Pictures/Screenshots/YYYY."
+  },
+  "defaultScope": [
+    "{downloads}",
+    "{desktop}",
+    "{pictures}"
+  ],
+  "rules": [
+    {
+      "idSuffix": "move",
+      "name": {
+        "ro": "Capturi de ecran",
+        "en": "Screenshots"
+      },
+      "conditions": [
+        {
+          "type": "typeGroup",
+          "value": "image"
+        },
+        {
+          "type": "nameMatches",
+          "value": "(?i)(^|[^\\p{L}\\p{N}])(screenshot|captur[aă]|snip|clipboard)([^\\p{L}]|$)"
+        }
+      ],
+      "actions": [
+        {
+          "type": "moveTo",
+          "params": {
+            "path": {
+              "ro": "{pictures}/Capturi de ecran/{year}",
+              "en": "{pictures}/Screenshots/{year}"
+            }
+          }
+        }
+      ],
+      "options": {
+        "topLevelOnly": true
+      }
+    }
+  ]
+}

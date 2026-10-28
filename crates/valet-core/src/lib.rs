@@ -22,6 +22,7 @@ pub mod matcher;
 pub mod model;
 pub mod planner;
 pub mod platform;
+pub mod presets;
 pub mod rules;
 pub mod storage;
 pub mod typegroups;

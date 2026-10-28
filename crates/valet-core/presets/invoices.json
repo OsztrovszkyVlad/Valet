@@ -1,0 +1,48 @@
+{
+  "id": "invoices",
+  "displayOrder": 3,
+  "defaultChecked": true,
+  "evalOrder": 1,
+  "name": {
+    "ro": "Facturi și chitanțe",
+    "en": "Invoices and receipts"
+  },
+  "description": {
+    "ro": "Mută PDF-urile cu factură, chitanță, invoice, receipt sau bon în nume în Documente/Facturi/AAAA.",
+    "en": "Moves PDFs named invoice, receipt, factura, chitanta or bon to Documents/Invoices/YYYY."
+  },
+  "defaultScope": [
+    "{downloads}"
+  ],
+  "rules": [
+    {
+      "idSuffix": "move",
+      "name": {
+        "ro": "Facturi și chitanțe",
+        "en": "Invoices and receipts"
+      },
+      "conditions": [
+        {
+          "type": "ext",
+          "value": "pdf"
+        },
+        {
+          "type": "nameMatches",
+          "value": "(?i)(^|[^\\p{L}\\p{N}])(invoices?|factur[aăi]|chitant[aăe]|chitanț[aăe]|receipts?|bon)([^\\p{L}]|$)"
+        }
+      ],
+      "actions": [
+        {
+          "type": "moveTo",
+          "params": {
+            "path": {
+              "ro": "{documents}/Facturi/{year}",
+              "en": "{documents}/Invoices/{year}"
+            }
+          }
+        }
+      ],
+      "options": {}
+    }
+  ]
+}

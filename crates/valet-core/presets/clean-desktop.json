@@ -1,0 +1,54 @@
+{
+  "id": "clean-desktop",
+  "displayOrder": 6,
+  "defaultChecked": false,
+  "evalOrder": 5,
+  "name": {
+    "ro": "Desktop curat",
+    "en": "Clean desktop"
+  },
+  "description": {
+    "ro": "Mută fișierele de pe Desktop mai vechi de 7 zile în Documente/De pe Desktop/AAAA-LL. Scurtăturile rămân.",
+    "en": "Moves Desktop files older than 7 days to Documents/From Desktop/YYYY-MM. Shortcuts stay."
+  },
+  "defaultScope": [
+    "{desktop}"
+  ],
+  "rules": [
+    {
+      "idSuffix": "move",
+      "name": {
+        "ro": "Desktop curat",
+        "en": "Clean desktop"
+      },
+      "conditions": [
+        {
+          "type": "modifiedOlderThanDays",
+          "value": 7
+        },
+        {
+          "type": "extNotIn",
+          "value": [
+            "lnk",
+            "url",
+            "ini"
+          ]
+        }
+      ],
+      "actions": [
+        {
+          "type": "moveTo",
+          "params": {
+            "path": {
+              "ro": "{documents}/De pe Desktop/{year}-{month}",
+              "en": "{documents}/From Desktop/{year}-{month}"
+            }
+          }
+        }
+      ],
+      "options": {
+        "topLevelOnly": true
+      }
+    }
+  ]
+}

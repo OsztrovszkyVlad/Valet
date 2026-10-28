@@ -1,0 +1,49 @@
+{
+  "id": "old-installers",
+  "displayOrder": 7,
+  "defaultChecked": false,
+  "evalOrder": 3,
+  "name": {
+    "ro": "Instalatoare vechi",
+    "en": "Old installers"
+  },
+  "description": {
+    "ro": "Trimite la Coșul de reciclare instalatoarele (.exe, .msi, .msix, .appx) din Descărcări mai vechi de 30 de zile.",
+    "en": "Sends installers (.exe, .msi, .msix, .appx) in Downloads older than 30 days to the Recycle Bin."
+  },
+  "defaultScope": [
+    "{downloads}"
+  ],
+  "rules": [
+    {
+      "idSuffix": "trash",
+      "name": {
+        "ro": "Instalatoare vechi",
+        "en": "Old installers"
+      },
+      "conditions": [
+        {
+          "type": "extIn",
+          "value": [
+            "exe",
+            "msi",
+            "msix",
+            "msixbundle",
+            "appx",
+            "appxbundle"
+          ]
+        },
+        {
+          "type": "modifiedOlderThanDays",
+          "value": 30
+        }
+      ],
+      "actions": [
+        {
+          "type": "trash"
+        }
+      ],
+      "options": {}
+    }
+  ]
+}

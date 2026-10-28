@@ -76,6 +76,30 @@ impl Db {
         Ok(())
     }
 
+    /// Removes the rows of `rules` (by id) and inserts them again in the
+    /// given order, in one transaction, so they come after every other rule
+    /// in `list_rules` order. Other rules are not touched.
+    pub async fn reinsert_rules(&self, rules: &[Rule]) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+        for rule in rules {
+            sqlx::query(r#"DELETE FROM rules WHERE id = ?1"#)
+                .bind(rule.id.to_string())
+                .execute(&mut *tx)
+                .await?;
+        }
+        for rule in rules {
+            sqlx::query(r#"INSERT INTO rules(id, json, version, enabled) VALUES(?1, ?2, ?3, ?4)"#)
+                .bind(rule.id.to_string())
+                .bind(serde_json::to_string(rule)?)
+                .bind(rule.version)
+                .bind(i32::from(rule.enabled))
+                .execute(&mut *tx)
+                .await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
     pub async fn list_rules(&self) -> Result<Vec<Rule>> {
         let rows = sqlx::query_scalar::<_, String>(r#"SELECT json FROM rules ORDER BY rowid"#)
             .fetch_all(&self.pool)
@@ -109,17 +133,10 @@ impl Db {
         Ok(res.rows_affected() > 0)
     }
 
+    /// Seeds nothing: a new database starts without rules and onboarding
+    /// installs the chosen presets (`presets::install`). Kept only until the
+    /// app's startup stops calling it.
     pub async fn load_sample_rules_if_empty(&self) -> Result<()> {
-        let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM rules")
-            .fetch_one(&self.pool)
-            .await?;
-        if count == 0 {
-            let rules: Vec<crate::rules::Rule> =
-                serde_json::from_str(include_str!("../sample_rules.json"))?;
-            for r in rules {
-                self.upsert_rule(&r).await?;
-            }
-        }
         Ok(())
     }
 
@@ -335,20 +352,45 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn sample_rules_load_once_from_embedded_json() {
+    async fn new_database_gets_no_rules() {
         let tmp = tempfile::tempdir().unwrap();
         let db = Db::connect(&tmp.path().join("valet.sqlite3"))
             .await
             .unwrap();
-        let expected: Vec<crate::rules::Rule> =
-            serde_json::from_str(include_str!("../sample_rules.json")).unwrap();
-        assert!(!expected.is_empty());
-
         db.load_sample_rules_if_empty().await.unwrap();
-        assert_eq!(db.list_rules().await.unwrap().len(), expected.len());
+        assert!(db.list_rules().await.unwrap().is_empty());
+    }
 
-        db.load_sample_rules_if_empty().await.unwrap();
-        assert_eq!(db.list_rules().await.unwrap().len(), expected.len());
+    #[tokio::test]
+    async fn reinsert_rules_moves_them_after_the_others_in_order() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Db::connect(&tmp.path().join("valet.sqlite3"))
+            .await
+            .unwrap();
+        let rule = |n: u128| -> Rule {
+            serde_json::from_value(serde_json::json!({
+                "id": uuid::Uuid::from_u128(n),
+                "name": format!("r{n}"),
+                "enabled": true,
+                "conditions": [],
+                "actions": [{ "type": "report" }],
+            }))
+            .unwrap()
+        };
+        for n in 1..=3 {
+            db.upsert_rule(&rule(n)).await.unwrap();
+        }
+        let mut changed = rule(1);
+        changed.name = "new".into();
+        db.reinsert_rules(&[rule(2), changed]).await.unwrap();
+        let got: Vec<(u128, String)> = db
+            .list_rules()
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|r| (r.id.as_u128(), r.name))
+            .collect();
+        assert_eq!(got, [(3, "r3".into()), (2, "r2".into()), (1, "new".into())]);
     }
 
     #[tokio::test]

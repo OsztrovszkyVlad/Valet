@@ -1,0 +1,39 @@
+{
+  "id": "large-files",
+  "displayOrder": 4,
+  "defaultChecked": true,
+  "evalOrder": 6,
+  "name": {
+    "ro": "Fișiere mari",
+    "en": "Large files"
+  },
+  "description": {
+    "ro": "Arată fișierele de peste 1 GB. Nu mută nimic.",
+    "en": "Lists files over 1 GB. Moves nothing."
+  },
+  "defaultScope": [
+    "{downloads}",
+    "{documents}"
+  ],
+  "rules": [
+    {
+      "idSuffix": "report",
+      "name": {
+        "ro": "Fișiere mari",
+        "en": "Large files"
+      },
+      "conditions": [
+        {
+          "type": "sizeGt",
+          "value": 1073741824
+        }
+      ],
+      "actions": [
+        {
+          "type": "report"
+        }
+      ],
+      "options": {}
+    }
+  ]
+}
