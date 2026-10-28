@@ -264,9 +264,58 @@ pub mod testing {
         }
     }
 
+    /// Sets the mtime of a file or directory (test fixtures).
+    ///
+    /// Files are opened for writing: on Windows a read-only handle cannot
+    /// change times. Directories need an OS-specific open on Windows
+    /// (`FILE_FLAG_BACKUP_SEMANTICS`, `FILE_WRITE_ATTRIBUTES` access), through
+    /// `std` only. This lives in the test-support module, so it is never
+    /// compiled into the product.
+    pub fn set_mtime(path: &Path, t: SystemTime) {
+        let file = if path.is_dir() {
+            open_dir_for_times(path)
+        } else {
+            fs::OpenOptions::new().write(true).open(path)
+        };
+        file.and_then(|f| f.set_modified(t))
+            .unwrap_or_else(|e| panic!("set_mtime {}: {e}", path.display()));
+    }
+
+    #[cfg(windows)]
+    fn open_dir_for_times(path: &Path) -> io::Result<fs::File> {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_WRITE_ATTRIBUTES: u32 = 0x0100;
+        const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+        fs::OpenOptions::new()
+            .access_mode(FILE_WRITE_ATTRIBUTES)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+            .open(path)
+    }
+
+    /// POSIX sets times on any descriptor the owner holds (`futimens`).
+    #[cfg(not(windows))]
+    fn open_dir_for_times(path: &Path) -> io::Result<fs::File> {
+        fs::File::open(path)
+    }
+
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        #[test]
+        fn set_mtime_changes_files_and_directories() {
+            let tmp = tempfile::tempdir().unwrap();
+            let dir = tmp.path().join("d");
+            let file = dir.join("f.txt");
+            fs::create_dir_all(&dir).unwrap();
+            fs::write(&file, "x").unwrap();
+            let t = SystemTime::UNIX_EPOCH + Duration::from_secs(1_600_000_000);
+            set_mtime(&file, t);
+            set_mtime(&dir, t);
+            assert_eq!(fs::metadata(&file).unwrap().modified().unwrap(), t);
+            assert_eq!(fs::metadata(&dir).unwrap().modified().unwrap(), t);
+            assert_eq!(fs::read(&file).unwrap(), b"x", "content untouched");
+        }
 
         #[test]
         fn trash_moves_into_trash_dir_with_unique_names() {

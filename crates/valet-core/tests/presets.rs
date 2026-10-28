@@ -14,7 +14,7 @@ use chrono::{DateTime, Datelike, Local};
 use valet_core::{
     executor::{self, EMPTY_DIR_MARK},
     planner::{self, OpKind, Plan, PlanContext, SkipReason},
-    platform::testing::FakePlatform,
+    platform::testing::{FakePlatform, set_mtime},
     presets::{self, Lang},
     rules::Rule,
     storage::Db,
@@ -116,10 +116,6 @@ impl Home {
             .await
             .unwrap()
     }
-}
-
-fn set_mtime(path: &Path, t: SystemTime) {
-    fs::File::open(path).unwrap().set_modified(t).unwrap();
 }
 
 fn year(t: SystemTime) -> String {

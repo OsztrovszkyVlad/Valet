@@ -35,10 +35,6 @@ fn bin(env: &Env) -> Vec<String> {
     out
 }
 
-fn set_mtime(path: &Path, t: SystemTime) {
-    fs::File::open(path).unwrap().set_modified(t).unwrap();
-}
-
 #[tokio::test]
 async fn trash_file_goes_to_the_bin_and_is_journaled() {
     let env = Env::new().await;
@@ -92,10 +88,12 @@ async fn trash_folder_that_is_no_longer_empty_fails_untouched() {
     let env = Env::new().await;
     let dir = env.path("in/was-empty");
     fs::create_dir_all(&dir).unwrap();
-    let op = trash_op(&dir);
+    let mut op = trash_op(&dir);
     write(&dir.join("new.txt"), b"new");
-    // Same mtime as in the preview: the emptiness check catches it.
-    set_mtime(&dir, op.mtime);
+    // The preview saw the folder's current mtime, so only the emptiness check
+    // catches the new file. (Taking the mtime into the op instead of setting it
+    // on the folder needs no OS-specific directory handle.)
+    op.mtime = fs::metadata(&dir).unwrap().modified().unwrap();
     let p = env.fake();
     let rep = execute(&[op], &env.journal, &p).await.unwrap();
     let r = &rep.results[0];

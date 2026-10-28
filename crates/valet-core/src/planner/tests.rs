@@ -1,5 +1,5 @@
 use super::*;
-use crate::platform::testing::FakePlatform;
+use crate::platform::testing::{FakePlatform, set_mtime};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 
@@ -21,15 +21,6 @@ fn ctx_with(home: Option<PathBuf>, env: HashMap<String, String>) -> PlanContext 
 fn write(path: &Path) {
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     fs::write(path, b"x").unwrap();
-}
-
-fn set_mtime(path: &Path, t: SystemTime) {
-    fs::File::options()
-        .write(true)
-        .open(path)
-        .unwrap()
-        .set_modified(t)
-        .unwrap();
 }
 
 fn rule_json(n: u128, name: &str, conditions: Value, actions: Value, options: Value) -> Rule {
@@ -1638,16 +1629,15 @@ fn directories_are_not_scanned_without_folder_rules() {
 
 #[test]
 fn empty_folder_with_age_uses_directory_mtime() {
+    // Both folders were created just now; only `old` has an old mtime. A
+    // clock shift in `ctx.now` could not tell mtime from creation time.
     let (_tmp, root) = tmp_root();
     let old = root.join("old");
     let young = root.join("young");
     fs::create_dir_all(&old).unwrap();
     fs::create_dir_all(&young).unwrap();
     let ten_days = Duration::from_secs(10 * 86_400);
-    fs::File::open(&old)
-        .unwrap()
-        .set_modified(SystemTime::now() - ten_days)
-        .unwrap();
+    set_mtime(&old, SystemTime::now() - ten_days);
     let r = empty_folder_rule(
         json!([{ "type": "modifiedOlderThanDays", "value": 7 }]),
         json!([{ "type": "trash" }]),
