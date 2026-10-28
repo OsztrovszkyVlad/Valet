@@ -16,5 +16,11 @@ walkdir = "2"
 blake3 = "1"
 regex = "1"
 
+[features]
+# Exposes platform::testing::FakePlatform to integration tests and other crates' tests.
+test-support = []
+
 [dev-dependencies]
 tempfile = "3"
+# Self dev-dependency so integration tests get FakePlatform.
+valet-core = { path = ".", features = ["test-support"] }

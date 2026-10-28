@@ -17,5 +17,6 @@ pub mod config;
 pub mod engine;
 pub mod matcher;
 pub mod model;
+pub mod platform;
 pub mod rules;
 pub mod storage;
