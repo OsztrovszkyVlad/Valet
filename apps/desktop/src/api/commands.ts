@@ -34,7 +34,12 @@ export interface DryRunResponse {
     total_files: number;
     total_rules_applied: number;
     skipped: SkippedFile[];
+    /** Id of the stored preview; `executeOperations` needs it. Single use. */
+    plan_id: string;
 }
+
+/** Error string from `execute_operations` when the plan id has no stored preview. */
+export const PREVIEW_REQUIRED = 'preview_required';
 
 export interface ExecuteError {
     source_path: string;
@@ -156,8 +161,9 @@ export function dryRun(): Promise<DryRunResponse> {
     return invoke<DryRunResponse>('dry_run');
 }
 
-export function executeOperations(): Promise<ExecuteResponse> {
-    return invoke<ExecuteResponse>('execute_operations');
+/** Runs the plan returned by the last `dryRun`. Rejects with `PREVIEW_REQUIRED` otherwise. */
+export function executeOperations(planId: string): Promise<ExecuteResponse> {
+    return invoke<ExecuteResponse>('execute_operations', { planId });
 }
 
 /** Newest first. The backend default limit is 50. */

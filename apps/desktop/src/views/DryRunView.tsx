@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import {
     dryRun,
     executeOperations as runExecute,
+    PREVIEW_REQUIRED,
     type ExecuteResponse,
     type PlannedOperation,
     type SkippedFile,
@@ -39,6 +40,8 @@ const DryRunView: React.FC<DryRunViewProps> = ({ lastBatch, onBatchRan, onLastBa
     const [executeResults, setExecuteResults] = useState<ExecuteResponse | null>(null);
     const [skipped, setSkipped] = useState<SkippedFile[]>([]);
     const [showSkipped, setShowSkipped] = useState(false);
+    // Id of the last previewed plan; null once used, so Execute needs a new preview.
+    const [planId, setPlanId] = useState<string | null>(null);
 
     const runDryRun = async () => {
         try {
@@ -47,6 +50,7 @@ const DryRunView: React.FC<DryRunViewProps> = ({ lastBatch, onBatchRan, onLastBa
 
             const response = await dryRun();
             setResults(response.results);
+            setPlanId(response.plan_id);
             setSkipped(response.skipped);
             setShowSkipped(false);
             setTotalFiles(response.total_files);
@@ -62,6 +66,7 @@ const DryRunView: React.FC<DryRunViewProps> = ({ lastBatch, onBatchRan, onLastBa
 
     const clearResults = () => {
         setResults([]);
+        setPlanId(null);
         setSkipped([]);
         setHasRun(false);
         setTotalFiles(0);
@@ -72,12 +77,13 @@ const DryRunView: React.FC<DryRunViewProps> = ({ lastBatch, onBatchRan, onLastBa
     };
 
     const executeOperations = async () => {
+        if (planId === null) return;
         try {
             setExecuting(true);
             setError('');
             setSuccessMessage('');
 
-            const response = await runExecute();
+            const response = await runExecute(planId);
 
             setExecuteResults(response);
             onBatchRan(
@@ -102,8 +108,14 @@ const DryRunView: React.FC<DryRunViewProps> = ({ lastBatch, onBatchRan, onLastBa
             }
         } catch (err) {
             console.error('Execute operations failed:', err);
-            setError('Failed to execute file operations. Please try again.');
+            if (err === PREVIEW_REQUIRED) {
+                setError(t('preview.expired'));
+            } else {
+                setError('Failed to execute file operations. Please try again.');
+            }
         } finally {
+            // The plan is single-use: success or failure, Execute needs a new preview.
+            setPlanId(null);
             setExecuting(false);
         }
     };
@@ -186,7 +198,7 @@ const DryRunView: React.FC<DryRunViewProps> = ({ lastBatch, onBatchRan, onLastBa
                         <button
                             className="btn-execute"
                             onClick={executeOperations}
-                            disabled={loading || executing}
+                            disabled={loading || executing || planId === null}
                         >
                             {executing ? (
                                 <>

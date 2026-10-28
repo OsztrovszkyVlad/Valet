@@ -31,6 +31,9 @@
     "unreadable": "Nu poate fi citit",
     "unknown": "Motiv necunoscut: {{reason}}"
   },
+  "preview": {
+    "expired": "Previzualizarea a expirat. Rulează din nou previzualizarea."
+  },
   "lastBatch": {
     "title": "Ultimul lot",
     "startedAt": "Pornit la {{date}}"

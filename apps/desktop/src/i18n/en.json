@@ -31,6 +31,9 @@
     "unreadable": "Cannot be read",
     "unknown": "Unknown reason: {{reason}}"
   },
+  "preview": {
+    "expired": "The preview has expired. Run the preview again."
+  },
   "lastBatch": {
     "title": "Last batch",
     "startedAt": "Started at {{date}}"
