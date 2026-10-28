@@ -4,7 +4,12 @@
 //! Covers: same-volume move + undo; an OFFLINE (cloud placeholder) file is
 //! skipped by the planner and refused by the executor before hashing; a file
 //! held without sharing fails with `Locked` and is untouched; a path over 300
-//! characters moves (as source and as destination) and undo restores it.
+//! characters moves (as source and as destination) and undo restores it; a
+//! `trash` rule sends a file to the real Recycle Bin and undo restores it
+//! byte-identical; an `emptyFolder` rule trashes an empty folder and undo
+//! restores it; an occupied original path at undo needs confirmation and the
+//! item stays in the bin. Trash tests restore everything they trash, so the
+//! Recycle Bin is left as found.
 #![cfg(windows)]
 
 use std::collections::BTreeMap;
@@ -16,9 +21,11 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use serde_json::json;
-use valet_core::executor::{BatchReport, FailCode, UndoReport, execute, undo_batch};
-use valet_core::journal::OpState;
-use valet_core::planner::{Plan, PlanContext, PlannedOp, SkipReason, plan};
+use valet_core::executor::{
+    BatchReport, ConfirmReason, EMPTY_DIR_MARK, FailCode, UndoReport, execute, undo_batch,
+};
+use valet_core::journal::{OpRecord, OpState, OpType};
+use valet_core::planner::{OpKind, Plan, PlanContext, PlannedOp, SkipReason, plan};
 use valet_core::platform::Platform;
 use valet_core::rules::Rule;
 use valet_core::storage::Db;
@@ -97,6 +104,18 @@ fn rule(n: u128, ext: &str, path: &str) -> Rule {
     .unwrap()
 }
 
+/// A rule that sends what `conditions` match to the Recycle Bin.
+fn trash_rule(n: u128, conditions: serde_json::Value) -> Rule {
+    serde_json::from_value(json!({
+        "id": uuid::Uuid::from_u128(n),
+        "name": format!("trash-{n}"),
+        "enabled": true,
+        "conditions": conditions,
+        "actions": [{ "type": "trash" }],
+    }))
+    .unwrap()
+}
+
 fn ctx() -> PlanContext {
     PlanContext {
         // Fixture files are seconds old; move the clock past the
@@ -143,14 +162,29 @@ impl Env {
     }
 
     fn undo(&self, batch: &str) -> UndoReport {
+        self.undo_with(batch, false)
+    }
+
+    fn undo_with(&self, batch: &str, force: bool) -> UndoReport {
         self.rt
             .block_on(undo_batch(
                 batch,
                 &self.db.journal(),
                 &SystemPlatform,
-                false,
+                force,
             ))
             .unwrap()
+    }
+
+    fn op(&self, id: i64) -> OpRecord {
+        self.rt
+            .block_on(self.db.journal().get_op(id))
+            .unwrap()
+            .unwrap()
+    }
+
+    fn ops(&self, batch: &str) -> Vec<OpRecord> {
+        self.rt.block_on(self.db.journal().list_ops(batch)).unwrap()
     }
 }
 
@@ -328,4 +362,133 @@ fn long_paths_move_and_undo() {
     assert_undo_clean(&u, 2);
     assert_eq!(tree(&root), before);
     assert!(!exists(&deep_target));
+}
+
+/// The single `restore` step of `u`'s undo batch; checks it points at `orig`.
+fn single_restore(env: &Env, u: &UndoReport, orig: &OpRecord) -> OpRecord {
+    let ops = env.ops(u.undo_batch_id.as_ref().expect("undo batch"));
+    assert_eq!(ops.len(), 1, "{ops:?}");
+    let r = ops.into_iter().next().unwrap();
+    assert_eq!(r.op_type, OpType::Restore);
+    assert_eq!(r.state, OpState::Done);
+    assert_eq!(r.undo_of, Some(orig.id));
+    assert_eq!(r.source_path, orig.source_path);
+    assert_eq!(r.hash_before, orig.hash_before);
+    r
+}
+
+#[test]
+fn trash_rule_sends_file_to_recycle_bin_and_undo_restores_it() {
+    let env = Env::new();
+    let root = env.root();
+    let exe = root.join("valet_e2e_old_setup.exe");
+    let body: Vec<u8> = (0..=255u8).cycle().take(70_000).collect();
+    write(&exe, &body);
+    write(&root.join("keep.txt"), b"stays");
+    let before = tree(&root);
+
+    let p = env.plan(&[trash_rule(1, json!([{ "type": "ext", "value": "exe" }]))]);
+    assert_eq!(p.ops.len(), 1, "{p:?}");
+    assert_eq!(p.ops[0].kind, OpKind::Trash);
+    let report = env.execute(&p.ops);
+    assert_all_done(&report);
+    assert!(!exists(&exe), "still at source");
+    assert!(exists(&root.join("keep.txt")));
+    let orig = env.op(report.results[0].op_id);
+    assert_eq!(orig.op_type, OpType::Trash);
+    assert_eq!(orig.state, OpState::Done);
+    assert_eq!(orig.source_path, exe);
+    assert!(orig.dest_path.is_none());
+    assert_eq!(orig.size, Some(body.len() as u64));
+    assert!(orig.hash_before.is_some());
+
+    let u = env.undo(&report.batch_id);
+    assert_undo_clean(&u, 1);
+    assert!(u.restored_modified.is_empty(), "{u:?}");
+    assert_eq!(fs::read(&exe).unwrap(), body);
+    assert_eq!(tree(&root), before);
+    let r = single_restore(&env, &u, &orig);
+    assert_eq!(r.hash_after, orig.hash_before, "restored bytes differ");
+    assert_eq!(env.op(orig.id).state, OpState::RolledBack);
+}
+
+#[test]
+fn empty_folder_rule_trashes_folder_and_undo_restores_it() {
+    let env = Env::new();
+    let root = env.root();
+    let empty = root.join("valet_e2e_empty_folder");
+    fs::create_dir_all(&empty).unwrap();
+    write(&root.join("full").join("f.txt"), b"not empty");
+    let before = tree(&root);
+
+    let p = env.plan(&[trash_rule(
+        1,
+        json!([{ "type": "emptyFolder", "value": true }]),
+    )]);
+    assert_eq!(p.ops.len(), 1, "{p:?}");
+    assert_eq!((p.ops[0].kind, &p.ops[0].source), (OpKind::Trash, &empty));
+    let report = env.execute(&p.ops);
+    assert_all_done(&report);
+    assert!(!exists(&empty), "folder still there");
+    assert!(exists(&root.join("full").join("f.txt")));
+    let orig = env.op(report.results[0].op_id);
+    assert_eq!(orig.op_type, OpType::Trash);
+    assert_eq!(orig.state, OpState::Done);
+    assert_eq!(orig.hash_before.as_deref(), Some(EMPTY_DIR_MARK));
+
+    let u = env.undo(&report.batch_id);
+    assert_undo_clean(&u, 1);
+    assert!(u.restored_modified.is_empty(), "{u:?}");
+    assert!(fs::symlink_metadata(&empty).unwrap().is_dir());
+    assert_eq!(fs::read_dir(&empty).unwrap().count(), 0);
+    assert_eq!(tree(&root), before);
+    single_restore(&env, &u, &orig);
+    assert_eq!(env.op(orig.id).state, OpState::RolledBack);
+}
+
+#[test]
+fn undo_trash_onto_occupied_path_needs_confirmation_and_keeps_bin_item() {
+    let env = Env::new();
+    let root = env.root();
+    let exe = root.join("valet_e2e_occupied.exe");
+    write(&exe, b"trashed original");
+    let p = env.plan(&[trash_rule(1, json!([{ "type": "ext", "value": "exe" }]))]);
+    assert_eq!(p.ops.len(), 1, "{p:?}");
+    let report = env.execute(&p.ops);
+    assert_all_done(&report);
+    let id = report.results[0].op_id;
+    assert!(!exists(&exe));
+    write(&exe, b"newcomer");
+
+    // Without force: asks, journals nothing, touches nothing.
+    let u = env.undo(&report.batch_id);
+    assert!(u.undone.is_empty() && u.failed.is_empty(), "{u:?}");
+    assert_eq!(u.needs_confirmation.len(), 1, "{u:?}");
+    assert_eq!(u.needs_confirmation[0].op_id, id);
+    assert_eq!(
+        u.needs_confirmation[0].reasons,
+        [ConfirmReason::SourceOccupied]
+    );
+    assert!(u.undo_batch_id.is_none(), "{u:?}");
+    assert_eq!(fs::read(&exe).unwrap(), b"newcomer");
+
+    // With force: fails with RestoreOccupied, the item stays in the bin.
+    let u = env.undo_with(&report.batch_id, true);
+    assert!(u.undone.is_empty(), "{u:?}");
+    assert_eq!(u.failed.len(), 1, "{u:?}");
+    assert_eq!(u.failed[0].error.code, FailCode::RestoreOccupied);
+    assert_eq!(fs::read(&exe).unwrap(), b"newcomer");
+    assert_eq!(env.op(id).state, OpState::Done);
+
+    // Cleanup that also proves the item is still in the bin: move the
+    // blocker aside and undo again. Not `trash_path` on the blocker:
+    // `restore_from_trash` takes the most recent item from that path, which
+    // would then be the blocker, not the original.
+    let aside = root.join("valet_e2e_occupied (blocker).exe");
+    fs::rename(&exe, &aside).unwrap();
+    let u = env.undo(&report.batch_id);
+    assert_undo_clean(&u, 1);
+    assert_eq!(fs::read(&exe).unwrap(), b"trashed original");
+    assert_eq!(fs::read(&aside).unwrap(), b"newcomer");
+    assert_eq!(env.op(id).state, OpState::RolledBack);
 }
