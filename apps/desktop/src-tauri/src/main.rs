@@ -22,6 +22,9 @@ fn main() {
             commands::settings::save_app_settings,
             commands::operations::get_statistics,
             commands::operations::clear_operation_history,
+            commands::operations::list_batches,
+            commands::operations::get_batch,
+            commands::operations::undo_batch,
             commands::platform::configure_auto_start,
             commands::platform::show_in_explorer,
             commands::platform::send_notification

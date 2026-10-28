@@ -8,7 +8,7 @@ use tauri::{
     tray::TrayIconBuilder,
     Emitter, Manager,
 };
-use valet_core::storage::Db;
+use valet_core::{executor, storage::Db};
 
 use crate::commands::operations::{execute_operations, plan_for_paths};
 use crate::commands::platform::{send_notification, show_in_explorer_internal};
@@ -18,9 +18,17 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
     // --- DB init & seed sample rules ---
     let cfg_dir = config_dir(app).expect("config dir");
     let db_path = cfg_dir.join("valet.sqlite3");
+    let state = AppState::new(db_path.clone());
     tauri::async_runtime::block_on(async {
         let db = Db::connect(&db_path).await.expect("db connect");
         db.load_sample_rules_if_empty().await.expect("seed rules");
+        // Finish or roll back operations a crash interrupted, before the
+        // watcher can start new ones.
+        match executor::recover(&db.journal(), state.platform.as_ref()).await {
+            Ok(report) if report.batch_id.is_some() => log::info!("{}", report.log_line()),
+            Ok(_) => {}
+            Err(e) => log::error!("Recovery of interrupted operations failed: {:#}", e),
+        }
     });
 
     // --- Log config path and contents ---
@@ -37,7 +45,6 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
     }
 
     // --- App state (before the watcher, which stores its handle here) ---
-    let state = AppState::new(db_path.clone());
     let watcher_slot = state.watcher.clone();
     app.manage(state);
 

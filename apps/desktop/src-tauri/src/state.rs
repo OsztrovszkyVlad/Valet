@@ -15,6 +15,8 @@ pub(crate) struct AppState {
     pub(crate) platform: Arc<dyn Platform>,
     /// Running file watcher, if one started. Taken and cancelled on quit.
     pub(crate) watcher: Arc<Mutex<Option<WatchCancel>>>,
+    /// Held while a batch is executed or undone, so batches never overlap.
+    pub(crate) file_ops: Arc<tauri::async_runtime::Mutex<()>>,
 }
 
 impl AppState {
@@ -24,6 +26,7 @@ impl AppState {
             _db_path: db_path,
             platform: Arc::new(valet_platform::SystemPlatform),
             watcher: Arc::new(Mutex::new(None)),
+            file_ops: Arc::new(tauri::async_runtime::Mutex::new(())),
         }
     }
 
