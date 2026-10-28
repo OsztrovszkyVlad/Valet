@@ -86,8 +86,10 @@ describe('App', () => {
         expect(screen.getByRole('button', { name: 'Organizează fișierele (1)' })).toBeTruthy();
         expect(calls('execute_operations')).toHaveLength(0);
 
+        // The click handler itself sends close_preview: the plan id is known from
+        // the commit that showed the list, not from a later passive effect.
         fireEvent.click(screen.getByRole('tab', { name: 'Reguli' }));
-        await waitFor(() => expect(calls('close_preview')).toHaveLength(1));
+        expect(calls('close_preview')).toHaveLength(1);
         expect(await screen.findByText('Nicio regulă încă')).toBeTruthy();
 
         // Back on the Preview: no stale plan, and leaving again closes nothing.

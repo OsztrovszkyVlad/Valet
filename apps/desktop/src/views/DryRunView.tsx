@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useLayoutEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
     closePreview,
@@ -87,7 +87,10 @@ const DryRunView: React.FC<DryRunViewProps> = ({
     // Id of the last previewed plan; null once used, so Organize needs a new preview.
     const [planId, setPlanId] = useState<string | null>(first?.plan_id ?? null);
 
-    useEffect(() => {
+    // Layout effect, not a passive one: it runs in the same commit that shows the
+    // plan, so a tab click right after the list appears already sees the plan id
+    // and the parent closes the preview. A passive effect can run after that click.
+    useLayoutEffect(() => {
         onPlanChange?.(planId);
     }, [planId, onPlanChange]);
 
