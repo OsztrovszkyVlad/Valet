@@ -171,10 +171,10 @@ jobs:
           done
           true
 
-  # Same smoke test on Windows (WebView2 + msedgedriver). Report only: the
-  # preinstalled msedgedriver follows the Edge browser version, which can
-  # differ from the WebView2 runtime. The app uses the runner's real
-  # Downloads and %APPDATA% (ephemeral VM).
+  # Same smoke test on Windows (WebView2 + msedgedriver). Report only. The
+  # job downloads the msedgedriver matching the WebView2 runtime version (the
+  # preinstalled one follows the Edge browser). The app uses the runner's
+  # real Downloads and %APPDATA% (ephemeral VM).
   e2e-windows:
     name: e2e smoke (Windows, report only)
     runs-on: windows-latest
@@ -206,13 +206,74 @@ jobs:
       - name: Install tauri-driver
         shell: bash
         run: cargo install tauri-driver --locked --version "$TAURI_DRIVER_VERSION"
-      - name: Smoke test
+      # msedgedriver must match the WebView2 runtime the app runs on, not the
+      # Edge browser ($env:EDGEWEBDRIVER). A mismatched driver fails at
+      # POST /session with "DevToolsActivePort file doesn't exist".
+      - name: msedgedriver matching the WebView2 runtime
+        id: edgedriver
         shell: pwsh
         run: |
-          $edge = Join-Path $env:EDGEWEBDRIVER 'msedgedriver.exe'
-          if (-not (Test-Path $edge)) { Write-Output "::error title=e2e-windows::msedgedriver not found at $edge"; exit 1 }
-          & $edge --version
-          node tests/e2e/smoke.mjs --app target/debug/app.exe --native-driver $edge --screenshots e2e-screenshots
+          $ProgressPreference = 'SilentlyContinue'
+          $guid = '{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+          $keys = @(
+            "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\$guid",
+            "HKLM:\SOFTWARE\Microsoft\EdgeUpdate\Clients\$guid",
+            "HKCU:\Software\Microsoft\EdgeUpdate\Clients\$guid"
+          )
+          $wv = $null
+          foreach ($k in $keys) {
+            $pv = (Get-ItemProperty -Path $k -Name pv -ErrorAction SilentlyContinue).pv
+            if ($pv -and $pv -ne '0.0.0.0') {
+              $wv = $pv
+              Write-Output "::notice title=e2e-windows::WebView2 runtime $pv (registry $k)"
+              break
+            }
+          }
+          if (-not $wv) { Write-Output "::warning title=e2e-windows::WebView2 runtime version not found in the registry" }
+
+          $edgeExe = Join-Path ${env:ProgramFiles(x86)} 'Microsoft\Edge\Application\msedge.exe'
+          if (Test-Path $edgeExe) {
+            Write-Output "::notice title=e2e-windows::Edge browser $((Get-Item $edgeExe).VersionInfo.ProductVersion)"
+          }
+          $preinstalled = if ($env:EDGEWEBDRIVER) { Join-Path $env:EDGEWEBDRIVER 'msedgedriver.exe' } else { '' }
+          if ($preinstalled -and (Test-Path $preinstalled)) {
+            Write-Output "::notice title=e2e-windows::preinstalled msedgedriver $((& $preinstalled --version | Out-String).Trim())"
+          }
+
+          $driver = ''
+          if ($wv) {
+            $dir = Join-Path $env:RUNNER_TEMP "msedgedriver-$wv"
+            $zip = "$dir.zip"
+            foreach ($hostUrl in @('https://msedgedriver.microsoft.com', 'https://msedgedriver.azureedge.net')) {
+              $url = "$hostUrl/$wv/edgedriver_win64.zip"
+              try {
+                Invoke-WebRequest -Uri $url -OutFile $zip
+                Expand-Archive -Path $zip -DestinationPath $dir -Force
+                $candidate = Join-Path $dir 'msedgedriver.exe'
+                if (Test-Path $candidate) { $driver = $candidate; break }
+                Write-Output "::warning title=e2e-windows::$url has no msedgedriver.exe"
+              } catch {
+                $msg = $_.Exception.Message -replace '\s+', ' '
+                Write-Output "::warning title=e2e-windows::download $url failed: $msg"
+              }
+            }
+          }
+          if (-not $driver) {
+            if (-not ($preinstalled -and (Test-Path $preinstalled))) {
+              Write-Output "::error title=e2e-windows::no msedgedriver: download failed and none preinstalled"
+              exit 1
+            }
+            Write-Output "::warning title=e2e-windows::using the preinstalled msedgedriver (matches the Edge browser, may not match WebView2)"
+            $driver = $preinstalled
+          }
+          Write-Output "::notice title=e2e-windows::msedgedriver used: $((& $driver --version | Out-String).Trim()) ($driver)"
+          "path=$driver" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+      - name: Smoke test
+        shell: pwsh
+        env:
+          EDGE_DRIVER: ${{ steps.edgedriver.outputs.path }}
+        run: |
+          node tests/e2e/smoke.mjs --app target/debug/app.exe --native-driver $env:EDGE_DRIVER --screenshots e2e-screenshots
           exit $LASTEXITCODE
       - name: Upload screenshots
         if: ${{ always() }}

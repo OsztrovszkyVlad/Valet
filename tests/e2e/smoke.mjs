@@ -204,7 +204,8 @@ function prepareEnvironment(opts) {
         XDG_DATA_HOME: path.join(home, '.local', 'share'),
         XDG_CACHE_HOME: path.join(home, '.cache'),
         XDG_STATE_HOME: path.join(home, '.local', 'state'),
-        // Romanian locale for dates (`toLocaleString(undefined)`), as for a user in Romania.
+        // OS locale of a user in Romania (GTK/WebKit, process locale). UI dates
+        // follow i18n.language (src/i18n/format.ts), not this.
         LANG: 'ro_RO.UTF-8',
         LC_ALL: 'ro_RO.UTF-8',
         // A software-rendered WebKit under Xvfb; avoids GPU/DMABUF failures.
