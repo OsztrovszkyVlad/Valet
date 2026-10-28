@@ -15,6 +15,7 @@ mod tests {
 
 pub mod collision;
 pub mod config;
+pub mod executor;
 pub mod index;
 pub mod journal;
 pub mod matcher;
