@@ -1,61 +1,42 @@
 //! Shared application state managed by Tauri.
 
-use std::io;
-use std::path::{Path, PathBuf};
-use std::sync::{atomic::AtomicBool, Arc};
+use std::path::PathBuf;
+use std::sync::{atomic::AtomicBool, Arc, Mutex};
 
 use tauri::{Manager, Runtime};
 use valet_core::platform::Platform;
+use valet_platform::WatchCancel;
 
 #[derive(Clone)]
 pub(crate) struct AppState {
     pub(crate) paused: Arc<AtomicBool>,
     pub(crate) _db_path: PathBuf,
+    /// OS services for the planner and executor (`valet_platform::SystemPlatform`).
+    pub(crate) platform: Arc<dyn Platform>,
+    /// Running file watcher, if one started. Taken and cancelled on quit.
+    pub(crate) watcher: Arc<Mutex<Option<WatchCancel>>>,
 }
 
-// Temporary until T3b wires valet_platform
-/// Placeholder [`Platform`]: reports no hidden, locked, placeholder or reparse
-/// files and refuses to trash anything.
-pub(crate) struct StdPlatform;
-
-impl Platform for StdPlatform {
-    fn trash(&self, _path: &Path) -> io::Result<()> {
-        // Nothing removes files yet.
-        Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "trash is not available yet",
-        ))
-    }
-    fn can_trash(&self, _path: &Path) -> bool {
-        false
-    }
-    fn is_cloud_placeholder(&self, _path: &Path) -> bool {
-        false
-    }
-    fn is_locked(&self, _path: &Path) -> bool {
-        false
-    }
-    fn is_hidden_or_system(&self, _path: &Path) -> bool {
-        false
-    }
-    fn is_reparse_point(&self, _path: &Path) -> bool {
-        false
-    }
-    fn same_volume(&self, _a: &Path, _b: &Path) -> io::Result<bool> {
-        Ok(true)
-    }
-    fn rename_no_replace(&self, from: &Path, to: &Path) -> io::Result<()> {
-        // Check-then-act; replaced by the atomic valet_platform version in T3b.
-        if to.exists() {
-            return Err(io::Error::new(
-                io::ErrorKind::AlreadyExists,
-                "destination exists",
-            ));
+impl AppState {
+    pub(crate) fn new(db_path: PathBuf) -> Self {
+        Self {
+            paused: Arc::new(AtomicBool::new(false)),
+            _db_path: db_path,
+            platform: Arc::new(valet_platform::SystemPlatform),
+            watcher: Arc::new(Mutex::new(None)),
         }
-        std::fs::rename(from, to)
     }
-    fn os_path(&self, path: &Path) -> PathBuf {
-        path.to_path_buf()
+
+    /// Stops the file watcher if one is running. Safe to call more than once.
+    pub(crate) fn stop_watcher(&self) {
+        let handle = self
+            .watcher
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take();
+        if let Some(handle) = handle {
+            handle.cancel();
+        }
     }
 }
 
@@ -73,32 +54,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn std_platform_never_trashes_and_never_replaces() {
+    fn platform_never_replaces_existing_files() {
         let tmp = tempfile::tempdir().unwrap();
         let a = tmp.path().join("a.txt");
         let b = tmp.path().join("b.txt");
         std::fs::write(&a, b"a").unwrap();
         std::fs::write(&b, b"b").unwrap();
-        let p = StdPlatform;
+        let state = AppState::new(tmp.path().join("valet.sqlite3"));
 
-        assert!(!p.can_trash(&a));
-        assert_eq!(p.trash(&a).unwrap_err().kind(), io::ErrorKind::Unsupported);
-        assert!(a.exists());
-
-        let err = p.rename_no_replace(&a, &b).unwrap_err();
-        assert_eq!(err.kind(), io::ErrorKind::AlreadyExists);
+        let err = state.platform.rename_no_replace(&a, &b).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read(&a).unwrap(), b"a");
         assert_eq!(std::fs::read(&b).unwrap(), b"b");
 
         let c = tmp.path().join("c.txt");
-        p.rename_no_replace(&a, &c).unwrap();
+        state.platform.rename_no_replace(&a, &c).unwrap();
         assert_eq!(std::fs::read(&c).unwrap(), b"a");
+    }
 
-        assert!(!p.is_cloud_placeholder(&c));
-        assert!(!p.is_locked(&c));
-        assert!(!p.is_hidden_or_system(&c));
-        assert!(!p.is_reparse_point(&c));
-        assert!(p.same_volume(&b, &c).unwrap());
-        assert_eq!(p.os_path(&c), c);
+    #[test]
+    fn stop_watcher_without_watcher_is_a_no_op() {
+        let state = AppState::new(PathBuf::from("valet.sqlite3"));
+        state.stop_watcher();
+        state.stop_watcher();
+        assert!(state.watcher.lock().unwrap().is_none());
     }
 
     #[test]

@@ -5,15 +5,20 @@ use std::path::{Path, PathBuf};
 use tauri::{Emitter, Manager};
 use valet_core::{
     planner::{self, OpKind, Plan, PlanContext, PlannedOp},
+    platform::Platform,
     storage::Db,
 };
 
 use crate::commands::platform::{send_notification, NotificationLevel};
 use crate::commands::settings::{get_app_settings, Config};
-use crate::state::{config_dir, AppState, StdPlatform};
+use crate::state::{config_dir, AppState};
 
 /// Plans moves and copies for `paths` with the rules stored in `db`.
-pub(crate) async fn plan_for_paths(paths: &[PathBuf], db: &Db) -> Result<Plan, String> {
+pub(crate) async fn plan_for_paths(
+    paths: &[PathBuf],
+    db: &Db,
+    platform: &dyn Platform,
+) -> Result<Plan, String> {
     let rules = db
         .list_rules()
         .await
@@ -21,7 +26,7 @@ pub(crate) async fn plan_for_paths(paths: &[PathBuf], db: &Db) -> Result<Plan, S
     Ok(planner::plan(
         paths,
         &rules,
-        &StdPlatform,
+        platform,
         &PlanContext::from_system(),
     ))
 }
@@ -104,7 +109,7 @@ pub(crate) async fn dry_run(app: tauri::AppHandle) -> Result<serde_json::Value, 
         );
     }
 
-    let plan = plan_for_paths(&paths, &db)
+    let plan = plan_for_paths(&paths, &db, state.platform.as_ref())
         .await
         .map_err(|e| format!("Dry run failed: {}", e))?;
 
@@ -208,7 +213,7 @@ pub(crate) async fn execute_operations(app: tauri::AppHandle) -> Result<ExecuteR
     }
 
     // First, get the dry run plan for all configured paths
-    let plan = plan_for_paths(&paths, &db)
+    let plan = plan_for_paths(&paths, &db, state.platform.as_ref())
         .await
         .map_err(|e| format!("Failed to generate execution plan: {}", e))?;
 

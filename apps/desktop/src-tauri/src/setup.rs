@@ -1,10 +1,7 @@
 //! App startup: DB init and sample rules, config logging, file watcher, app state, tray menu.
 
 use std::path::PathBuf;
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-};
+use std::sync::atomic::Ordering;
 
 use tauri::{
     menu::{CheckMenuItemBuilder, Menu, MenuItemBuilder},
@@ -39,6 +36,11 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
         }
     }
 
+    // --- App state (before the watcher, which stores its handle here) ---
+    let state = AppState::new(db_path.clone());
+    let watcher_slot = state.watcher.clone();
+    app.manage(state);
+
     // --- Start file watcher ---
     match std::fs::read_to_string(&cfg_path) {
         Ok(txt) => {
@@ -62,10 +64,15 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
                             })
                             .await;
 
-                        if let Err(e) = result {
-                            log::error!("Failed to start watcher: {:?}", e);
-                        } else {
-                            log::info!("✅ Watcher started successfully");
+                        match result {
+                            Ok(handle) => {
+                                *watcher_slot
+                                    .lock()
+                                    .unwrap_or_else(|poisoned| poisoned.into_inner()) =
+                                    Some(handle);
+                                log::info!("✅ Watcher started successfully");
+                            }
+                            Err(e) => log::error!("Failed to start watcher: {:?}", e),
                         }
                     });
                 } else {
@@ -79,12 +86,6 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
             log::warn!("Could not read config for watcher setup: {:?}", e);
         }
     }
-
-    // --- App state ---
-    app.manage(AppState {
-        paused: Arc::new(AtomicBool::new(false)),
-        _db_path: db_path.clone(),
-    });
 
     // --- Tray + menu (v2 API) ---
     let dry_run =
@@ -142,11 +143,12 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
 
                                 // Run dry-run async
                                 let db_path_for_async = db_path_clone.clone();
+                                let platform = app.state::<AppState>().platform.clone();
                                 tauri::async_runtime::spawn(async move {
                                     match valet_core::storage::Db::connect(&db_path_for_async).await
                                     {
                                         Ok(db) => {
-                                            match plan_for_paths(&watch_paths, &db).await {
+                                            match plan_for_paths(&watch_paths, &db, platform.as_ref()).await {
                                                 Ok(plan) => {
                                                     log::info!(
                                                         "🔍 Dry run results for {} operation(s), {} skipped:",
@@ -242,7 +244,10 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
                     let _ = window.emit("navigate-to-preferences", ());
                 }
             }
-            "quit" => app.exit(0),
+            "quit" => {
+                app.state::<AppState>().stop_watcher();
+                app.exit(0);
+            }
             _ => {}
         })
         .build(app)?;

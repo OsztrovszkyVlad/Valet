@@ -31,9 +31,5 @@ notify-rust = "4.10.0"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.0", features = ["v4", "serde"] }
 valet-core = { path = "../../../crates/valet-core" }
-valet-platform = { path = "../../../crates/valet-platform" }
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
-
-[target.'cfg(target_os = "windows")'.dependencies]
-valet-platform = { path = "../../../crates/valet-platform" }
+valet-platform = { path = "../../../crates/valet-platform", features = ["valet-core"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
