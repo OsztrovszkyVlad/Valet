@@ -316,7 +316,7 @@ mod tests {
         let c = onboarding_config(
             &ids(&["{downloads}", "{desktop}", "{downloads}/sub", "{downloads}"]),
             &known,
-            &exists,
+            exists,
         )
         .unwrap();
         assert_eq!(
@@ -324,7 +324,7 @@ mod tests {
             [s(&downloads), s(&desktop), s(&downloads.join("sub"))]
         );
         // Absolute paths pass through.
-        let c = onboarding_config(&[s(&desktop)], &known, &exists).unwrap();
+        let c = onboarding_config(&[s(&desktop)], &known, exists).unwrap();
         assert_eq!(c.inbox_paths, [s(&desktop)]);
 
         for (entry, code) in [
@@ -333,11 +333,11 @@ mod tests {
             ("{downloads}x", "config.missing: {downloads}x"),
         ] {
             assert_eq!(
-                onboarding_config(&ids(&[entry]), &known, &exists).unwrap_err(),
+                onboarding_config(&ids(&[entry]), &known, exists).unwrap_err(),
                 code
             );
         }
-        let missing = onboarding_config(&ids(&["{pictures}"]), &known, &exists).unwrap_err();
+        let missing = onboarding_config(&ids(&["{pictures}"]), &known, exists).unwrap_err();
         assert_eq!(
             missing,
             format!("config.missing: {}", s(&home.join("Pictures")))
