@@ -110,14 +110,39 @@ fn file_name(stem: usize, ext: usize) -> String {
     }
 }
 
+/// Case-insensitive key, component by component, so it does not depend on
+/// which separator (`/` or `\\`) joined the parts.
 fn fold(p: &Path) -> String {
-    p.to_string_lossy().to_lowercase()
+    p.components()
+        .map(|c| c.as_os_str().to_string_lossy().to_lowercase())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// `root` joined with the `/`-separated `rel`, each component spelled as an
+/// existing case-insensitively equal entry on disk if there is one. On a
+/// case-insensitive file system (NTFS) `DOCS/x` lands in an existing `Docs`
+/// folder and the scan reports `Docs/x`; resolving the spelling here keeps
+/// the recorded path equal to the scanned one and gives the same tree on
+/// case-sensitive file systems.
+fn on_disk(root: &Path, rel: &str) -> PathBuf {
+    let mut p = root.to_path_buf();
+    for part in rel.split('/') {
+        let existing = fs::read_dir(&p).ok().and_then(|entries| {
+            entries
+                .filter_map(Result::ok)
+                .map(|e| e.file_name())
+                .find(|n| n.to_string_lossy().eq_ignore_ascii_case(part))
+        });
+        p.push(existing.unwrap_or_else(|| part.into()));
+    }
+    p
 }
 
 /// Writes `rel` under `root` unless a case-insensitively equal path was
 /// already written. Contents are unique per file.
 fn put(root: &Path, rel: &str, written: &mut HashSet<String>, n: usize) -> Option<PathBuf> {
-    let p = root.join(rel);
+    let p = on_disk(root, rel);
     if !written.insert(fold(&p)) {
         return None;
     }
@@ -382,4 +407,51 @@ fn case_variants_into_one_folder() {
         &ctx(),
     );
     assert_eq!(p.ops.len(), 3, "{p:?}");
+}
+
+/// Fixed case: pre-existing files under `Docs` and `DOCS` share one folder,
+/// as on NTFS, and are recorded with the on-disk spelling, so the
+/// already-in-place check finds the scanned paths on every OS.
+#[test]
+fn case_variant_folders_are_one_folder() {
+    let c = Case {
+        files: vec![(0, 3, 3)],          // photo.jpg
+        pre: vec![(0, 0, 0), (1, 4, 3)], // Docs/report.pdf, DOCS/Photo_2.jpg
+        rules: vec![GenRule {
+            by_ext: false,
+            value: 4, // "."
+            copy: false,
+            template: 0, // "Docs"
+            enabled: true,
+        }],
+    };
+    check(&c).unwrap();
+    let b = build(&c);
+    let docs = b.root.join("Docs");
+    assert!(b.pre.contains(&docs.join("report.pdf")), "{:?}", b.pre);
+    assert!(b.pre.contains(&docs.join("Photo_2.jpg")), "{:?}", b.pre);
+    let dirs: Vec<_> = fs::read_dir(&b.root)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .filter(|n| n.to_string_lossy().eq_ignore_ascii_case("docs"))
+        .collect();
+    assert_eq!(dirs, vec![std::ffi::OsString::from("Docs")]);
+    let p = plan(
+        std::slice::from_ref(&b.root),
+        &b.rules,
+        &FakePlatform::default(),
+        &ctx(),
+    );
+    assert_eq!(p.ops.len(), 1, "{p:?}");
+    assert_eq!(p.ops[0].dest, docs.join("photo.jpg"));
+    let in_place: Vec<&PathBuf> = p
+        .skipped
+        .iter()
+        .filter(|s| s.reason == SkipReason::AlreadyInPlace)
+        .map(|s| &s.path)
+        .collect();
+    assert_eq!(
+        in_place,
+        vec![&docs.join("Photo_2.jpg"), &docs.join("report.pdf")]
+    );
 }
