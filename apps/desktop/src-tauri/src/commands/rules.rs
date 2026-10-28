@@ -320,8 +320,6 @@ pub(crate) async fn remove_rule(db: &Db, rule_id: Uuid) -> Result<(), String> {
 
 /// Deletes the rule with `ruleId` (JS argument name). Error `rule.notFound`
 /// when there is none.
-// TODO(tauri-platform): register in `main.rs` `generate_handler!`, then drop this allow.
-#[allow(dead_code)]
 #[tauri::command]
 pub(crate) async fn delete_rule(rule_id: Uuid, app: tauri::AppHandle) -> Result<(), String> {
     let db = connect(&app).await?;

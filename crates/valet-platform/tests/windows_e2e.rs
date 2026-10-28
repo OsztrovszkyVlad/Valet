@@ -104,6 +104,7 @@ fn ctx() -> PlanContext {
         now: SystemTime::now() + Duration::from_secs(3600),
         home_dir: None,
         env: Box::new(|_| None),
+        folders: Default::default(),
     }
 }
 

@@ -43,6 +43,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::rules::get_rules,
             commands::rules::upsert_rule,
+            commands::rules::delete_rule,
             commands::operations::dry_run,
             commands::operations::execute_operations,
             commands::settings::get_config,
