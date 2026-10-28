@@ -111,7 +111,7 @@ fn file_name(stem: usize, ext: usize) -> String {
 }
 
 /// Case-insensitive key, component by component, so it does not depend on
-/// which separator (`/` or `\\`) joined the parts.
+/// which separator (`/` or `\`) joined the parts.
 fn fold(p: &Path) -> String {
     p.components()
         .map(|c| c.as_os_str().to_string_lossy().to_lowercase())
