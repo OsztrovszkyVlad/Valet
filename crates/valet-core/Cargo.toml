@@ -24,3 +24,9 @@ test-support = []
 tempfile = "3"
 # Self dev-dependency so integration tests get FakePlatform.
 valet-core = { path = ".", features = ["test-support"] }
+
+# Fault-injection driver for tests/fault_injection.rs. Not shipped.
+[[bin]]
+name = "valet-fault"
+path = "src/bin/valet-fault.rs"
+required-features = ["test-support"]
