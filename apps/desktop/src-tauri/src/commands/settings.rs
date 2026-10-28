@@ -3,6 +3,10 @@
 //!
 //! These files are Valet's own; they are the only files Valet overwrites.
 //!
+//! `get_config` returns `{ inbox_paths, invalid_paths: [{ path, code }] }`:
+//! entries of a hand-edited `config.json` that `save_config` would refuse
+//! stay in the file but are not watched or planned (see [`ConfigView`]).
+//!
 //! Errors are stable codes the UI translates: `config.driveRoot`,
 //! `config.excludedFolder` and `config.missing` (each as `code: <path>`),
 //! `config.noFolders` (from `dry_run`), `settings.io` and `config.io`
@@ -78,28 +82,62 @@ pub(crate) fn in_excluded_folder(path: &str) -> bool {
     path.split(['\\', '/']).any(is_excluded_dir_name)
 }
 
-/// Checks each watched folder: no drive or share root, nothing inside a
-/// default-excluded folder, and it must exist. The user profile folder itself
-/// is allowed. Returns `code: <path>` for the first problem.
+/// The problem with one watched-folder entry, if any: a drive or share root
+/// (`config.driveRoot`), inside a default-excluded folder
+/// (`config.excludedFolder`), or not an existing path (`config.missing`),
+/// checked in that order. The user profile folder itself is allowed.
+pub(crate) fn path_problem(path: &str, exists: impl Fn(&Path) -> bool) -> Option<&'static str> {
+    if is_drive_root(path) {
+        Some(ERR_DRIVE_ROOT)
+    } else if in_excluded_folder(path) {
+        Some(ERR_EXCLUDED_FOLDER)
+    } else if !exists(Path::new(path)) {
+        Some(ERR_MISSING)
+    } else {
+        None
+    }
+}
+
+/// Checks each watched folder with [`path_problem`]. Returns `code: <path>`
+/// for the first problem.
 pub(crate) fn validate_config(
     config: &Config,
     exists: impl Fn(&Path) -> bool,
 ) -> Result<(), String> {
     for path in &config.inbox_paths {
-        let code = if is_drive_root(path) {
-            Some(ERR_DRIVE_ROOT)
-        } else if in_excluded_folder(path) {
-            Some(ERR_EXCLUDED_FOLDER)
-        } else if !exists(Path::new(path)) {
-            Some(ERR_MISSING)
-        } else {
-            None
-        };
-        if let Some(code) = code {
+        if let Some(code) = path_problem(path, &exists) {
             return Err(format!("{code}: {path}"));
         }
     }
     Ok(())
+}
+
+/// A `config.json` entry that is not watched, with the reason code.
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+pub(crate) struct InvalidPath {
+    pub(crate) path: String,
+    pub(crate) code: &'static str,
+}
+
+/// Splits the entries of `config` into the folders to watch and plan (in
+/// configuration order) and the entries [`path_problem`] refuses. Applies to
+/// a hand-edited `config.json` the checks `save_config` applies.
+pub(crate) fn split_config(
+    config: &Config,
+    exists: impl Fn(&Path) -> bool,
+) -> (Vec<PathBuf>, Vec<InvalidPath>) {
+    let mut valid = Vec::new();
+    let mut invalid = Vec::new();
+    for path in &config.inbox_paths {
+        match path_problem(path, &exists) {
+            None => valid.push(PathBuf::from(path)),
+            Some(code) => invalid.push(InvalidPath {
+                path: path.clone(),
+                code,
+            }),
+        }
+    }
+    (valid, invalid)
 }
 
 fn read_config(dir: &Path) -> Result<Config, String> {
@@ -122,15 +160,17 @@ fn io_err(code: &str, e: impl std::fmt::Display) -> String {
     code.to_string()
 }
 
-/// Watched folders from `config.json` that exist. `config.noFolders` when
-/// there are none.
+/// Watched folders from `config.json` that pass [`path_problem`] (exist, no
+/// drive root, not in an excluded folder); the others are ignored and only
+/// counted in the log. `config.noFolders` when none is left.
 pub(crate) fn watched_folders(dir: &Path) -> Result<Vec<PathBuf>, String> {
-    let paths: Vec<PathBuf> = read_config(dir)?
-        .inbox_paths
-        .into_iter()
-        .map(PathBuf::from)
-        .filter(|p| p.exists())
-        .collect();
+    let (paths, invalid) = split_config(&read_config(dir)?, Path::exists);
+    if !invalid.is_empty() {
+        log::info!(
+            "{} watched folder entr(ies) in config.json ignored (drive root, excluded or missing folder)",
+            invalid.len()
+        );
+    }
     if paths.is_empty() {
         Err(ERR_NO_FOLDERS.to_string())
     } else {
@@ -138,9 +178,29 @@ pub(crate) fn watched_folders(dir: &Path) -> Result<Vec<PathBuf>, String> {
     }
 }
 
+/// What `get_config` returns: the stored config (`inbox_paths`, unchanged,
+/// invalid entries included) plus `invalid_paths`, the entries Valet does
+/// not watch or plan, each `{ path, code }` with code `config.driveRoot`,
+/// `config.excludedFolder` or `config.missing`.
+#[derive(Serialize, Debug, Clone, PartialEq)]
+pub(crate) struct ConfigView {
+    #[serde(flatten)]
+    pub(crate) config: Config,
+    pub(crate) invalid_paths: Vec<InvalidPath>,
+}
+
+fn config_view(dir: &Path, exists: impl Fn(&Path) -> bool) -> Result<ConfigView, String> {
+    let config = read_config(dir)?;
+    let (_, invalid_paths) = split_config(&config, exists);
+    Ok(ConfigView {
+        config,
+        invalid_paths,
+    })
+}
+
 #[tauri::command]
-pub(crate) async fn get_config(app: tauri::AppHandle) -> Result<Config, String> {
-    read_config(&config_dir(&app)?)
+pub(crate) async fn get_config(app: tauri::AppHandle) -> Result<ConfigView, String> {
+    config_view(&config_dir(&app)?, Path::exists)
 }
 
 fn save_config_in(dir: &Path, config: Config) -> Result<Config, String> {
@@ -483,13 +543,21 @@ mod tests {
         );
     }
 
+    /// An existing folder outside the system temp dir (under AppData on
+    /// Windows, which validation refuses): the crate folder. Only checked
+    /// for existence, never written.
+    fn existing_folder() -> PathBuf {
+        let w = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        assert!(!in_excluded_folder(w.to_str().unwrap()), "{}", w.display());
+        w
+    }
+
     #[test]
     fn watched_folders_without_existing_folders_is_no_folders() {
         let tmp = tempfile::tempdir().unwrap();
         assert_eq!(watched_folders(tmp.path()).unwrap_err(), ERR_NO_FOLDERS);
-        let dir = tmp.path().join("in");
-        std::fs::create_dir_all(&dir).unwrap();
-        let gone = tmp.path().join("gone");
+        let dir = existing_folder();
+        let gone = dir.join("valet-test-missing");
         write_json(
             tmp.path(),
             CONFIG_FILE,
@@ -506,6 +574,95 @@ mod tests {
         )
         .unwrap();
         assert_eq!(watched_folders(tmp.path()).unwrap(), vec![dir]);
+    }
+
+    #[test]
+    fn split_config_applies_the_save_config_checks() {
+        let present = [
+            "C:\\Users\\Ana\\Downloads",
+            "D:\\",
+            "C:\\Users\\Ana\\AppData\\x",
+        ];
+        let exists = |p: &Path| present.iter().any(|q| Path::new(q) == p);
+        let c = cfg(&[
+            "D:\\",
+            "C:\\Users\\Ana\\Downloads",
+            "C:\\Users\\Ana\\AppData\\x",
+            "C:\\Users\\Ana\\Gone",
+            "\\\\nas\\share",
+        ]);
+        let (valid, invalid) = split_config(&c, exists);
+        assert_eq!(valid, vec![PathBuf::from("C:\\Users\\Ana\\Downloads")]);
+        let got: Vec<(&str, &str)> = invalid.iter().map(|i| (i.path.as_str(), i.code)).collect();
+        assert_eq!(
+            got,
+            [
+                ("D:\\", ERR_DRIVE_ROOT),
+                ("C:\\Users\\Ana\\AppData\\x", ERR_EXCLUDED_FOLDER),
+                ("C:\\Users\\Ana\\Gone", ERR_MISSING),
+                ("\\\\nas\\share", ERR_DRIVE_ROOT),
+            ]
+        );
+        // Every entry save_config accepts is valid here, and only those.
+        for path in &c.inbox_paths {
+            let one = cfg(&[path]);
+            assert_eq!(
+                validate_config(&one, exists).is_ok(),
+                split_config(&one, exists).1.is_empty(),
+                "{path}"
+            );
+        }
+    }
+
+    #[test]
+    fn hand_edited_config_is_validated_on_load_and_kept_in_the_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = existing_folder();
+        let excluded = dir.join("node_modules");
+        let gone = dir.join("valet-test-missing");
+        // "/" exists on Linux, "C:\\" on Windows: refused even though present.
+        let entries = [
+            "/",
+            "C:\\",
+            excluded.to_str().unwrap(),
+            gone.to_str().unwrap(),
+            dir.to_str().unwrap(),
+        ];
+        write_json(tmp.path(), CONFIG_FILE, &cfg(&entries), ERR_CONFIG_IO).unwrap();
+        let on_disk = std::fs::read(tmp.path().join(CONFIG_FILE)).unwrap();
+
+        assert_eq!(watched_folders(tmp.path()).unwrap(), vec![dir.clone()]);
+
+        let view = config_view(tmp.path(), Path::exists).unwrap();
+        assert_eq!(view.config, cfg(&entries), "nothing dropped");
+        assert_eq!(
+            serde_json::to_value(&view).unwrap(),
+            json!({
+                "inbox_paths": entries,
+                "invalid_paths": [
+                    { "path": "/", "code": "config.driveRoot" },
+                    { "path": "C:\\", "code": "config.driveRoot" },
+                    { "path": excluded.to_str().unwrap(), "code": "config.excludedFolder" },
+                    { "path": gone.to_str().unwrap(), "code": "config.missing" },
+                ],
+            })
+        );
+        assert_eq!(
+            std::fs::read(tmp.path().join(CONFIG_FILE)).unwrap(),
+            on_disk
+        );
+
+        // Only invalid entries: no folder to watch or plan.
+        write_json(tmp.path(), CONFIG_FILE, &cfg(&entries[..4]), ERR_CONFIG_IO).unwrap();
+        assert_eq!(watched_folders(tmp.path()).unwrap_err(), ERR_NO_FOLDERS);
+        let empty = tmp.path().join("none");
+        assert_eq!(
+            config_view(&empty, Path::exists).unwrap(),
+            ConfigView {
+                config: Config::default(),
+                invalid_paths: vec![],
+            }
+        );
     }
 
     #[test]
