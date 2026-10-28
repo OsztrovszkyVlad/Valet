@@ -22,12 +22,12 @@ interface LastBatchBoxProps {
 
 /** The undo box for the newest batch. Stays on screen until undone or replaced. */
 const LastBatchBox: React.FC<LastBatchBoxProps> = ({ batch, canUndo, onUndoRan, onClose }) => {
-    const { t } = useTranslation();
+    const { t, i18n } = useTranslation();
     return (
-        <section className="last-batch" aria-label={t('lastBatch.title')}>
+        <section className="last-batch" aria-label={t('lastBatch.title')} data-testid="last-batch">
             <h2 className="last-batch-title">{t('lastBatch.title')}</h2>
             <p className="last-batch-date">
-                {t('lastBatch.startedAt', { date: formatDateTime(batch.createdAt) })}
+                {t('lastBatch.startedAt', { date: formatDateTime(batch.createdAt, i18n.language) })}
                 {batch.auto && <span className="last-batch-auto">{t('lastBatch.auto')}</span>}
             </p>
             <UndoPanel

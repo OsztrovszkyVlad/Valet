@@ -22,7 +22,8 @@
     "hide": "Ascunde",
     "colFile": "Fișier",
     "colReason": "Motiv",
-    "colRule": "Regulă"
+    "colRule": "Regulă",
+    "ignoredForPlanned": "Reguli ignorate pentru fișiere deja planificate: {{count}}"
   },
   "skipReason": {
     "excluded": "Exclus (folder de sistem, AppData, .git, node_modules etc.)",
@@ -167,7 +168,13 @@
     "colState": "Stare",
     "colError": "Eroare",
     "emptyTitle": "Niciun lot încă",
-    "emptyText": "După ce organizezi fișiere din Previzualizare, loturile apar aici și pot fi anulate."
+    "emptyText": "După ce organizezi fișiere din Previzualizare, loturile apar aici și pot fi anulate.",
+    "summaryApply": "Operații făcute: {{done}}. Eșuate: {{failed}}.",
+    "summaryUndoneLater": "Anulate ulterior: {{count}}.",
+    "summaryUndo": "Operații anulate: {{done}}. Eșuate: {{failed}}.",
+    "summaryInterrupted": "Lotul a fost întrerupt și încheiat la pornirea următoare.",
+    "summaryRecovery": "La pornire, Valet a verificat operațiile rămase neterminate după o oprire neașteptată.",
+    "technicalDetails": "Detalii tehnice"
   },
   "app": {
     "title": "Valet"

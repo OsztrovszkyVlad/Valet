@@ -139,6 +139,7 @@ const OnboardingView: React.FC<OnboardingViewProps> = ({ onFinished }) => {
                                 <input
                                     type="checkbox"
                                     className="form-checkbox"
+                                    data-testid={`folder-${token.replace(/[{}]/g, '')}`}
                                     checked={checked[token]}
                                     onChange={(e) => setChecked({ ...checked, [token]: e.target.checked })}
                                 />

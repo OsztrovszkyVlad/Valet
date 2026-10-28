@@ -89,6 +89,14 @@ describe('OnboardingView', () => {
         expect(checkbox('Desktop').checked).toBe(true);
         expect(checkbox('Documente').checked).toBe(false);
         expect(checkbox('Imagini').checked).toBe(false);
+        for (const [id, name] of [
+            ['downloads', 'Descărcări'],
+            ['desktop', 'Desktop'],
+            ['documents', 'Documente'],
+            ['pictures', 'Imagini'],
+        ]) {
+            expect(screen.getByTestId(`folder-${id}`)).toBe(checkbox(name));
+        }
         expect(screen.queryByRole('button', { name: 'Sari peste' })).toBeNull();
 
         fireEvent.click(checkbox('Descărcări'));

@@ -94,7 +94,7 @@ const UndoPanel: React.FC<UndoPanelProps> = ({
         const sourceOf = (opId: number) =>
             [...first.needs_confirmation, ...last.failed].find((x) => x.op_id === opId)?.source;
         return (
-            <div className="undo-result">
+            <div className="undo-result" data-testid="undo-result">
                 <h4>{t('undo.resultTitle')}</h4>
                 <p>{t('undo.undone', { count: undone })}</p>
                 {restoredAs.length > 0 && (
@@ -134,7 +134,7 @@ const UndoPanel: React.FC<UndoPanelProps> = ({
                         </ul>
                     </>
                 )}
-                <button className="btn-secondary" onClick={() => close(complete)}>
+                <button className="btn-secondary" data-testid="undo-result-close" onClick={() => close(complete)}>
                     {t('common.close')}
                 </button>
             </div>

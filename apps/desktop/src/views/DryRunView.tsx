@@ -14,6 +14,7 @@ import {
     type SkippedFile,
 } from '../api/commands';
 import type { LastBatch } from '../components/LastBatchBox';
+import PathText from '../components/PathText';
 import ReportsSection from '../components/ReportsSection';
 import { commandErrorMessage, journalErrorText, skipReasonText } from '../i18n/format';
 import './DryRunView.css';
@@ -40,6 +41,17 @@ interface DryRunViewProps {
 function fileName(path: string): string {
     const parts = path.split(/[\\/]/);
     return parts[parts.length - 1] || path;
+}
+
+/**
+ * Skipped entries for files that got no operation. A `conflict` entry for a
+ * file that has one (a later rule matched too) is not a skipped file; those
+ * are only counted.
+ */
+function splitSkipped(skipped: SkippedFile[], results: PlannedOperation[]) {
+    const planned = new Set(results.map((r) => r.source_path));
+    const shown = skipped.filter((s) => !planned.has(s.path));
+    return { shown, ignoredRules: skipped.length - shown.length };
 }
 
 /**
@@ -103,6 +115,8 @@ const DryRunView: React.FC<DryRunViewProps> = ({
             setLoading(false);
         }
     };
+
+    const { shown: skippedShown, ignoredRules } = splitSkipped(skipped, results);
 
     const clearResults = () => {
         if (planId !== null) {
@@ -242,9 +256,12 @@ const DryRunView: React.FC<DryRunViewProps> = ({
                             </div>
                             <div className="summary-item">
                                 <span className="summary-label">{t('preview.summarySkipped')}</span>
-                                <span className="summary-value">{skipped.length}</span>
+                                <span className="summary-value">{skippedShown.length}</span>
                             </div>
                         </div>
+                        {ignoredRules > 0 && (
+                            <p className="preview-ignored">{t('skipped.ignoredForPlanned', { count: ignoredRules })}</p>
+                        )}
                     </div>
                 )}
 
@@ -253,7 +270,14 @@ const DryRunView: React.FC<DryRunViewProps> = ({
                         <h3 className="results-title">{t('preview.plannedTitle')}</h3>
                         <div className="results-container">
                             <div className="results-table-container">
-                                <table className="results-table">
+                                <table className="results-table preview-table">
+                                    <colgroup>
+                                        <col className="col-file" />
+                                        <col className="col-op" />
+                                        <col className="col-path" />
+                                        <col className="col-path" />
+                                        <col className="col-rule" />
+                                    </colgroup>
                                     <thead>
                                         <tr>
                                             <th>{t('preview.colFile')}</th>
@@ -265,25 +289,32 @@ const DryRunView: React.FC<DryRunViewProps> = ({
                                     </thead>
                                     <tbody>
                                         {results.map((result, index) => (
-                                            <tr key={index}>
+                                            <tr
+                                                key={index}
+                                                data-testid="preview-row"
+                                                data-source={result.source_path}
+                                                data-dest={result.destination_path}
+                                            >
                                                 <td>
-                                                    <span className="file-name">{fileName(result.source_path)}</span>
+                                                    <span className="file-name" title={fileName(result.source_path)}>
+                                                        {fileName(result.source_path)}
+                                                    </span>
                                                 </td>
                                                 <td>{t(`opType.${result.operation}`)}</td>
                                                 <td>
-                                                    <code className="path-code">{result.source_path}</code>
+                                                    <PathText path={result.source_path} />
                                                 </td>
                                                 <td>
                                                     {result.operation === 'trash' ? (
                                                         <span className="trash-badge">{t('preview.toTrash')}</span>
                                                     ) : (
-                                                        <code className="path-code destination">
-                                                            {result.destination_path}
-                                                        </code>
+                                                        <PathText path={result.destination_path} className="destination" />
                                                     )}
                                                 </td>
                                                 <td>
-                                                    <span className="rule-badge">{result.rule_name}</span>
+                                                    <span className="rule-badge" title={result.rule_name}>
+                                                        {result.rule_name}
+                                                    </span>
                                                 </td>
                                             </tr>
                                         ))}
@@ -296,10 +327,10 @@ const DryRunView: React.FC<DryRunViewProps> = ({
 
                 <ReportsSection reports={reports} results={results} />
 
-                {skipped.length > 0 && (
+                {skippedShown.length > 0 && (
                     <div className="skipped-files">
                         <div className="skipped-header">
-                            <h3 className="results-title">{t('skipped.title', { count: skipped.length })}</h3>
+                            <h3 className="results-title">{t('skipped.title', { count: skippedShown.length })}</h3>
                             <button className="btn-secondary" onClick={() => setShowSkipped((v) => !v)}>
                                 {showSkipped ? t('skipped.hide') : t('skipped.show')}
                             </button>
@@ -307,6 +338,11 @@ const DryRunView: React.FC<DryRunViewProps> = ({
                         {showSkipped && (
                             <div className="results-table-container">
                                 <table className="results-table">
+                                    <colgroup>
+                                        <col className="col-skipped-path" />
+                                        <col className="col-skipped-reason" />
+                                        <col className="col-rule" />
+                                    </colgroup>
                                     <thead>
                                         <tr>
                                             <th>{t('skipped.colFile')}</th>
@@ -315,13 +351,13 @@ const DryRunView: React.FC<DryRunViewProps> = ({
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {skipped.map((s, index) => (
-                                            <tr key={index}>
+                                        {skippedShown.map((s, index) => (
+                                            <tr key={index} data-testid="skipped-row" data-reason={s.reason}>
                                                 <td>
-                                                    <code className="path-code">{s.path}</code>
+                                                    <PathText path={s.path} />
                                                 </td>
-                                                <td>{skipReasonText(t, s)}</td>
-                                                <td>{s.rule_name ?? ''}</td>
+                                                <td className="cell-wrap">{skipReasonText(t, s)}</td>
+                                                <td className="cell-wrap">{s.rule_name ?? ''}</td>
                                             </tr>
                                         ))}
                                     </tbody>
@@ -337,6 +373,13 @@ const DryRunView: React.FC<DryRunViewProps> = ({
                         <div className="results-container">
                             <div className="results-table-container">
                                 <table className="results-table">
+                                    <colgroup>
+                                        <col className="col-file" />
+                                        <col className="col-path" />
+                                        <col className="col-path" />
+                                        <col className="col-rule" />
+                                        <col className="col-error" />
+                                    </colgroup>
                                     <thead>
                                         <tr>
                                             <th>{t('preview.colFile')}</th>
@@ -353,16 +396,19 @@ const DryRunView: React.FC<DryRunViewProps> = ({
                                                     <span className="file-name">{fileName(failure.source_path)}</span>
                                                 </td>
                                                 <td>
-                                                    <code className="path-code">{failure.source_path}</code>
+                                                    <PathText path={failure.source_path} />
                                                 </td>
                                                 <td>
-                                                    <code className="path-code">{failure.destination_path}</code>
+                                                    <PathText path={failure.destination_path} />
                                                 </td>
                                                 <td>
                                                     <span className="rule-badge">{failure.rule_name}</span>
                                                 </td>
                                                 <td>
-                                                    <span className="error-badge">
+                                                    <span
+                                                        className="error-badge"
+                                                        title={journalErrorText(t, failure.error_message)}
+                                                    >
                                                         {journalErrorText(t, failure.error_message)}
                                                     </span>
                                                 </td>

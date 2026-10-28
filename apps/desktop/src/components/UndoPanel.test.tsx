@@ -93,6 +93,7 @@ describe('UndoPanel', () => {
 
         fireEvent.click(screen.getByRole('button', { name: 'Anulează oricum' }));
         expect(await screen.findByText('Rezultatul anulării')).toBeTruthy();
+        expect(screen.getByTestId('undo-result').contains(screen.getByTestId('undo-result-close'))).toBe(true);
         expect(invokeMock).toHaveBeenCalledWith('undo_batch', { batchId: 'b1', force: true });
         expect(screen.getByText('Operații anulate: 2')).toBeTruthy();
         expect(onUndoRan).toHaveBeenCalledTimes(2);

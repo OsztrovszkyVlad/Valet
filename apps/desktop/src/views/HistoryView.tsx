@@ -9,6 +9,7 @@ import {
     type OpState,
     type StateCounts,
 } from '../api/commands';
+import PathText from '../components/PathText';
 import UndoPanel from '../components/UndoPanel';
 import { formatDateTime, journalErrorText } from '../i18n/format';
 import './HistoryView.css';
@@ -23,7 +24,7 @@ interface HistoryViewProps {
 const STATES: OpState[] = ['done', 'failed', 'rolled_back', 'in_progress', 'planned'];
 
 const HistoryView: React.FC<HistoryViewProps> = ({ onBatchUndone, reloadToken }) => {
-    const { t } = useTranslation();
+    const { t, i18n } = useTranslation();
     const [batches, setBatches] = useState<BatchInfo[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -89,6 +90,21 @@ const HistoryView: React.FC<HistoryViewProps> = ({ onBatchUndone, reloadToken })
             .map((s) => t('history.count', { state: t(`opState.${s}`), count: counts[s] }))
             .join(', ');
 
+    /** What the batch did, in the UI language, from its counts. */
+    const summaryText = (b: BatchInfo): string => {
+        if (b.kind === 'undo') {
+            return t('history.summaryUndo', { done: b.counts.done, failed: b.counts.failed });
+        }
+        // Rolled back operations were done first, then undone by a later batch.
+        const parts = [
+            t('history.summaryApply', { done: b.counts.done + b.counts.rolled_back, failed: b.counts.failed }),
+        ];
+        if (b.counts.rolled_back > 0) {
+            parts.push(t('history.summaryUndoneLater', { count: b.counts.rolled_back }));
+        }
+        return parts.join(' ');
+    };
+
     const batch = detail?.batch;
     const canUndo =
         batch !== undefined &&
@@ -117,6 +133,11 @@ const HistoryView: React.FC<HistoryViewProps> = ({ onBatchUndone, reloadToken })
             {batches.length > 0 && (
                 <div className="results-table-container history-list">
                     <table className="results-table">
+                        <colgroup>
+                            <col className="col-history-kind" />
+                            <col className="col-history-date" />
+                            <col />
+                        </colgroup>
                         <thead>
                             <tr>
                                 <th>{t('history.colKind')}</th>
@@ -129,6 +150,8 @@ const HistoryView: React.FC<HistoryViewProps> = ({ onBatchUndone, reloadToken })
                                 <tr
                                     key={b.id}
                                     className={b.id === selectedId ? 'history-row selected' : 'history-row'}
+                                    data-testid="history-row"
+                                    data-kind={b.kind}
                                     onClick={() => select(b.id)}
                                 >
                                     <td>
@@ -137,7 +160,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({ onBatchUndone, reloadToken })
                                             <span className="history-unfinished"> ({t('history.unfinished')})</span>
                                         )}
                                     </td>
-                                    <td>{formatDateTime(b.created_at)}</td>
+                                    <td>{formatDateTime(b.created_at, i18n.language)}</td>
                                     <td>{countsText(b.counts)}</td>
                                 </tr>
                             ))}
@@ -155,7 +178,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({ onBatchUndone, reloadToken })
                     <h3 className="results-title">
                         {t('history.detailTitle', {
                             kind: t(`batchKind.${batch.kind}`, { defaultValue: batch.kind }),
-                            date: formatDateTime(batch.created_at),
+                            date: formatDateTime(batch.created_at, i18n.language),
                         })}
                     </h3>
                     <p className="history-batch-id">{t('history.batchId', { id: batch.id })}</p>
@@ -170,11 +193,29 @@ const HistoryView: React.FC<HistoryViewProps> = ({ onBatchUndone, reloadToken })
                         />
                     )}
 
-                    {batch.summary && (
+                    {batch.kind === 'recovery' ? (
                         <>
                             <h4>{t('history.summaryTitle')}</h4>
-                            <pre className="history-summary">{batch.summary}</pre>
+                            <p className="history-summary-text">{t('history.summaryRecovery')}</p>
+                            {batch.summary && (
+                                <details className="history-technical">
+                                    <summary>{t('history.technicalDetails')}</summary>
+                                    <pre className="history-summary">{batch.summary}</pre>
+                                </details>
+                            )}
                         </>
+                    ) : (
+                        batch.finished_at !== null && (
+                            <>
+                                <h4>{t('history.summaryTitle')}</h4>
+                                <p className="history-summary-text" data-testid="history-summary">
+                                    {summaryText(batch)}
+                                    {batch.summary?.startsWith('interrupted') && (
+                                        <> {t('history.summaryInterrupted')}</>
+                                    )}
+                                </p>
+                            </>
+                        )
                     )}
 
                     {detail.operations.length === 0 ? (
@@ -182,6 +223,14 @@ const HistoryView: React.FC<HistoryViewProps> = ({ onBatchUndone, reloadToken })
                     ) : (
                         <div className="results-table-container">
                             <table className="results-table">
+                                <colgroup>
+                                    <col className="col-history-id" />
+                                    <col className="col-history-type" />
+                                    <col className="col-history-path" />
+                                    <col className="col-history-path" />
+                                    <col className="col-history-state" />
+                                    <col className="col-history-error" />
+                                </colgroup>
                                 <thead>
                                     <tr>
                                         <th>{t('history.colId')}</th>
@@ -198,13 +247,13 @@ const HistoryView: React.FC<HistoryViewProps> = ({ onBatchUndone, reloadToken })
                                             <td>{op.id}</td>
                                             <td>{t(`historyOpType.${op.op_type}`, { defaultValue: op.op_type })}</td>
                                             <td>
-                                                <code className="path-code">{op.source_path}</code>
+                                                <PathText path={op.source_path} />
                                             </td>
-                                            <td>
-                                                <code className="path-code">{op.dest_path ?? ''}</code>
+                                            <td>{op.dest_path ? <PathText path={op.dest_path} /> : ''}</td>
+                                            <td className="cell-wrap">
+                                                {t(`opState.${op.state}`, { defaultValue: op.state })}
                                             </td>
-                                            <td>{t(`opState.${op.state}`, { defaultValue: op.state })}</td>
-                                            <td>{op.error ? journalErrorText(t, op.error) : ''}</td>
+                                            <td className="cell-wrap">{op.error ? journalErrorText(t, op.error) : ''}</td>
                                         </tr>
                                     ))}
                                 </tbody>

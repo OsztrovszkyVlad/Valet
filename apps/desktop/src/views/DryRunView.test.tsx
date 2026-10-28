@@ -74,7 +74,10 @@ describe('DryRunView', () => {
         expect(within(trashRow).getByText('La Coș')).toBeTruthy();
         const moveRow = rows.find((r) => within(r).queryByText('a.pdf')) as HTMLElement;
         expect(within(moveRow).queryByText('La Coș')).toBeNull();
-        expect(within(moveRow).getByText('C:\\Docs\\a.pdf')).toBeTruthy();
+        expect(within(moveRow).getByTitle('C:\\Docs\\a.pdf').textContent).toBe('C:\\Docs\\a.pdf');
+        expect(moveRow.dataset.testid).toBe('preview-row');
+        expect(moveRow.dataset.source).toBe('C:\\D\\a.pdf');
+        expect(moveRow.dataset.dest).toBe('C:\\Docs\\a.pdf');
 
         const reports = screen.getByRole('region', { name: 'Rapoarte' });
         expect(within(reports).getByRole('heading', { name: 'Fișiere mari' })).toBeTruthy();
@@ -92,6 +95,31 @@ describe('DryRunView', () => {
 
         // Reports are not operations.
         expect(screen.getByRole('button', { name: 'Organizează fișierele (3)' })).toBeTruthy();
+    });
+
+    it('lists as skipped only files without an operation and counts the ignored rules', async () => {
+        response = {
+            ...preview(),
+            skipped: [
+                // A later rule for a file that is already planned: not a skipped file.
+                { path: 'C:\\D\\a.pdf', reason: 'conflict', rule_name: 'Documente' },
+                { path: 'C:\\D\\setup.exe', reason: 'conflict', rule_name: 'Instalatoare' },
+                { path: 'C:\\D\\note.txt', reason: 'beingWritten', rule_name: null },
+            ],
+        };
+        render(<DryRunView onBatchRan={vi.fn()} />);
+        fireEvent.click(screen.getByRole('button', { name: 'Rulează previzualizarea' }));
+        await screen.findByText('Ce se va face');
+
+        const skippedCount = screen.getByText('Fișiere sărite').parentElement as HTMLElement;
+        expect(within(skippedCount).getByText('1')).toBeTruthy();
+        expect(screen.getByText('Reguli ignorate pentru fișiere deja planificate: 2')).toBeTruthy();
+        expect(screen.getByRole('heading', { name: 'Fișiere sărite: 1' })).toBeTruthy();
+        fireEvent.click(screen.getByRole('button', { name: 'Arată' }));
+        const rows = screen.getAllByTestId('skipped-row');
+        expect(rows).toHaveLength(1);
+        expect(rows[0].dataset.reason).toBe('beingWritten');
+        expect(rows[0].textContent).toContain('C:\\D\\note.txt');
     });
 
     it('drops the stored preview when the user clears it without executing', async () => {

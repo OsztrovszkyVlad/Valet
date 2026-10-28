@@ -22,7 +22,8 @@
     "hide": "Hide",
     "colFile": "File",
     "colReason": "Reason",
-    "colRule": "Rule"
+    "colRule": "Rule",
+    "ignoredForPlanned": "Rules ignored for files already planned: {{count}}"
   },
   "skipReason": {
     "excluded": "Excluded (system folder, AppData, .git, node_modules, etc.)",
@@ -167,7 +168,13 @@
     "colState": "State",
     "colError": "Error",
     "emptyTitle": "No batches yet",
-    "emptyText": "After you organize files from the Preview, batches appear here and can be undone."
+    "emptyText": "After you organize files from the Preview, batches appear here and can be undone.",
+    "summaryApply": "Done: {{done}}. Failed: {{failed}}.",
+    "summaryUndoneLater": "Undone later: {{count}}.",
+    "summaryUndo": "Undone: {{done}}. Failed: {{failed}}.",
+    "summaryInterrupted": "The batch was interrupted and closed at the next start.",
+    "summaryRecovery": "At startup, Valet checked the operations left unfinished after an unexpected stop.",
+    "technicalDetails": "Technical details"
   },
   "app": {
     "title": "Valet"

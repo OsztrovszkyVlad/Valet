@@ -6,13 +6,13 @@ import {
     type SkippedFile,
 } from '../api/commands';
 
-/** Date and time in the user's locale. */
-export function formatDateTime(iso: string): string {
+/** Date and time in the UI language (`i18n.language`), not the OS locale. */
+export function formatDateTime(iso: string, lng: string): string {
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) {
         return iso;
     }
-    return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'medium' });
+    return d.toLocaleString(lng, { dateStyle: 'medium', timeStyle: 'medium' });
 }
 
 function codeText(t: TFunction, code: string, detail: string | null): string {

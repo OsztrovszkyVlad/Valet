@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
+import i18n from '../i18n';
 import { invoke } from '@tauri-apps/api/core';
 import HistoryView from './HistoryView';
 import type { BatchDetail, BatchInfo, OpRecord } from '../api/commands';
@@ -52,13 +53,41 @@ const detail: BatchDetail = {
     ],
 };
 
+const applyBatch: BatchInfo = {
+    id: 'a1',
+    kind: 'apply',
+    created_at: '2026-10-01T10:00:00Z',
+    finished_at: '2026-10-01T10:00:01Z',
+    summary: '5 done, 0 failed',
+    counts: { planned: 0, in_progress: 0, done: 1, failed: 0, rolled_back: 4 },
+};
+
+const recoveryBatch: BatchInfo = {
+    id: 'r1',
+    kind: 'recovery',
+    created_at: '2026-10-01T09:00:00Z',
+    finished_at: '2026-10-01T09:00:01Z',
+    summary: 'recovery: 1 operation(s) decided (1 done, 0 failed), 0 batch(es) closed',
+    counts: { planned: 0, in_progress: 0, done: 0, failed: 0, rolled_back: 0 },
+};
+
+const details: Record<string, BatchDetail> = {
+    u1: detail,
+    a1: { batch: applyBatch, operations: [op(1, { batch_id: 'a1', dest_path: 'C:\\out\\a.exe', state: 'rolled_back' })] },
+    r1: { batch: recoveryBatch, operations: [] },
+};
+
 beforeEach(() => {
     invokeMock.mockReset();
-    invokeMock.mockImplementation(async (cmd) => {
-        if (cmd === 'list_batches') return [undoBatch];
-        if (cmd === 'get_batch') return detail;
+    invokeMock.mockImplementation(async (cmd, args) => {
+        if (cmd === 'list_batches') return [undoBatch, applyBatch, recoveryBatch];
+        if (cmd === 'get_batch') return details[(args as { batchId: string }).batchId];
         throw new Error(`unexpected command ${cmd}`);
     });
+});
+
+afterEach(async () => {
+    await i18n.changeLanguage('ro');
 });
 
 describe('HistoryView', () => {
@@ -71,5 +100,43 @@ describe('HistoryView', () => {
         expect(
             screen.getByText('Locul inițial e ocupat; elementul a rămas în Coșul de reciclare (already exists)'),
         ).toBeTruthy();
+    });
+
+    it('marks rows with their kind', async () => {
+        render(<HistoryView onBatchUndone={() => {}} />);
+        const rows = await screen.findAllByTestId('history-row');
+        expect(rows.map((r) => r.dataset.kind)).toEqual(['undo', 'apply', 'recovery']);
+    });
+
+    it('summarizes apply and undo batches from their counts, in the UI language', async () => {
+        render(<HistoryView onBatchUndone={() => {}} />);
+        fireEvent.click(await screen.findByText('Organizare'));
+        expect((await screen.findByTestId('history-summary')).textContent).toBe(
+            'Operații făcute: 5. Eșuate: 0. Anulate ulterior: 4.',
+        );
+        expect(screen.queryByText('5 done, 0 failed')).toBeNull();
+
+        fireEvent.click(screen.getByText('Anulare'));
+        expect(await screen.findByText('Operații anulate: 1. Eșuate: 1.')).toBeTruthy();
+    });
+
+    it('shows the backend text only for recovery batches, under technical details', async () => {
+        render(<HistoryView onBatchUndone={() => {}} />);
+        fireEvent.click(await screen.findByText('Recuperare după oprire'));
+        expect(
+            await screen.findByText(
+                'La pornire, Valet a verificat operațiile rămase neterminate după o oprire neașteptată.',
+            ),
+        ).toBeTruthy();
+        const raw = screen.getByText(recoveryBatch.summary as string);
+        expect(raw.closest('details')?.querySelector('summary')?.textContent).toBe('Detalii tehnice');
+    });
+
+    it('formats dates in the UI language', async () => {
+        await i18n.changeLanguage('en');
+        render(<HistoryView onBatchUndone={() => {}} />);
+        const rows = await screen.findAllByTestId('history-row');
+        expect(rows[0].textContent).toContain('2026');
+        expect(rows[0].textContent).toMatch(/Oct 1, 2026/);
     });
 });

@@ -2,6 +2,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import type { PlannedOperation, ReportEntry } from '../api/commands';
 import { formatBytes } from '../i18n/format';
+import PathText from './PathText';
 import { groupBy, isKeptCopy } from './reports';
 
 interface ReportsSectionProps {
@@ -37,6 +38,10 @@ const ReportsSection: React.FC<ReportsSectionProps> = ({ reports, results }) => 
                     <h4>{ruleName}</h4>
                     <div className="results-table-container">
                         <table className="results-table">
+                            <colgroup>
+                                <col className="col-report-path" />
+                                <col className="col-report-size" />
+                            </colgroup>
                             <thead>
                                 <tr>
                                     <th>{t('preview.colPath')}</th>
@@ -47,7 +52,7 @@ const ReportsSection: React.FC<ReportsSectionProps> = ({ reports, results }) => 
                                 {entries.map((e, i) => (
                                     <tr key={`${e.path}-${i}`}>
                                         <td>
-                                            <code className="path-code">{e.path}</code>
+                                            <PathText path={e.path} />
                                         </td>
                                         <td className="report-size">{formatBytes(e.size, i18n.language)}</td>
                                     </tr>

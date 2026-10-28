@@ -54,3 +54,42 @@
 .history-error {
     color: #b91c1c;
 }
+
+.history-summary-text {
+    margin: 0;
+}
+
+.history-technical summary {
+    cursor: pointer;
+    font-size: 0.85rem;
+    color: #4b5563;
+    margin-bottom: 0.5rem;
+}
+
+.results-table col.col-history-kind {
+    width: 25%;
+}
+
+.results-table col.col-history-date {
+    width: 30%;
+}
+
+.results-table col.col-history-id {
+    width: 6%;
+}
+
+.results-table col.col-history-type {
+    width: 13%;
+}
+
+.results-table col.col-history-path {
+    width: 28%;
+}
+
+.results-table col.col-history-state {
+    width: 10%;
+}
+
+.results-table col.col-history-error {
+    width: 15%;
+}

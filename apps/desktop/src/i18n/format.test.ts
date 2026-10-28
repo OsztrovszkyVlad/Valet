@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import i18n from '.';
-import { commandErrorText, journalErrorText, skipReasonText } from './format';
+import { commandErrorText, formatDateTime, journalErrorText, skipReasonText } from './format';
 
 const t = i18n.t.bind(i18n);
 
@@ -29,5 +29,12 @@ describe('format helpers', () => {
         expect(commandErrorText(t, 'config.missing: C:\\x')).toBe('Folderul nu există. (C:\\x)');
         expect(commandErrorText(t, 'config.unknownCode')).toBe('Eroare: config.unknownCode');
         expect(commandErrorText(t, new Error('boom'))).toBe('Eroare: boom');
+    });
+
+    it('formats dates in the given UI language, not the OS locale', () => {
+        const iso = '2026-10-28T12:00:00Z';
+        expect(formatDateTime(iso, 'ro')).toContain('oct. 2026');
+        expect(formatDateTime(iso, 'en')).toContain('Oct 28, 2026');
+        expect(formatDateTime('not a date', 'ro')).toBe('not a date');
     });
 });

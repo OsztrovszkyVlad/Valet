@@ -157,7 +157,7 @@
 }
 
 .results-table-container {
-    min-width: 800px;
+    min-width: 0;
 }
 
 .results-table {
@@ -182,27 +182,47 @@
     border-bottom: 1px solid #e1e5e9;
 }
 
-/* Column widths */
-.results-table th:nth-child(1) {
-    width: 20%;
+/* Column widths: each table sets its own with a <colgroup>. */
+.results-table col.col-file {
+    width: 17%;
 }
 
-/* File */
-.results-table th:nth-child(2) {
-    width: 30%;
+.results-table col.col-op {
+    width: 10%;
 }
 
-/* Current Location */
-.results-table th:nth-child(3) {
-    width: 30%;
+.results-table col.col-path {
+    width: 27%;
 }
 
-/* Will Move To */
-.results-table th:nth-child(4) {
-    width: 20%;
+.results-table col.col-rule {
+    width: 19%;
 }
 
-/* Applied Rule */
+.results-table col.col-error {
+    width: 15%;
+}
+
+.results-table col.col-skipped-path {
+    width: 50%;
+}
+
+.results-table col.col-skipped-reason {
+    width: 31%;
+}
+
+.results-table col.col-report-path {
+    width: 85%;
+}
+
+.results-table col.col-report-size {
+    width: 15%;
+}
+
+/* Text that may take two lines instead of being cut. */
+.results-table td.cell-wrap {
+    overflow-wrap: anywhere;
+}
 
 .results-table tr:last-child td {
     border-bottom: none;
@@ -222,6 +242,7 @@
 .file-name {
     font-weight: 500;
     color: #1f2937;
+    display: block;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -241,6 +262,30 @@
     max-width: 100%;
 }
 
+/* Shortened in the middle: the head gets the ellipsis, the tail (last folder and name) stays. */
+.path-code.path-middle {
+    display: flex;
+    min-width: 0;
+}
+
+.path-middle .path-head,
+.path-middle .path-tail {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.path-middle .path-head {
+    flex: 0 1 auto;
+}
+
+/* Shrinks only when it alone is wider than the cell. */
+.path-middle .path-tail {
+    flex: 0 0 auto;
+    max-width: 100%;
+}
+
 .path-code.destination {
     background: #ecfdf5;
     color: #065f46;
@@ -255,9 +300,7 @@
     font-size: 0.75rem;
     font-weight: 500;
     display: inline-block;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
     max-width: 100%;
 }
 
@@ -452,4 +495,10 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
+}
+
+.preview-ignored {
+    margin: 0.5rem 0 0;
+    font-size: 0.85rem;
+    color: #6b7280;
 }
