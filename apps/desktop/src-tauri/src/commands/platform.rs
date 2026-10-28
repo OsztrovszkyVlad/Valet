@@ -47,7 +47,8 @@ pub(crate) async fn send_notification(
             .show()
         {
             Ok(_) => {
-                log::info!("Notification sent: {} - {}", title, message);
+                log::info!("Notification sent");
+                log::debug!("Notification: {} - {}", title, message);
                 Ok(())
             }
             Err(e) => {
@@ -60,11 +61,8 @@ pub(crate) async fn send_notification(
 
     #[cfg(not(target_os = "windows"))]
     {
-        log::info!(
-            "Notification (unsupported platform): {} - {}",
-            title,
-            message
-        );
+        log::info!("Notification skipped (unsupported platform)");
+        log::debug!("Notification: {} - {}", title, message);
         Ok(())
     }
 }

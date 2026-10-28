@@ -31,18 +31,8 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
         }
     });
 
-    // --- Log config path and contents ---
+    // INFO logs carry counts, never paths or config contents.
     let cfg_path = cfg_dir.join("config.json");
-    log::info!("Valet config path: {:?}", cfg_path);
-
-    match std::fs::read_to_string(&cfg_path) {
-        Ok(txt) => {
-            log::info!("Valet config contents: {}", txt);
-        }
-        Err(e) => {
-            log::warn!("Could not read config.json: {:?}", e);
-        }
-    }
 
     // --- App state (before the watcher, which stores its handle here) ---
     let watcher_slot = state.watcher.clone();
@@ -61,12 +51,17 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
                         .map(PathBuf::from)
                         .collect();
 
-                    log::info!("Starting watcher on config paths: {:?}", watch_paths);
+                    log::info!(
+                        "config loaded: {} inbox folder(s), starting watcher",
+                        watch_paths.len()
+                    );
+                    log::debug!("watch paths: {:?}", watch_paths);
 
                     let _watcher_handle = tauri::async_runtime::spawn(async move {
                         let result =
                             valet_platform::watch_paths(watch_paths.clone(), move |files| {
-                                log::info!("🔍 Watcher event detected for files: {:?}", files);
+                                log::info!("watcher event: {} file(s)", files.len());
+                                log::debug!("watcher event files: {:?}", files);
                                 // TODO: Process the files here
                             })
                             .await;
@@ -79,7 +74,11 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
                                     Some(handle);
                                 log::info!("✅ Watcher started successfully");
                             }
-                            Err(e) => log::error!("Failed to start watcher: {:?}", e),
+                            Err(e) => {
+                                // The error chain names the folder that failed.
+                                log::error!("Failed to start watcher");
+                                log::debug!("watcher error: {:#}", e);
+                            }
                         }
                     });
                 } else {
@@ -163,7 +162,7 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
                                                         plan.skipped.len()
                                                     );
                                                     for op in plan.ops {
-                                                        log::info!(
+                                                        log::debug!(
                                                             "  - [{}] {} -> {} ({:?})",
                                                             op.rule_name,
                                                             op.source.display(),

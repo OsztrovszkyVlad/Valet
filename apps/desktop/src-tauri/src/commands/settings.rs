@@ -61,7 +61,7 @@ pub(crate) async fn save_config(config: Config, app: tauri::AppHandle) -> Result
 
     std::fs::write(&cfg_path, json).map_err(|e| format!("Failed to write config file: {}", e))?;
 
-    log::info!("Config saved successfully to {:?}", cfg_path);
+    log::info!("Config saved: {} inbox folder(s)", config.inbox_paths.len());
     Ok(config)
 }
 
@@ -172,6 +172,6 @@ pub(crate) async fn save_app_settings(
     std::fs::write(&settings_path, json)
         .map_err(|e| format!("Failed to write settings file: {}", e))?;
 
-    log::info!("App settings saved successfully to {:?}", settings_path);
+    log::info!("App settings saved");
     Ok(settings)
 }
