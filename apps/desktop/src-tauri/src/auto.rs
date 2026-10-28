@@ -3,8 +3,10 @@
 //! Inputs: batches of changed paths from the file watcher, and a full rescan
 //! of every watched folder every [`RESCAN_INTERVAL`]. A pass plans the
 //! watched folders that changed and executes only the operations of rules
-//! approved at their current version (see `settings::Approvals`). Operations
-//! of other rules are left for the next manual preview.
+//! approved at their current version under the watched folder of the file
+//! (see `settings::Approvals`). Other operations (rule edited or never
+//! previewed, or a folder added since the last preview) are left for the
+//! next manual preview.
 //!
 //! A pass runs only when [`pass_allowed`]: `auto_apply_enabled` and
 //! `first_preview_approved` in `app_settings.json`, not paused from the tray,
@@ -32,7 +34,7 @@ use valet_core::{
 use crate::commands::operations::{execute_blocking, plan_blocking, record_stats};
 use crate::commands::platform::notify_batch_done;
 use crate::commands::settings::{
-    load_app_settings, load_approvals, watched_folders, AppSettings, Approvals,
+    load_app_settings, load_approvals, root_key, watched_folders, AppSettings, Approvals,
 };
 use crate::state::AppState;
 
@@ -262,19 +264,22 @@ pub(crate) struct PassOutcome {
     /// The plan skipped a file as being written.
     pub(crate) being_written: bool,
     /// Operations left for the next manual preview (rule not approved at
-    /// its current version).
+    /// its current version under the file's watched folder).
     pub(crate) unapproved: usize,
 }
 
-/// Splits planned operations into those a pass may execute (rule approved at
-/// its current version, file not out of locked retries) and the number left
-/// because their rule is not approved.
+/// Splits planned operations of a pass over `roots` into those it may
+/// execute (rule approved at its current version under the watched folder of
+/// the source, see [`Approvals::allows_path`]; file not out of locked
+/// retries) and the number left because their rule is not approved there.
 pub(crate) fn approved_ops(
     ops: Vec<PlannedOp>,
     rules: &[Rule],
     approvals: &Approvals,
+    roots: &[PathBuf],
     retries: &LockedRetries,
 ) -> (Vec<PlannedOp>, usize) {
+    let root_keys: Vec<String> = roots.iter().map(|r| root_key(r)).collect();
     let mut unapproved = 0;
     let run = ops
         .into_iter()
@@ -282,7 +287,7 @@ pub(crate) fn approved_ops(
             let approved = rules
                 .iter()
                 .find(|r| r.id == op.rule_id)
-                .is_some_and(|r| approvals.allows(r));
+                .is_some_and(|r| approvals.allows_path(r, &op.source, &root_keys));
             if !approved {
                 unapproved += 1;
             }
@@ -322,7 +327,7 @@ pub(crate) async fn run_pass(
         .skipped
         .iter()
         .any(|s| s.reason == SkipReason::BeingWritten);
-    let (ops, unapproved) = approved_ops(plan.ops, &rules, &approvals, retries);
+    let (ops, unapproved) = approved_ops(plan.ops, &rules, &approvals, roots, retries);
     if ops.is_empty() {
         return Ok(Some(PassOutcome {
             report: None,
@@ -498,7 +503,16 @@ mod tests {
     use valet_core::executor::OpError;
     use valet_core::planner::OpKind;
 
-    use crate::commands::settings::record_preview_approval;
+    use crate::commands::settings::{record_preview_approval, PreviewApproval};
+
+    /// Executing a preview of `roots` that contained `rules`.
+    fn approve(cfg: &Path, rules: &[(Uuid, i32)], roots: &[&Path]) {
+        let approval = PreviewApproval {
+            rules: rules.to_vec(),
+            roots: roots.iter().map(|r| r.to_path_buf()).collect(),
+        };
+        record_preview_approval(cfg, &approval).unwrap();
+    }
 
     fn settings(auto: bool, approved: bool) -> AppSettings {
         AppSettings {
@@ -766,7 +780,7 @@ mod tests {
             f.db.upsert_rule(r).await.unwrap();
         }
         // Rule 3 was approved at version 1, then edited.
-        record_preview_approval(&f.cfg, &[(approved.id, 1), (edited.id, 1)]).unwrap();
+        approve(&f.cfg, &[(approved.id, 1), (edited.id, 1)], &[&f.inbox]);
         old_file(&f.inbox.join("a.txt"), b"a");
         old_file(&f.inbox.join("b.pdf"), b"b");
         old_file(&f.inbox.join("c.jpg"), b"c");
@@ -801,7 +815,7 @@ mod tests {
         let f = fixture().await;
         let rule = move_rule(1, "txt", &f.out, 1);
         f.db.upsert_rule(&rule).await.unwrap();
-        record_preview_approval(&f.cfg, &[(rule.id, 1)]).unwrap();
+        approve(&f.cfg, &[(rule.id, 1)], &[&f.inbox]);
         old_file(&f.inbox.join("a.txt"), b"a");
         let roots = vec![f.inbox.clone()];
         let mut retries = LockedRetries::default();
@@ -834,7 +848,7 @@ mod tests {
         let f = fixture().await;
         let rule = move_rule(1, "txt", &f.out, 1);
         f.db.upsert_rule(&rule).await.unwrap();
-        record_preview_approval(&f.cfg, &[(rule.id, 1)]).unwrap();
+        approve(&f.cfg, &[(rule.id, 1)], &[&f.inbox]);
         for i in 0..20 {
             old_file(&f.inbox.join(format!("{i}.txt")), b"x");
         }
@@ -879,11 +893,107 @@ mod tests {
         assert_eq!(std::fs::read_dir(&f.out).unwrap().count(), 40);
     }
 
+    #[tokio::test(flavor = "multi_thread")]
+    async fn folder_added_after_the_preview_waits_for_a_new_one() {
+        let f = fixture().await;
+        let rule = move_rule(1, "txt", &f.out, 1);
+        f.db.upsert_rule(&rule).await.unwrap();
+        // The preview covered the inbox only.
+        approve(&f.cfg, &[(rule.id, 1)], &[&f.inbox]);
+        let added = f._tmp.path().join("added");
+        std::fs::create_dir_all(&added).unwrap();
+        old_file(&f.inbox.join("a.txt"), b"a");
+        old_file(&added.join("b.txt"), b"b");
+        let roots = vec![f.inbox.clone(), added.clone()];
+
+        let mut retries = LockedRetries::default();
+        let outcome = run_pass(
+            &f.state,
+            &f.db,
+            &f.cfg,
+            &roots,
+            &mut retries,
+            Instant::now(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(outcome.report.unwrap().done_count(), 1);
+        assert_eq!(outcome.unapproved, 1);
+        assert_eq!(std::fs::read(f.out.join("a.txt")).unwrap(), b"a");
+        assert_eq!(
+            std::fs::read(added.join("b.txt")).unwrap(),
+            b"b",
+            "not previewed"
+        );
+
+        // A preview of both folders approves the new one.
+        approve(&f.cfg, &[(rule.id, 1)], &[&f.inbox, &added]);
+        let outcome = run_pass(
+            &f.state,
+            &f.db,
+            &f.cfg,
+            &roots,
+            &mut retries,
+            Instant::now(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(outcome.report.unwrap().done_count(), 1);
+        assert_eq!(outcome.unapproved, 0);
+        assert!(!added.join("b.txt").exists());
+        assert_eq!(std::fs::read(f.out.join("b.txt")).unwrap(), b"b");
+    }
+
+    #[test]
+    fn nested_folders_need_approval_under_each_containing_folder() {
+        let rule = move_rule(1, "txt", Path::new("/out"), 1);
+        let op = |name: &str| PlannedOp {
+            source: p(name),
+            dest: p("/out/x"),
+            kind: OpKind::Move,
+            rule_id: rule.id,
+            rule_name: rule.name.clone(),
+            size: 1,
+            mtime: SystemTime::UNIX_EPOCH,
+        };
+        let tmp = tempfile::tempdir().unwrap();
+        // Only the outer folder was previewed.
+        approve(tmp.path(), &[(rule.id, 1)], &[Path::new("/in")]);
+        let approvals = load_approvals(tmp.path());
+        let ops = || vec![op("/in/a.txt"), op("/in/sub/b.txt"), op("/in2/c.txt")];
+        let run = |roots: &[PathBuf]| {
+            let (run, unapproved) = approved_ops(
+                ops(),
+                std::slice::from_ref(&rule),
+                &approvals,
+                roots,
+                &LockedRetries::default(),
+            );
+            let names: Vec<PathBuf> = run.into_iter().map(|o| o.source).collect();
+            (names, unapproved)
+        };
+        assert_eq!(
+            run(&[p("/in")]),
+            (vec![p("/in/a.txt"), p("/in/sub/b.txt")], 1),
+            "/in2 is not inside /in: a file outside every root of the pass is never approved"
+        );
+        // `/in/sub` added as its own watched folder: its files wait.
+        assert_eq!(run(&[p("/in"), p("/in/sub")]), (vec![p("/in/a.txt")], 2));
+    }
+
     #[test]
     fn approved_ops_drops_files_out_of_locked_retries() {
         let rule = move_rule(1, "txt", Path::new("/out"), 1);
         let mut approvals = Approvals::default();
-        approvals.0.insert(rule.id, 1);
+        approvals.0.insert(
+            rule.id,
+            crate::commands::settings::Approval {
+                version: 1,
+                roots: [root_key(Path::new("/in"))].into(),
+            },
+        );
         let op = |name: &str| PlannedOp {
             source: p(name),
             dest: p("/out/x"),
@@ -901,6 +1011,7 @@ mod tests {
             vec![op("/in/locked.txt"), op("/in/free.txt")],
             std::slice::from_ref(&rule),
             &approvals,
+            &[p("/in")],
             &retries,
         );
         assert_eq!(unapproved, 0);

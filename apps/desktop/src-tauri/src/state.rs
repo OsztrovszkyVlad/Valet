@@ -10,14 +10,15 @@ use valet_core::platform::Platform;
 use valet_platform::WatchCancel;
 
 use crate::auto::AutoMsg;
-use crate::commands::settings::RuleVersion;
+use crate::commands::settings::PreviewApproval;
 
 /// Auto-apply stays paused this long after `dry_run` when the UI neither
 /// executes the preview nor calls `close_preview`.
 pub(crate) const PREVIEW_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 
-/// Plan id, plan, and the rules (id, version) the plan contains.
-pub(crate) type StoredPreview = (String, Plan, Vec<RuleVersion>);
+/// Plan id, plan, and what executing it approves (the rules it contains
+/// and the watched folders it planned).
+pub(crate) type StoredPreview = (String, Plan, PreviewApproval);
 
 #[derive(Clone)]
 pub(crate) struct AppState {
@@ -29,9 +30,10 @@ pub(crate) struct AppState {
     pub(crate) watcher: Arc<Mutex<Option<WatchCancel>>>,
     /// Held while a batch is executed or undone, so batches never overlap.
     pub(crate) file_ops: Arc<tauri::async_runtime::Mutex<()>>,
-    /// The latest plan `dry_run` showed, with its id and the rules (id,
-    /// version) it contains. `execute_operations` runs only this plan, and
-    /// only when given the same id.
+    /// The latest plan `dry_run` showed, with its id, the rules (id,
+    /// version) it contains and the watched folders it planned.
+    /// `execute_operations` runs only this plan, and only when given the
+    /// same id.
     pub(crate) preview: Arc<Mutex<Option<StoredPreview>>>,
     /// When `dry_run` last opened a preview; `None` once it was executed or
     /// closed. Auto-apply waits while a preview is open (PLAN 4.4).
@@ -59,25 +61,25 @@ impl AppState {
     }
 
     /// Stores `plan` under `plan_id` as the latest preview, replacing any
-    /// earlier one. `rules` are the rules (id, version) the plan contains;
-    /// executing it approves them.
-    pub(crate) fn store_preview(&self, plan_id: String, plan: Plan, rules: Vec<RuleVersion>) {
+    /// earlier one. Executing it records `approval` (its rules under its
+    /// watched folders).
+    pub(crate) fn store_preview(&self, plan_id: String, plan: Plan, approval: PreviewApproval) {
         *self
             .preview
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some((plan_id, plan, rules));
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some((plan_id, plan, approval));
     }
 
-    /// Removes and returns the stored preview (plan and its rules) if its id
-    /// is `plan_id`. Otherwise leaves it in place and returns
+    /// Removes and returns the stored preview (plan and its approval) if its
+    /// id is `plan_id`. Otherwise leaves it in place and returns
     /// `PREVIEW_REQUIRED`.
-    pub(crate) fn take_preview(&self, plan_id: &str) -> Result<(Plan, Vec<RuleVersion>), String> {
+    pub(crate) fn take_preview(&self, plan_id: &str) -> Result<(Plan, PreviewApproval), String> {
         let mut slot = self
             .preview
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         match slot.take() {
-            Some((id, plan, rules)) if id == plan_id => Ok((plan, rules)),
+            Some((id, plan, approval)) if id == plan_id => Ok((plan, approval)),
             other => {
                 *slot = other;
                 Err(PREVIEW_REQUIRED.to_string())
@@ -172,16 +174,26 @@ mod tests {
     #[test]
     fn take_preview_with_wrong_id_keeps_the_stored_plan() {
         let state = AppState::new(PathBuf::from("valet.sqlite3"));
-        let rules = vec![(uuid::Uuid::from_u128(1), 3)];
-        state.store_preview("p-1".to_string(), Plan::default(), rules.clone());
+        let approval = PreviewApproval {
+            rules: vec![(uuid::Uuid::from_u128(1), 3)],
+            roots: vec![PathBuf::from("C:\\Users\\Ana\\Downloads")],
+        };
+        state.store_preview("p-1".to_string(), Plan::default(), approval.clone());
         assert_eq!(state.take_preview("other").unwrap_err(), PREVIEW_REQUIRED);
-        assert_eq!(state.take_preview("p-1").unwrap(), (Plan::default(), rules));
+        assert_eq!(
+            state.take_preview("p-1").unwrap(),
+            (Plan::default(), approval)
+        );
     }
 
     #[test]
     fn take_preview_is_single_use() {
         let state = AppState::new(PathBuf::from("valet.sqlite3"));
-        state.store_preview("p-1".to_string(), Plan::default(), vec![]);
+        state.store_preview(
+            "p-1".to_string(),
+            Plan::default(),
+            PreviewApproval::default(),
+        );
         state.take_preview("p-1").unwrap();
         assert_eq!(state.take_preview("p-1").unwrap_err(), PREVIEW_REQUIRED);
     }
@@ -189,8 +201,16 @@ mod tests {
     #[test]
     fn newer_preview_replaces_older_one() {
         let state = AppState::new(PathBuf::from("valet.sqlite3"));
-        state.store_preview("old".to_string(), Plan::default(), vec![]);
-        state.store_preview("new".to_string(), Plan::default(), vec![]);
+        state.store_preview(
+            "old".to_string(),
+            Plan::default(),
+            PreviewApproval::default(),
+        );
+        state.store_preview(
+            "new".to_string(),
+            Plan::default(),
+            PreviewApproval::default(),
+        );
         assert_eq!(state.take_preview("old").unwrap_err(), PREVIEW_REQUIRED);
         state.take_preview("new").unwrap();
     }

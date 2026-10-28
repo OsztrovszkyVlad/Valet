@@ -12,7 +12,7 @@
 //! `config.noFolders` (from `dry_run`), `settings.io` and `config.io`
 //! (detail in the log).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Deserializer, Serialize};
@@ -203,8 +203,12 @@ pub(crate) async fn get_config(app: tauri::AppHandle) -> Result<ConfigView, Stri
     config_view(&config_dir(&app)?, Path::exists)
 }
 
+/// Validates and writes `config`. Before writing, approvals lose the
+/// folders `config` no longer has (see [`prune_approval_roots`]); if that
+/// fails nothing is written.
 fn save_config_in(dir: &Path, config: Config) -> Result<Config, String> {
     validate_config(&config, Path::exists)?;
+    prune_approval_roots(dir, &config.inbox_paths)?;
     write_json(dir, CONFIG_FILE, &config, ERR_CONFIG_IO)?;
     Ok(config)
 }
@@ -325,18 +329,109 @@ pub(crate) async fn save_app_settings(
 /// A rule id with the rule version it had.
 pub(crate) type RuleVersion = (Uuid, i32);
 
+/// What executing a preview approves: `rules` (the rules the plan contains,
+/// at their version) under `roots` (the watched folders the preview
+/// planned).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct PreviewApproval {
+    pub(crate) rules: Vec<RuleVersion>,
+    pub(crate) roots: Vec<PathBuf>,
+}
+
+/// Comparison key of a watched folder, Windows-style: `/` and `\` are the
+/// same separator, a `\\?\` (or `\\?\UNC\`) prefix, `.` components,
+/// repeated and trailing separators are dropped, and case is ignored. `..`
+/// is kept as is. Pure string work, no disk access.
+pub(crate) fn root_key(path: &Path) -> String {
+    let s = path.to_string_lossy().replace('/', "\\");
+    let s = if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{rest}")
+    } else if let Some(rest) = s.strip_prefix(r"\\?\") {
+        rest.to_owned()
+    } else {
+        s
+    };
+    let lead = if s.starts_with(r"\\") {
+        r"\\"
+    } else if s.starts_with('\\') {
+        "\\"
+    } else {
+        ""
+    };
+    let parts: Vec<&str> = s
+        .split('\\')
+        .filter(|c| !c.is_empty() && *c != ".")
+        .collect();
+    format!("{lead}{}", parts.join("\\")).to_lowercase()
+}
+
+/// `key` is `root` or lies below it (both [`root_key`]s).
+fn key_within(key: &str, root: &str) -> bool {
+    key.strip_prefix(root)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with('\\') || root.ends_with('\\'))
+}
+
+/// The approval of one rule: the version the user approved and the watched
+/// folders ([`root_key`]s) the approving previews planned.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(from = "StoredApproval")]
+pub(crate) struct Approval {
+    pub(crate) version: i32,
+    pub(crate) roots: BTreeSet<String>,
+}
+
+/// `approvals.json` entries as read: the current shape, or a bare version
+/// from before approvals were per folder. A bare version approves no folder,
+/// so those rules wait for the next preview.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum StoredApproval {
+    PerFolder {
+        version: i32,
+        #[serde(default)]
+        roots: BTreeSet<String>,
+    },
+    VersionOnly(i32),
+}
+
+impl From<StoredApproval> for Approval {
+    fn from(s: StoredApproval) -> Self {
+        match s {
+            StoredApproval::PerFolder { version, roots } => Self { version, roots },
+            StoredApproval::VersionOnly(version) => Self {
+                version,
+                roots: BTreeSet::new(),
+            },
+        }
+    }
+}
+
 /// `approvals.json`: rule id -> the rule version the user approved by
-/// executing a preview that contained the rule. Auto-apply runs a rule only
-/// at its approved version; editing a rule bumps its version, so it needs a
-/// new preview.
+/// executing a preview that contained the rule, and the watched folders that
+/// preview (or an earlier one at the same version) planned. Auto-apply runs a
+/// rule only at its approved version and only on files under an approved
+/// folder: editing a rule bumps its version, and adding a watched folder
+/// (also re-adding a removed one) needs a preview of that folder.
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, Eq)]
 #[serde(transparent)]
-pub(crate) struct Approvals(pub(crate) BTreeMap<Uuid, i32>);
+pub(crate) struct Approvals(pub(crate) BTreeMap<Uuid, Approval>);
 
 impl Approvals {
-    /// `rule` is approved at its current version.
-    pub(crate) fn allows(&self, rule: &Rule) -> bool {
-        self.0.get(&rule.id) == Some(&rule.version)
+    /// `rule` is approved at its current version under the watched folder
+    /// whose [`root_key`] is `root`.
+    pub(crate) fn allows(&self, rule: &Rule, root: &str) -> bool {
+        self.0
+            .get(&rule.id)
+            .is_some_and(|a| a.version == rule.version && a.roots.contains(root))
+    }
+
+    /// `rule` may run on `path` in a pass over `roots`: approved at its
+    /// current version under every one of `roots` that contains `path`
+    /// (watched folders may nest), and at least one contains it.
+    pub(crate) fn allows_path(&self, rule: &Rule, path: &Path, roots: &[String]) -> bool {
+        let key = root_key(path);
+        let mut containing = roots.iter().filter(|r| key_within(&key, r)).peekable();
+        containing.peek().is_some() && containing.all(|r| self.allows(rule, r))
     }
 }
 
@@ -359,13 +454,30 @@ pub(crate) fn load_approvals(dir: &Path) -> Approvals {
     }
 }
 
-/// Records that the user executed a preview containing `rules`: each is
-/// approved at the given version (replacing an older approval), and
-/// `first_preview_approved` is set in `app_settings.json`.
-pub(crate) fn record_preview_approval(dir: &Path, rules: &[RuleVersion]) -> Result<(), String> {
+/// Records that the user executed a preview: each rule of `approval` is
+/// approved at its version under the preview's folders (added to the
+/// folders of an approval at the same version, replacing an approval at
+/// another version), and `first_preview_approved` is set in
+/// `app_settings.json`.
+pub(crate) fn record_preview_approval(
+    dir: &Path,
+    approval: &PreviewApproval,
+) -> Result<(), String> {
     let mut approvals = load_approvals(dir);
-    for (id, version) in rules {
-        approvals.0.insert(*id, *version);
+    let roots: BTreeSet<String> = approval.roots.iter().map(|r| root_key(r)).collect();
+    for (id, version) in &approval.rules {
+        match approvals.0.get_mut(id) {
+            Some(a) if a.version == *version => a.roots.extend(roots.iter().cloned()),
+            _ => {
+                approvals.0.insert(
+                    *id,
+                    Approval {
+                        version: *version,
+                        roots: roots.clone(),
+                    },
+                );
+            }
+        }
     }
     write_json(dir, APPROVALS_FILE, &approvals, ERR_SETTINGS_IO)?;
     let settings = load_app_settings(dir);
@@ -379,6 +491,24 @@ pub(crate) fn record_preview_approval(dir: &Path, rules: &[RuleVersion]) -> Resu
             },
             ERR_SETTINGS_IO,
         )?;
+    }
+    Ok(())
+}
+
+/// Drops from every approval the folders that are not in `watched` any more
+/// (and approvals left without a folder), so a folder removed and added
+/// again needs a new preview. Folders still watched keep their approvals.
+/// Leaves the file alone when nothing changes.
+pub(crate) fn prune_approval_roots(dir: &Path, watched: &[String]) -> Result<(), String> {
+    let keep: BTreeSet<String> = watched.iter().map(|w| root_key(Path::new(w))).collect();
+    let mut approvals = load_approvals(dir);
+    let before = approvals.clone();
+    for a in approvals.0.values_mut() {
+        a.roots.retain(|r| keep.contains(r));
+    }
+    approvals.0.retain(|_, a| !a.roots.is_empty());
+    if approvals != before {
+        write_json(dir, APPROVALS_FILE, &approvals, ERR_SETTINGS_IO)?;
     }
     Ok(())
 }
@@ -404,11 +534,11 @@ mod tests {
         let dir = tmp.path();
         remove_approval(dir, Uuid::from_u128(1)).unwrap();
         assert!(!dir.join(APPROVALS_FILE).exists(), "nothing to write");
-        record_preview_approval(dir, &[(Uuid::from_u128(1), 2), (Uuid::from_u128(2), 1)]).unwrap();
+        approve(dir, &[(1, 2), (2, 1)], &[IN]);
         remove_approval(dir, Uuid::from_u128(1)).unwrap();
         let a = load_approvals(dir);
-        assert!(!a.allows(&rule(1, 2)));
-        assert!(a.allows(&rule(2, 1)));
+        assert!(!a.allows(&rule(1, 2), &key(IN)));
+        assert!(a.allows(&rule(2, 1), &key(IN)));
         remove_approval(dir, Uuid::from_u128(9)).unwrap();
         assert_eq!(load_approvals(dir), a);
     }
@@ -740,23 +870,165 @@ mod tests {
         assert_eq!(load_approvals(dir), Approvals::default());
         assert!(!load_app_settings(dir).first_preview_approved);
 
-        record_preview_approval(dir, &[(Uuid::from_u128(1), 2)]).unwrap();
+        approve(dir, &[(1, 2)], &[IN]);
         let a = load_approvals(dir);
-        assert!(a.allows(&rule(1, 2)));
-        assert!(!a.allows(&rule(1, 3)), "an edited rule needs a new preview");
-        assert!(!a.allows(&rule(1, 1)));
-        assert!(!a.allows(&rule(2, 2)), "never previewed");
+        let k = key(IN);
+        assert!(a.allows(&rule(1, 2), &k));
+        assert!(
+            !a.allows(&rule(1, 3), &k),
+            "an edited rule needs a new preview"
+        );
+        assert!(!a.allows(&rule(1, 1), &k));
+        assert!(!a.allows(&rule(2, 2), &k), "never previewed");
         assert!(load_app_settings(dir).first_preview_approved);
 
         // A later preview approves the new version and keeps other rules.
-        record_preview_approval(dir, &[(Uuid::from_u128(1), 3), (Uuid::from_u128(2), 1)]).unwrap();
+        approve(dir, &[(1, 3), (2, 1)], &[IN]);
         let a = load_approvals(dir);
-        assert!(a.allows(&rule(1, 3)) && !a.allows(&rule(1, 2)));
-        assert!(a.allows(&rule(2, 1)));
+        assert!(a.allows(&rule(1, 3), &k) && !a.allows(&rule(1, 2), &k));
+        assert!(a.allows(&rule(2, 1), &k));
 
         // An unreadable file approves nothing.
         std::fs::write(dir.join(APPROVALS_FILE), "{ nope").unwrap();
         assert_eq!(load_approvals(dir), Approvals::default());
+    }
+
+    const IN: &str = "C:\\Users\\Ana\\Downloads";
+    const DESK: &str = "C:\\Users\\Ana\\Desktop";
+
+    fn key(p: &str) -> String {
+        root_key(Path::new(p))
+    }
+
+    /// Executing a preview of `roots` that contained `rules` (n, version).
+    fn approve(dir: &Path, rules: &[(u128, i32)], roots: &[&str]) {
+        let approval = PreviewApproval {
+            rules: rules
+                .iter()
+                .map(|(n, v)| (Uuid::from_u128(*n), *v))
+                .collect(),
+            roots: roots.iter().map(PathBuf::from).collect(),
+        };
+        record_preview_approval(dir, &approval).unwrap();
+    }
+
+    #[test]
+    fn root_key_ignores_case_separators_and_long_path_prefix() {
+        let k = key("C:\\Users\\Ana\\Downloads");
+        for same in [
+            "c:\\users\\ana\\downloads",
+            "C:/Users/Ana/Downloads",
+            "C:\\Users\\Ana\\Downloads\\",
+            "C:\\Users\\\\Ana\\.\\Downloads",
+            "\\\\?\\C:\\Users\\Ana\\Downloads",
+        ] {
+            assert_eq!(key(same), k, "{same}");
+        }
+        assert_ne!(key("C:\\Users\\Ana\\Downloads2"), k);
+        assert_ne!(key("D:\\Users\\Ana\\Downloads"), k);
+        let unc = key("\\\\nas\\share\\in");
+        assert_eq!(unc, "\\\\nas\\share\\in");
+        assert_eq!(key("\\\\?\\UNC\\NAS\\share\\in\\"), unc);
+        assert_eq!(key("//nas/share/in"), unc);
+        assert_eq!(key("/home/Ana/in/"), "\\home\\ana\\in");
+    }
+
+    #[test]
+    fn approval_is_per_watched_folder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        approve(dir, &[(1, 1)], &[IN]);
+        let a = load_approvals(dir);
+        assert!(a.allows(&rule(1, 1), &key(IN)));
+        assert!(
+            a.allows(&rule(1, 1), &key("c:/users/ana/downloads/")),
+            "same folder, other spelling"
+        );
+        assert!(!a.allows(&rule(1, 1), &key(DESK)), "never previewed there");
+
+        // Another preview at the same version adds its folders.
+        approve(dir, &[(1, 1)], &[DESK]);
+        let a = load_approvals(dir);
+        assert!(a.allows(&rule(1, 1), &key(IN)) && a.allows(&rule(1, 1), &key(DESK)));
+
+        // A new version starts over with the folders of its preview.
+        approve(dir, &[(1, 2)], &[DESK]);
+        let a = load_approvals(dir);
+        assert!(a.allows(&rule(1, 2), &key(DESK)));
+        assert!(!a.allows(&rule(1, 2), &key(IN)));
+
+        // Stored shape.
+        assert_eq!(
+            serde_json::to_value(&a).unwrap(),
+            json!({ Uuid::from_u128(1).to_string(): { "version": 2, "roots": [key(DESK)] } })
+        );
+    }
+
+    #[test]
+    fn version_only_approvals_from_before_approve_no_folder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        std::fs::write(
+            dir.join(APPROVALS_FILE),
+            json!({ Uuid::from_u128(1).to_string(): 2 }).to_string(),
+        )
+        .unwrap();
+        let a = load_approvals(dir);
+        assert_eq!(a.0[&Uuid::from_u128(1)].version, 2);
+        assert!(!a.allows(&rule(1, 2), &key(IN)), "needs a new preview");
+        // The next preview turns it into a per-folder approval.
+        approve(dir, &[(1, 2)], &[IN]);
+        assert!(load_approvals(dir).allows(&rule(1, 2), &key(IN)));
+    }
+
+    #[test]
+    fn removing_a_folder_keeps_the_others_and_re_adding_it_needs_a_preview() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        approve(dir, &[(1, 1), (2, 1)], &[IN, DESK]);
+        approve(dir, &[(3, 1)], &[DESK]);
+        let before = std::fs::read(dir.join(APPROVALS_FILE)).unwrap();
+        prune_approval_roots(dir, &[IN.to_string(), DESK.to_string()]).unwrap();
+        assert_eq!(
+            std::fs::read(dir.join(APPROVALS_FILE)).unwrap(),
+            before,
+            "nothing removed"
+        );
+
+        // The desktop is no longer watched (spelled differently in config).
+        prune_approval_roots(dir, &["c:/users/ana/downloads/".to_string()]).unwrap();
+        let a = load_approvals(dir);
+        assert!(a.allows(&rule(1, 1), &key(IN)), "no new approval needed");
+        assert!(a.allows(&rule(2, 1), &key(IN)));
+        assert!(
+            !a.allows(&rule(1, 1), &key(DESK)),
+            "re-added: preview again"
+        );
+        assert!(!a.0.contains_key(&Uuid::from_u128(3)), "no folder left");
+
+        // No approvals file: nothing written.
+        let empty = dir.join("none");
+        prune_approval_roots(&empty, &[]).unwrap();
+        assert!(!empty.join(APPROVALS_FILE).exists());
+    }
+
+    #[test]
+    fn save_config_drops_approvals_of_removed_folders() {
+        let watched = existing_folder();
+        let w = watched.to_str().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        approve(dir, &[(1, 1)], &[w, IN]);
+        save_config_in(dir, cfg(&[w])).unwrap();
+        let a = load_approvals(dir);
+        assert!(a.allows(&rule(1, 1), &key(w)));
+        assert!(!a.allows(&rule(1, 1), &key(IN)));
+
+        // A refused config changes no approval.
+        approve(dir, &[(1, 1)], &[IN]);
+        let before = load_approvals(dir);
+        save_config_in(dir, cfg(&["C:\\"])).unwrap_err();
+        assert_eq!(load_approvals(dir), before);
     }
 
     #[test]

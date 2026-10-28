@@ -16,7 +16,9 @@ use valet_core::{
 };
 
 use crate::commands::platform::notify_batch_done;
-use crate::commands::settings::{record_preview_approval, watched_folders, RuleVersion};
+use crate::commands::settings::{
+    record_preview_approval, watched_folders, PreviewApproval, RuleVersion,
+};
 use crate::state::{config_dir, AppState};
 
 /// Plans `roots` with `rules` on a blocking thread: the planner walks
@@ -150,7 +152,12 @@ pub(crate) async fn dry_run(app: tauri::AppHandle) -> Result<serde_json::Value, 
 
     let plan_id = uuid::Uuid::new_v4().to_string();
     let json = dry_run_json(&plan, &plan_id);
-    state.store_preview(plan_id, plan, plan_rules);
+    // Executing this preview approves its rules under exactly these folders.
+    let approval = PreviewApproval {
+        rules: plan_rules,
+        roots: paths,
+    };
+    state.store_preview(plan_id, plan, approval);
     Ok(json)
 }
 
@@ -254,8 +261,9 @@ fn execute_response(report: &BatchReport) -> ExecuteResponse {
 /// no preview returns `PREVIEW_REQUIRED` and touches nothing.
 /// `before_execute` runs once the plan is taken, before any file operation.
 /// After the batch the rules the preview contained are approved at their
-/// previewed version (`approvals.json` in `cfg_dir`) and
-/// `first_preview_approved` is set; failing to write that is logged only.
+/// previewed version under the watched folders the preview planned
+/// (`approvals.json` in `cfg_dir`) and `first_preview_approved` is set;
+/// failing to write that is logged only.
 pub(crate) async fn execute_previewed(
     state: &AppState,
     db: &Db,
@@ -265,13 +273,13 @@ pub(crate) async fn execute_previewed(
 ) -> Result<BatchReport, String> {
     // One batch at a time.
     let _file_ops = state.file_ops.lock().await;
-    let (plan, plan_rules) = state.take_preview(plan_id)?;
+    let (plan, approval) = state.take_preview(plan_id)?;
     before_execute(&plan);
 
     let report = execute_blocking(plan.ops, db.journal(), state.platform.clone()).await?;
     record_stats(db, &report).await;
     // Still under `file_ops`, so an auto-apply pass sees all or none of it.
-    if record_preview_approval(cfg_dir, &plan_rules).is_err() {
+    if record_preview_approval(cfg_dir, &approval).is_err() {
         log::warn!("Rule approvals could not be saved");
     }
     Ok(report)
@@ -555,7 +563,8 @@ mod tests {
             skipped: vec![],
             reports: vec![],
         };
-        f.state.store_preview("p-1".to_string(), plan, vec![]);
+        f.state
+            .store_preview("p-1".to_string(), plan, PreviewApproval::default());
         let err = execute_previewed(&f.state, &f.db, &f.cfg, "p-2", |_| panic!("ran"))
             .await
             .unwrap_err();
@@ -577,7 +586,8 @@ mod tests {
             skipped: vec![],
             reports: vec![],
         };
-        f.state.store_preview("p-1".to_string(), plan, vec![]);
+        f.state
+            .store_preview("p-1".to_string(), plan, PreviewApproval::default());
 
         // Appears after the preview; the same rule would match it.
         let late = f.inbox.join("late.txt");
@@ -606,7 +616,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn execute_approves_the_previewed_rules_at_their_version() {
-        use crate::commands::settings::{load_app_settings, load_approvals};
+        use crate::commands::settings::{load_app_settings, load_approvals, root_key};
         let f = fixture().await;
         let a = f.inbox.join("a.txt");
         std::fs::write(&a, b"a").unwrap();
@@ -619,8 +629,11 @@ mod tests {
         };
 
         // A refused execute approves nothing.
-        f.state
-            .store_preview("p-1".to_string(), plan, vec![(uuid::Uuid::from_u128(7), 2)]);
+        let approval = PreviewApproval {
+            rules: vec![(uuid::Uuid::from_u128(7), 2)],
+            roots: vec![f.inbox.clone()],
+        };
+        f.state.store_preview("p-1".to_string(), plan, approval);
         execute_previewed(&f.state, &f.db, &f.cfg, "p-2", |_| {})
             .await
             .unwrap_err();
@@ -631,13 +644,18 @@ mod tests {
             .await
             .unwrap();
         let approvals = load_approvals(&f.cfg);
-        assert_eq!(approvals.0.get(&uuid::Uuid::from_u128(7)), Some(&2));
+        assert_eq!(approvals.0[&uuid::Uuid::from_u128(7)].version, 2);
         assert!(load_app_settings(&f.cfg).first_preview_approved);
 
+        let inbox = root_key(&f.inbox);
         let mut r = rule(7, "r", 2);
-        assert!(approvals.allows(&r));
+        assert!(approvals.allows(&r, &inbox));
+        assert!(
+            !approvals.allows(&r, &root_key(&f.out)),
+            "a folder the preview did not plan"
+        );
         r.version = 3; // edited after the preview
-        assert!(!approvals.allows(&r));
+        assert!(!approvals.allows(&r, &inbox));
     }
 
     fn rule(n: u128, name: &str, version: i32) -> Rule {

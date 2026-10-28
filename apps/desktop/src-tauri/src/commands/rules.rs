@@ -655,7 +655,9 @@ mod tests {
 
     #[tokio::test]
     async fn deleting_a_rule_removes_its_approval() {
-        use crate::commands::settings::{load_approvals, record_preview_approval};
+        use crate::commands::settings::{
+            load_approvals, record_preview_approval, root_key, PreviewApproval,
+        };
         let (tmp, db) = db().await;
         let dir = tmp.path().join("cfg");
         let r = cond("ext", json!("pdf"));
@@ -663,12 +665,18 @@ mod tests {
         other.id = Uuid::from_u128(2);
         save_rule(&db, r.clone()).await.unwrap();
         save_rule(&db, other.clone()).await.unwrap();
-        record_preview_approval(&dir, &[(r.id, 1), (other.id, 1)]).unwrap();
+        let inbox = std::path::PathBuf::from("C:\\in");
+        let approval = PreviewApproval {
+            rules: vec![(r.id, 1), (other.id, 1)],
+            roots: vec![inbox.clone()],
+        };
+        record_preview_approval(&dir, &approval).unwrap();
 
         remove_rule_and_approval(&db, &dir, r.id).await.unwrap();
         let a = load_approvals(&dir);
-        assert!(!a.allows(&r), "a new rule with this id needs a preview");
-        assert!(a.allows(&other));
+        let k = root_key(&inbox);
+        assert!(!a.allows(&r, &k), "a new rule with this id needs a preview");
+        assert!(a.allows(&other, &k));
         assert_eq!(
             remove_rule_and_approval(&db, &dir, r.id).await.unwrap_err(),
             ERR_NOT_FOUND
