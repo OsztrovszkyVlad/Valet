@@ -13,6 +13,7 @@ mod tests {
     }
 }
 
+pub mod collision;
 pub mod config;
 pub mod engine;
 pub mod matcher;
