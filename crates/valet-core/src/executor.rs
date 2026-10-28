@@ -50,6 +50,10 @@ pub const FAULT_SLOW_ENV: &str = "VALET_FAULT_SLOW_MS";
 /// Attempts to find a free destination name when the planned one got taken.
 const MAX_COLLISION_RETRIES: u32 = 100;
 
+/// `hash_before` of a `trash` operation on a folder: the folder was empty
+/// when it was sent to the Recycle Bin (folders are not hashed).
+pub const EMPTY_DIR_MARK: &str = "empty-folder";
+
 /// Why an operation did not complete. Stored in the journal's `error` column
 /// as `Code` or `Code: detail`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

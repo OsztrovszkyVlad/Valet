@@ -136,6 +136,7 @@ impl Recoverer<'_> {
                 }
             }
             (OpState::InProgress, OpType::Move | OpType::Copy) => self.transfer(op).await,
+            (OpState::InProgress, OpType::Restore) => self.restore(op).await,
             (state, _) => Err(anyhow!("operation {} is {state}, not unfinished", op.id)),
         }
     }
@@ -230,6 +231,50 @@ impl Recoverer<'_> {
                 self.fail(
                     op,
                     &format!("source gone; destination differs from the journal ({why}); left as is"),
+                )
+                .await
+            }
+        }
+    }
+
+    /// Undo of a `trash` operation interrupted while restoring from the
+    /// Recycle Bin: done when the original path holds the expected content
+    /// (an empty folder for folders); otherwise failed and left as is.
+    async fn restore(&mut self, op: &OpRecord) -> Result<(OpState, String)> {
+        let path = &op.source_path;
+        if !exists(self.platform, path) {
+            return self
+                .fail(op, "not restored; the item is still in the Recycle Bin")
+                .await;
+        }
+        if op.hash_before.as_deref() == Some(EMPTY_DIR_MARK) {
+            let is_dir =
+                fs::symlink_metadata(self.platform.os_path(path)).is_ok_and(|m| m.is_dir());
+            return if is_dir {
+                self.done(op, None, "folder restored from the Recycle Bin")
+                    .await
+            } else {
+                self.fail(op, "something else is at the folder's path; left as is")
+                    .await
+            };
+        }
+        match self.observe(path, op.hash_before.as_deref()) {
+            Seen::Matches(h) => {
+                self.done(op, Some(&h), "restored from the Recycle Bin")
+                    .await
+            }
+            Seen::Placeholder => {
+                self.done(op, None, "at its path (cloud placeholder, not hashed)")
+                    .await
+            }
+            Seen::Missing => {
+                self.fail(op, "not restored; the item is still in the Recycle Bin")
+                    .await
+            }
+            Seen::Differs(why) => {
+                self.fail(
+                    op,
+                    &format!("another file is at the path ({why}); left as is"),
                 )
                 .await
             }

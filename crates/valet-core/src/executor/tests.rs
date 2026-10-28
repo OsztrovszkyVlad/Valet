@@ -1060,3 +1060,73 @@ async fn recover_interrupted_undo_rolls_back_original() {
     assert_eq!(env.op(orig).await.state, OpState::RolledBack);
     assert_eq!(fs::read(&src).unwrap(), b"u");
 }
+
+/// Journals a `done` trash operation for `path` and an interrupted
+/// `restore` undo step for it with `expected` as `hash_before`.
+async fn interrupted_restore(env: &Env, path: &Path, expected: &str) -> (i64, i64) {
+    let b = env.journal.create_batch(BatchKind::Apply).await.unwrap();
+    let new = |op_type, undo_of| NewOp {
+        op_type,
+        source: path.to_path_buf(),
+        dest: (op_type == OpType::Restore).then(|| path.to_path_buf()),
+        size: Some(1),
+        undo_of,
+    };
+    let trash = env
+        .journal
+        .insert_planned(&b, 0, &new(OpType::Trash, None))
+        .await
+        .unwrap();
+    env.journal.start(trash, Some(expected)).await.unwrap();
+    env.journal.mark_done(trash, None).await.unwrap();
+    env.journal.finish_batch(&b, "1 done").await.unwrap();
+    let u = env.journal.create_batch(BatchKind::Undo).await.unwrap();
+    let restore = env
+        .journal
+        .insert_planned(&u, 0, &new(OpType::Restore, Some(trash)))
+        .await
+        .unwrap();
+    env.journal.start(restore, Some(expected)).await.unwrap();
+    (trash, restore)
+}
+
+#[tokio::test]
+async fn recover_restore_op_by_disk_state() {
+    let env = Env::new().await;
+    let p = env.fake();
+    let back = env.path("in/back.txt");
+    write(&back, b"back");
+    let other = env.path("in/other.txt");
+    write(&other, b"someone else");
+    let folder = env.path("in/empty");
+    fs::create_dir_all(&folder).unwrap();
+    let (t_missing, r_missing) =
+        interrupted_restore(&env, &env.path("in/missing.txt"), &hash(b"m")).await;
+    let (t_back, r_back) = interrupted_restore(&env, &back, &hash(b"back")).await;
+    let (t_other, r_other) = interrupted_restore(&env, &other, &hash(b"original")).await;
+    let (t_dir, r_dir) = interrupted_restore(&env, &folder, EMPTY_DIR_MARK).await;
+
+    let rep = recover(&env.journal, &p).await.unwrap();
+    for (restore, trash, state, trash_state) in [
+        (r_missing, t_missing, OpState::Failed, OpState::Done),
+        (r_back, t_back, OpState::Done, OpState::RolledBack),
+        (r_other, t_other, OpState::Failed, OpState::Done),
+        (r_dir, t_dir, OpState::Done, OpState::RolledBack),
+    ] {
+        assert_eq!(decision(&rep, restore).new_state, state, "op {restore}");
+        assert_eq!(env.op(trash).await.state, trash_state, "op {trash}");
+    }
+    assert_eq!(env.op(r_back).await.hash_after, Some(hash(b"back")));
+    assert!(
+        env.op(r_missing)
+            .await
+            .error
+            .unwrap()
+            .starts_with("Interrupted")
+    );
+    // Nothing touched.
+    assert_eq!(fs::read(&other).unwrap(), b"someone else");
+    assert_eq!(fs::read(&back).unwrap(), b"back");
+    assert!(folder.is_dir());
+    assert!(trashed(&env).is_empty());
+}

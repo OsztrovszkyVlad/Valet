@@ -29,6 +29,10 @@ pub enum OpType {
     Move,
     Copy,
     Trash,
+    /// Undo of a `trash` operation: the item comes back from the Recycle Bin
+    /// to `source_path` (also stored as `dest_path`). `hash_before` holds the
+    /// content hash expected after the restore.
+    Restore,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -66,7 +70,7 @@ macro_rules! str_enum {
 }
 
 str_enum!(BatchKind, Apply => "apply", Undo => "undo", Recovery => "recovery");
-str_enum!(OpType, Move => "move", Copy => "copy", Trash => "trash");
+str_enum!(OpType, Move => "move", Copy => "copy", Trash => "trash", Restore => "restore");
 str_enum!(OpState,
     Planned => "planned",
     InProgress => "in_progress",
@@ -570,7 +574,7 @@ mod tests {
         for k in [BatchKind::Apply, BatchKind::Undo, BatchKind::Recovery] {
             assert_eq!(k.as_str().parse::<BatchKind>().unwrap(), k);
         }
-        for t in [OpType::Move, OpType::Copy, OpType::Trash] {
+        for t in [OpType::Move, OpType::Copy, OpType::Trash, OpType::Restore] {
             assert_eq!(t.as_str().parse::<OpType>().unwrap(), t);
         }
         assert!("bogus".parse::<OpState>().is_err());
@@ -578,6 +582,90 @@ mod tests {
             serde_json::to_string(&InProgress).unwrap(),
             "\"in_progress\""
         );
+    }
+
+    /// A database written before migration 0004 keeps its operations (ids,
+    /// undo links, the AUTOINCREMENT counter) and then accepts `restore`.
+    #[tokio::test]
+    async fn migration_0004_keeps_rows_and_allows_restore() {
+        use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("old.sqlite3");
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(
+                SqliteConnectOptions::new()
+                    .filename(&path)
+                    .create_if_missing(true),
+            )
+            .await
+            .unwrap();
+        let mut old = sqlx::migrate!("./migrations");
+        old.migrations = std::borrow::Cow::Owned(
+            old.migrations
+                .iter()
+                .filter(|m| m.version < 4)
+                .cloned()
+                .collect(),
+        );
+        old.run(&pool).await.unwrap();
+        let j = Journal::new(pool.clone());
+        let b = j.create_batch(BatchKind::Apply).await.unwrap();
+        let first = j.insert_planned(&b, 0, &mv("a", "b")).await.unwrap();
+        j.start(first, Some("h")).await.unwrap();
+        j.mark_done(first, Some("h")).await.unwrap();
+        let mut undo = mv("b", "a");
+        undo.undo_of = Some(first);
+        let second = j.insert_planned(&b, 1, &undo).await.unwrap();
+        // A row deleted at the end leaves the counter above the max id.
+        let third = j.insert_planned(&b, 2, &mv("c", "d")).await.unwrap();
+        sqlx::query("DELETE FROM operations WHERE id = ?1")
+            .bind(third)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let restore = NewOp {
+            op_type: OpType::Restore,
+            source: PathBuf::from("a"),
+            dest: Some(PathBuf::from("a")),
+            size: None,
+            undo_of: Some(first),
+        };
+        assert!(
+            j.insert_planned(&b, 3, &restore).await.is_err(),
+            "v3 refuses restore"
+        );
+        pool.close().await;
+
+        let db = Db::connect(&path).await.unwrap();
+        let j = db.journal();
+        let ops = j.list_ops(&b).await.unwrap();
+        assert_eq!(
+            ops.iter().map(|o| o.id).collect::<Vec<_>>(),
+            [first, second]
+        );
+        assert_eq!(ops[0].state, Done);
+        assert_eq!(ops[0].hash_after.as_deref(), Some("h"));
+        assert_eq!(ops[1].undo_of, Some(first));
+        let id = j.insert_planned(&b, 3, &restore).await.unwrap();
+        assert!(id > third, "ids are not reused");
+        assert_eq!(
+            j.get_op(id).await.unwrap().unwrap().op_type,
+            OpType::Restore
+        );
+        let broken: Vec<(String,)> =
+            sqlx::query_as("SELECT \"table\" FROM pragma_foreign_key_check")
+                .fetch_all(&db.pool)
+                .await
+                .unwrap();
+        assert!(broken.is_empty(), "{broken:?}");
+        let indexes: Vec<String> = sqlx::query_scalar(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'operations' AND name LIKE 'idx_%' ORDER BY name",
+        )
+        .fetch_all(&db.pool)
+        .await
+        .unwrap();
+        assert_eq!(indexes, ["idx_operations_batch", "idx_operations_state"]);
     }
 
     #[tokio::test]

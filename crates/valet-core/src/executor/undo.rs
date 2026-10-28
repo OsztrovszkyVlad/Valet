@@ -241,7 +241,7 @@ impl Undoer<'_> {
                 }
                 self.undo_copy(op, &dest, &current, size).await
             }
-            OpType::Trash => {
+            OpType::Trash | OpType::Restore => {
                 self.fail(
                     op,
                     OpError::with(FailCode::Io, "trash operations are not undone by Valet"),
