@@ -13,9 +13,9 @@ mod tests {
     }
 }
 
-pub mod rules;
-pub mod storage;
 pub mod config;
-pub mod model;
 pub mod engine;
 pub mod matcher;
+pub mod model;
+pub mod rules;
+pub mod storage;

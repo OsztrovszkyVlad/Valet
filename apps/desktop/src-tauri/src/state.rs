@@ -5,6 +5,6 @@ use std::sync::{atomic::AtomicBool, Arc};
 
 #[derive(Clone)]
 pub(crate) struct AppState {
-  pub(crate) paused: Arc<AtomicBool>,
-  pub(crate) _db_path: PathBuf,
+    pub(crate) paused: Arc<AtomicBool>,
+    pub(crate) _db_path: PathBuf,
 }
