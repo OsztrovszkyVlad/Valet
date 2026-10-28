@@ -50,12 +50,13 @@ The screenshots show test folders, which is why the paths start with `/tmp/valet
 
 ## 2. First run
 
-The first time you start Valet, a 3-step guide appears. Nothing moves during it. The screens are in Romanian. You change the language in Settings, after you finish the guide. The presets installed on first run use the folder names of the language that is active then, so Romanian ones (Imagini, Documente and so on).
+The first time you start Valet, a 3-step guide appears. Nothing moves during it. The guide starts in Romanian. The screenshots below show Romanian text.
 
 **Step 1 of 3: folders**
 
 ![Step 1: choosing folders](images/onboarding-1-folders.png)
 
+- At the top, a "Language" list offers Română and English. The screens change at once and the choice is saved, so the preset names and descriptions at step 2, and the folder names of the presets installed at the end (Imagini or Images, Documente or Documents, and so on), follow it. If the language cannot be saved, the screens go back to the previous language and an error message appears. "Continue" is disabled while the language is being saved.
 - Downloads and Desktop are checked. Documents and Pictures are not.
 - You can add another folder by typing its path in "Add another folder", for example `C:\Users\name\Projects`. There is no folder picker.
 - You must check at least one folder.
@@ -194,7 +195,7 @@ Any finished organize batch can also be undone from History, not only the last o
 | The original place is taken (a file with the same name exists there again) | Nothing is moved. You see "The original location is taken; the file will get a new name". With "Undo anyway", the file is put next to the existing one, as `name (2).ext`. The result says "X restored as Y". The existing file is not touched. |
 | The file was sent to the Recycle Bin (a "To Recycle Bin" rule) | Valet restores it from the Recycle Bin to its place. The list says "restore from Recycle Bin". Empty folders sent to the Recycle Bin are restored too. |
 | The file sent to the Recycle Bin is no longer in it (you emptied it) | Undo fails for that file with "The file no longer exists". |
-| File sent to the Recycle Bin, and the original place is taken | With "Undo anyway", Valet does not restore it next to the existing file. The item stays in the Recycle Bin and you see "The original location is taken; the item stays in the Recycle Bin". You can restore it yourself from the Recycle Bin. Note: the confirmation list also says "the file will get a new name" for it, but that is not true for files in the Recycle Bin. |
+| File sent to the Recycle Bin, and the original place is taken | Nothing is restored. The confirmation list says "The original location is taken; the item cannot be restored and stays in the Recycle Bin. Move or rename the file there, then undo again." With "Undo anyway", Valet still does not restore it next to the existing file: the item stays in the Recycle Bin and the result says "The original location is taken; the item stays in the Recycle Bin". You can move or rename the file that is in the way and undo again, or restore the item yourself from the Recycle Bin. |
 | A file restored from the Recycle Bin has different content than when it was sent | It stays restored and is listed: "restored, but the content differs from when it was sent to the Recycle Bin". |
 | The file was a copy (a "Copy to" rule) | The copy is sent to the Recycle Bin. If the original no longer exists, the copy is the last one, so Valet asks for confirmation: "The original is gone; undo sends this copy to the Recycle Bin". |
 | The file at the destination is gone, locked, or on-demand | It fails for that file, with the reason. |
@@ -202,7 +203,7 @@ Any finished organize batch can also be undone from History, not only the last o
 | Folders created by the batch | They stay, empty. Undo does not send them to the Recycle Bin. |
 | Undo between two drives | It needs a Recycle Bin on both. Otherwise it fails with "This volume has no Recycle Bin" and the file stays where it is. |
 
-Restoring from the Windows Recycle Bin does not yet have a passing test result on Windows (see [SAFETY.md](SAFETY.md)). If undo fails for a file that was sent to the Recycle Bin, open the Recycle Bin and restore it by hand.
+Restoring from the Windows Recycle Bin has been tested on the Windows machine of the automatic tests (CI), not on a real user's Recycle Bin (see [SAFETY.md](SAFETY.md)). If undo fails for a file that was sent to the Recycle Bin, open the Recycle Bin and restore it by hand.
 
 Undo is a new batch, of type "Undo". A batch of type "Undo" or "Recovery after a stop" cannot be undone. A second undo of the same batch finds nothing to do.
 
@@ -242,7 +243,7 @@ What was checked: automatic tests, including one with 100 iterations in which th
 
 ## 7. The 8 presets
 
-A preset is a set of ready-made rules. You choose them on first run. After that they appear on the Rules screen, with the badge "preset", and you can turn them off, edit them or delete them like any rule.
+A preset is a set of ready-made rules. You choose them on first run, and you can install more later with "Add presets" on the Rules screen (see [section 8](#8-writing-your-own-rules)). Installed presets appear on the Rules screen with the badge "preset", and you can turn them off, edit them or delete them like any rule.
 
 A preset's rules apply in a folder only if that folder is in the watched folders list. For example, if Desktop is not watched, "Clean desktop" does nothing. If you watch `C:\Users\name` instead of Downloads, the Downloads presets do not match.
 
@@ -276,8 +277,9 @@ Notes:
 - "Empty folders" never touches the watched folder itself. It keeps empty folders that are destinations of other rules, for example a `Music` folder that is still empty.
 - Evaluation order of the presets: Invoices and receipts, Screenshots, Old installers, Downloads by type, Clean desktop, Large files, Duplicates, Empty folders. With "Old installers" and "Downloads by type" both on, an installer older than 30 days goes to the Recycle Bin and a newer one goes to Installers.
 - "Report only" rules do not stop other rules from moving the same file.
-- Changing the language later does not rename the rules already installed.
-- The Rules screen has no button to reinstall a deleted preset. You can rebuild it with your own rule.
+- Changing the language later does not rename the rules already installed. Installing a preset again uses the language that is active at that moment.
+- A deleted preset, or a deleted rule of a preset, comes back when you install the preset again with "Add presets". Installing a preset that is already installed resets all its rules to the shipped version: your changes to those rules are lost. A rule that changes this way runs automatically only after a new approved preview (see [section 9](#9-automatic-organizing)).
+- Preset rules are always listed after your own rules (see "Rule order" in [section 8](#8-writing-your-own-rules)).
 
 ## 8. Writing your own rules
 
@@ -292,6 +294,15 @@ The Rules screen lists the rules. For each one you see:
 ![The Rules screen](images/rules.png)
 
 "Add rule" opens the editor. Saving a rule touches no file.
+
+### Add presets
+
+"Add presets" at the top of the Rules screen opens a list of the 8 presets, in the language of the interface, each with its description, its number of rules and the "sends to Recycle Bin" or "report only" badge where it applies. A preset that is already installed has the badge "installed".
+
+- Check the presets to install and press "Install (N)". Their rules are added after your rules. Installing changes no file.
+- If you check a preset that is already installed, the panel lists it under "Will be reinstalled" and warns that its rules go back to the shipped version, so your changes to them are lost.
+- When it is done you see "Presets installed: N." and the notice that new or changed rules run automatically only after an approved preview.
+- "Cancel" closes the panel.
 
 ### Conditions
 
@@ -357,10 +368,10 @@ Any other text between braces is refused when you save, with the message "The de
 
 Valet goes through the rules in the order of the Rules list. A file gets the operation of the first rule it matches that moves, copies or sends to the Recycle Bin. The later rules are ignored for it. "Report only" rules are added anyway.
 
-- A new rule is added at the end of the list, so after the presets.
+- The list shows your own rules first, in the order you created them, then the preset rules in the evaluation order of [section 7](#7-the-8-presets). A rule you create goes after your other rules and before every preset rule, whether you create it before or after installing the presets. So when your rule and a preset match the same file, yours decides.
 - An edited rule keeps its place.
 - There is no button to move a rule up.
-- If a preset already takes the files you want, turn it off with its "On" checkbox, or edit it. The preview shows in the "Rule" column which rule decided.
+- To let a preset decide instead of your rule, turn your rule off with its "On" checkbox, or edit it. The preview shows in the "Rule" column which rule decided.
 
 ### Examples
 
@@ -387,7 +398,7 @@ The "Organize" button appears only when the preview has at least one operation.
 
 ### Which rules run by themselves
 
-Only rules approved at their current version. A rule is approved when you press "Organize" on a preview that contained it: the rule had an operation, a report line or a skipped file in that preview. A new rule, a changed rule (including one turned off and on again), or a rule that had nothing to do in the preview waits for a new preview. Its operations show in the next manual preview.
+Only rules approved at their current version, and only for files in watched folders that the approving preview covered. A rule is approved when you press "Organize" on a preview that contained it: the rule had an operation, a report line or a skipped file in that preview. The approval covers every watched folder that preview planned, which is every watched folder that existed when you pressed "Run preview", whether or not a file in it was listed. A new rule, a changed rule (including one turned off and on again), or a rule that had nothing to do in the preview waits for a new preview. Its operations show in the next manual preview. So do the operations in a watched folder that was added after the last approved preview (see "New and removed folders" below).
 
 ### How it works
 
@@ -413,9 +424,16 @@ Only rules approved at their current version. A rule is approved when you press 
 
 If a file is locked by another program in an automatic pass, Valet tries it again on the next 3 passes. If it is still locked, it leaves the file alone until a change shows up in it or in its folder. The counter is kept in memory only and starts over at restart. Automatic passes happen on changes and every 10 minutes, so retries can be 10 minutes apart.
 
-### Warning
+### New and removed folders
 
-Approval belongs to the rule, not to the folder. If you later add a new watched folder, the rules already approved apply there too, without a separate preview for that folder. After you add a folder, run a manual preview before you leave automatic organizing on, or turn it off.
+Approval belongs to a rule at a version and to the watched folders of the preview that approved it.
+
+- A watched folder you add, including one you removed earlier and add again, is not organized automatically until you run a preview and press "Organize". Until then Valet leaves the files in it where they are, even for rules that were approved before. Their operations show in the next manual preview.
+- After you add a folder in Settings, a note says "The new folder is organized automatically only after an approved preview." and has the button "Open Preview".
+- Removing a folder from the list removes its approvals. The folders that stay keep theirs.
+- If one watched folder is inside another, a file in the inner folder needs approval under both.
+- The "Organize" button appears only when the preview has at least one operation. A folder with nothing to organize yet is approved by a later preview that has something to do.
+- An `approvals.json` written by an earlier version of Valet recorded no folders, so it approves no folder. After updating, run a preview and press "Organize" once.
 
 ## 10. Tray and starting with Windows
 
@@ -437,7 +455,8 @@ Approval belongs to the rule, not to the folder. If you later add a new watched 
 
 ![Settings](images/settings.png)
 
-- **Watched folders:** the list of folders. You type the path and press "Add", or press "Remove". Valet refuses a whole drive, a folder with an excluded name in its path (for example `AppData`), and a folder that does not exist.
+- **Watched folders:** the list of folders. You type the path and press "Add", or press "Remove". Valet refuses a whole drive, a folder with an excluded name in its path (for example `AppData`, `Program Files`, `.git`, `node_modules`), and a folder that does not exist. A folder you add is not organized automatically until you approve a preview (see [section 9](#9-automatic-organizing)); a note with the button "Open Preview" says so.
+- **Folders that are not watched:** the same checks apply when Valet reads `config.json`, so a folder you added there by hand is checked too. An entry that is a whole drive, has an excluded name in its path, or does not exist is not watched and not planned. It stays in the file. Settings lists it with "Not watched:" and the reason, without a "Remove" button, and shows "Remove the folders not watched". While such an entry is in the list, "Add" and the other "Remove" buttons are disabled; the one button removes all of them at once. If no valid folder is left, the preview says "No watched folder exists on disk. Add one in Settings."
 - **Language:** Română or English. It changes at once. Rules and presets already installed keep their names and folders.
 - **Short notification after a batch:** on by default.
 - **Start Valet with Windows:** see [section 10](#10-tray-and-starting-with-windows).
@@ -487,7 +506,7 @@ In `%APPDATA%\ro.valetapp.desktop`:
 - `valet.sqlite3`: the rules and the operation journal;
 - `config.json`: the watched folders;
 - `app_settings.json`: language, notifications, starting with Windows, automatic apply, whether you finished the first-run guide and whether you approved a preview;
-- `approvals.json`: the approved rules and the version at which each was approved.
+- `approvals.json`: the approved rules, the version at which each was approved and the watched folders of the preview that approved it.
 
 Valet never deletes rows from the journal. The journal grows with every batch.
 
@@ -495,8 +514,8 @@ Valet never deletes rows from the journal. The journal grows with every batch.
 
 - Test version. Valet has no installer and has not been released.
 - The "rename" and "tag" actions from the plan do not exist.
-- Undo works on a whole batch, not on a file. Rules cannot be reordered from the interface. A deleted preset cannot be reinstalled from the interface.
-- Approval for automatic organizing belongs to the rule, not the folder (see [section 9](#9-automatic-organizing)).
+- Undo works on a whole batch, not on a file. Rules cannot be reordered from the interface.
+- A watched folder added later is organized automatically only after you approve a preview (see [section 9](#9-automatic-organizing)).
 - Windows can lose change events when there are very many. The full check every 10 minutes catches them. Valet cannot ask for a rescan by itself in that case, so a file can wait up to 10 minutes.
-- Tests that use real Windows (Recycle Bin, attributes, restore from the Recycle Bin) run in CI on `windows-latest`. For the current version they have no passing result; details in [SAFETY.md](SAFETY.md). Restore from the Windows Recycle Bin is unconfirmed. A power loss, real OneDrive and Dropbox, USB drives and network shares were not tested.
+- Tests that use real Windows (Recycle Bin, attributes, restore from the Recycle Bin) run in CI on `windows-latest`. They passed at the last version that CI ran (`c5acb7d`); the newer changes have not been run on Windows yet. Details in [SAFETY.md](SAFETY.md). Restore from the Windows Recycle Bin was tested only on the CI machine. A power loss, real OneDrive and Dropbox, USB drives and network shares were not tested.
 - Other limits and cases, with the tests that cover them, are in [SAFETY.md](SAFETY.md).

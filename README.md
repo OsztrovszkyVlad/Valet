@@ -17,9 +17,9 @@ The screenshot is from the automatic UI smoke test, taken on Linux with test fol
 
 Phase 2 is built. What works today, with the tests that cover each point in [docs/SAFETY.md](docs/SAFETY.md):
 
-- **First run.** A 3-step guide: choose watched folders (Downloads and Desktop are pre-checked), choose presets, see the first preview. Nothing moves in it.
+- **First run.** A 3-step guide: choose watched folders (Downloads and Desktop are pre-checked; a language list at the top of step 1 switches the UI and saves the language, which the preset texts and folder names follow), choose presets, see the first preview. Nothing moves in it.
 - **Presets.** The 8 presets of PLAN 2.4 ship as JSON files in `crates/valet-core/presets/`, each with an integration test on a synthetic home folder (`crates/valet-core/tests/presets.rs`): Downloads by type, Screenshots, Invoices and receipts, Large files (report only), Duplicates (report only), Clean desktop, Old installers (to the Recycle Bin) and Empty folders (to the Recycle Bin). Four are checked by default; none that trashes is. Screenshots and Invoices match whole words in the file name.
-- **Rules from the UI.** The Rules screen lists, creates, edits, turns on and off, and deletes rules. A rule is validated when it is saved (stable error codes, translated in the UI). A new rule goes to the end of the list, after the presets; the first enabled rule that moves, copies or trashes a file wins.
+- **Rules from the UI.** The Rules screen lists, creates, edits, turns on and off, and deletes rules. A rule is validated when it is saved (stable error codes, translated in the UI). "Add presets" installs presets later (installing one that is already installed resets its rules to the shipped version). `Db::list_rules` lists the user's rules before the preset rules, so a rule the user writes wins over an overlapping preset whenever it was written; the first enabled rule in that order that moves, copies or trashes a file wins.
   - Conditions: `ext`, `extIn`, `extNotIn`, `typeGroup`, `nameContains`, `nameMatches` (regex), `pathContains`, `sizeGt`, `sizeLt`, `modifiedOlderThanDays`, `createdOlderThanDays`, `emptyFolder`, `duplicate`.
   - Actions: `moveTo`, `copyTo`, `trash` (Recycle Bin, never a permanent delete) and `report` (list the file in the preview, no operation). `tag` and `rename` are not implemented; a rule with such an action is refused when saved.
   - Destination folders may use `~`, `%VAR%`, the folder tokens `{home}`, `{desktop}`, `{documents}`, `{downloads}`, `{pictures}`, `{videos}`, `{music}` (first component only) and `{year}`, `{month}`, `{day}`, `{ext}` (file modification date and extension).
@@ -27,19 +27,19 @@ Phase 2 is built. What works today, with the tests that cover each point in [doc
 - **Preview and Organize.** `dry_run` walks the watched folders (`planner::plan`) and lists the planned moves, copies and trashes, the report entries (large files, duplicate groups) and the files it skipped with the reason. It changes no file, keeps the plan in memory and returns a `plan_id`. `execute_operations` takes that `plan_id` and runs exactly the previewed operations through the operation journal; it does not plan again. The plan can be used once; without a matching preview the command returns `preview_required` and does nothing. Each operation is journaled, checked again right before it runs, and never replaces an existing file.
 - **Trash as an action.** A file, or an empty folder, goes to the Recycle Bin through the `trash` crate after prechecks (placeholder, exists, unchanged, folder still empty, not locked, `can_trash`). A volume without a usable Recycle Bin is refused.
 - **Undo.** `undo_batch` undoes a finished batch. Moved and copied files go back (a changed file or an occupied original path asks for confirmation). Trashed files and folders are restored from the Recycle Bin (journaled `restore` operations, migration 0004) without replacing anything. The History screen lists batches (the newest 50) and any finished batch can be undone from it. On startup the app recovers operations that a crash left unfinished.
-- **Automatic organizing.** Off by default and available only after the user has approved a preview. It runs when the watcher reports changes, every 10 minutes (full rescan), and after the folder list changes. It executes only rules approved at their current version (`approvals.json`), waits while a preview is open or the tray pause is on, and retries a locked file on the next 3 passes. The approval is per rule, not per folder.
+- **Automatic organizing.** Off by default and available only after the user has approved a preview. It runs when the watcher reports changes, every 10 minutes (full rescan), and after the folder list changes. It executes only rules approved at their current version under the watched folder of the file (`approvals.json` keeps, per rule, the version and the watched folders of the approving preview), waits while a preview is open or the tray pause is on, and retries a locked file on the next 3 passes. A watched folder that is added, or removed and added again, needs a preview before automatic organizing touches it.
 - **Tray, auto-start, notifications.** Closing the window hides it; the tray menu has Show, Pause and Quit. Auto-start writes a per-user `HKCU\...\Run` value and starts Valet hidden (`--minimized`). A short notification follows each batch unless it is turned off. Only one Valet process runs at a time (`tauri-plugin-single-instance`); a second launch shows the window of the first.
-- **Settings.** Watched folders (a drive root such as `C:\`, a path with a default-excluded folder name such as `AppData`, and a missing folder are refused), language (Romanian default, English), notification, auto-start and automatic organizing.
+- **Settings.** Watched folders (a drive root such as `C:\`, a path with a default-excluded folder name such as `AppData`, and a missing folder are refused; the same checks run when `config.json` is read, and a hand-edited entry that fails is not watched, stays in the file and is listed in Settings with the reason), language (Romanian default, English), notification, auto-start and automatic organizing.
 - **Interface text.** UI text comes from `apps/desktop/src/i18n/ro.json` and `en.json`; `pnpm run check:i18n` fails if the two files differ in keys or if a literal `t('key')` has no entry.
 
 Known gaps. The details, with the tests that cover each case, are in [docs/SAFETY.md](docs/SAFETY.md):
 
-- No passing Windows test result exists for the current code. The last CI run in which every job passed is for the Phase 1 report (`cc00f94`). For the latest Phase 2 commit checked, `2f398fb`, three Windows test steps failed. The annotated failures (capped at 10 per step, so possibly incomplete) are eight preset tests, two other core tests and two app tests, which reads as test-helper and temp-folder problems; the Windows end-to-end step has no per-test annotation. Earlier, at `6cf4f19`, four Recycle Bin restore tests failed on the runner. Restore from the Windows Recycle Bin is therefore unconfirmed.
-- Approval for automatic organizing belongs to a rule, not to a folder. A watched folder added later is organized by the rules already approved, with no preview of that folder.
+- Windows CI. At `2f398fb` three Windows test steps failed on test-helper and temp-folder problems, and at `6cf4f19` four Recycle Bin restore tests failed on the runner. After fixes (`487f1b6`, `998817f`, `2da3329`, `c5acb7d`) the three Windows test steps passed for `c5acb7d`, checked on 28 October 2026 while the job was still running its report-only steps; no log was readable, so it is a step-level result. The five commits after `c5acb7d` had not been pushed, so CI has not run them. The Windows UI smoke test (report only) fails at "start tauri-driver and the app" with `session not created: DevToolsActivePort file doesn't exist`, with msedgedriver and WebView2 at the same version; the cause is not known. Restore has been confirmed on the CI runner's Recycle Bin only.
+- A preview approves its rules for all watched folders at once; there is no choice per rule or per folder, and the app does not list the operations an automatic pass left waiting (it logs their count; the next preview shows them).
 - On Windows, `notify` 6.1 does not report a directory-change buffer overflow. The 10-minute full rescan picks up lost changes, so a missed file can wait up to 10 minutes.
 - A locked file is retried only in automatic passes, and the retry count is kept in memory.
-- Rules cannot be reordered from the UI, a deleted preset cannot be reinstalled from the UI, and undo works on whole batches only.
-- The watched-folder check is on path text and runs when folders are saved; the planner does not repeat it for the scan root, and a destination folder that is a junction into an excluded folder is not detected.
+- Rules cannot be reordered from the UI, and undo works on whole batches only.
+- The watched-folder check is on path text and runs when folders are saved and when `config.json` is read; the planner does not repeat it for the scan root, and a destination folder that is a junction into an excluded folder is not detected.
 - Two cases can leave a file at both the source and the destination after a double failure (never zero copies); see SAFETY.md, invariant 3.
 - Debug-level log lines contain full paths. `main.rs` sets the level to Debug in dev builds and to Info in release builds; no release build was made to confirm this.
 - Real OneDrive and Dropbox placeholders, USB drives, network shares and power loss have not been tested.
@@ -62,7 +62,7 @@ Windows is the only supported target.
 1. In an elevated PowerShell, run `scripts/windows_dev_setup.ps1`. It installs Git, Node.js LTS, Rustup and Visual Studio 2022 Build Tools with winget.
 2. Finish the manual steps the script prints:
    - Open the Visual Studio Installer and add the "Desktop development with C++" workload, with the Windows 10/11 SDK selected.
-   - Run `rustup default stable-x86_64-pc-windows-msvc`.
+   - Run `rustup default stable-x86_64-pc-windows-msvc`. Inside the repository, `rust-toolchain.toml` pins Rust 1.99.1 (with clippy and rustfmt), and rustup uses that version instead of the default.
    - Run `corepack enable`.
 3. Start the app:
 
@@ -87,7 +87,7 @@ cargo clippy --all-targets -- -D warnings
 cargo fmt --all -- --check
 ```
 
-Clippy (with `-D warnings`), fmt and the tests are the required checks before a commit. CI runs them on `ubuntu-latest` (valet-core and valet-platform) and `windows-latest` (whole workspace, after `pnpm build`), see `.github/workflows/ci.yml`.
+Clippy (with `-D warnings`), fmt and the tests are the required checks before a commit. CI runs them on `ubuntu-latest` (valet-core and valet-platform) and `windows-latest` (whole workspace, after `pnpm build`), and runs `pnpm lint`, `pnpm test`, `pnpm check:i18n`, a type check and `pnpm build` on `ubuntu-latest`; see `.github/workflows/ci.yml`.
 
 Front end:
 
@@ -96,6 +96,7 @@ cd apps/desktop
 pnpm install --frozen-lockfile
 pnpm build
 pnpm test
+pnpm lint
 pnpm run check:i18n
 ```
 
@@ -109,8 +110,8 @@ Tests that exist:
 - `integration_10k.rs`: plan, execute and undo on a generated tree of 1,000 and 10,000 files (about a minute in a debug build). The perf tests (`perf_*.rs`) are `#[ignore]`.
 - `crates/valet-platform/tests/windows.rs` and `windows_e2e.rs` run only on Windows (`windows_e2e.rs` needs `--features valet-core`).
 - Unit tests in the app crate (`apps/desktop/src-tauri`): `cargo test -p app`. They cover the preview-only execution, rule validation, settings and approvals, presets, and the auto-apply scheduler, gate and locked-file retries.
-- Front-end tests (vitest, `pnpm test`) for the views, the rule model and the i18n helpers.
-- A UI smoke test (`tests/e2e/smoke.mjs`, started by `scripts/e2e-linux.sh`) drives the built app with `tauri-driver` through onboarding, preview, organize, undo and history, and takes the screenshots in `docs/images/`. CI runs it on Linux; a Windows run is report-only. It was not run in the session that wrote this README.
+- Front-end tests (vitest, `pnpm test`) for the views, the rule model and the i18n helpers. `pnpm lint` runs ESLint on `src`.
+- A UI smoke test (`tests/e2e/smoke.mjs`, started by `scripts/e2e-linux.sh`) drives the built app with `tauri-driver` through onboarding, preview, organize, undo, history, Rules and Settings, and takes the screenshots in `docs/images/`. On Linux it needs the app built with `pnpm build` and `cargo build -p app --features tauri/custom-protocol`, `tauri-driver`, `WebKitWebDriver` and Xvfb (see the header of the script). CI runs it on Linux; a Windows run is report-only. It passed in the session that updated this README, on Linux, with the screenshots written to a scratch folder.
 
 On Linux, building the Tauri crate needs the webkit2gtk-4.1 development packages. This is only for building and testing; the app targets Windows.
 
@@ -172,10 +173,10 @@ The invariants are listed in `CLAUDE.md` under "Safety invariants" and in [docs/
 
 [docs/SAFETY.md](docs/SAFETY.md) says, for each invariant, how the code meets it and which tests cover it, what happens in each edge case (including trash as an action, undo by restore, automatic organizing and the approvals), how the journal works, and what is not covered yet. Where the code does less than the plan, it says so. Short version:
 
-- Met in code and covered by tests that run on Linux with a fake Recycle Bin: journal before each operation, recovery after a crash (unit tests and a process-kill test with a trash variant), no replacing of existing files, undo with a hash check, restore of trashed files, default exclusions below a scan root and for destinations, skipping of placeholders, locked and recently written files, executing only the previewed plan, and executing automatically only rules approved at their current version.
-- Covered only by tests that run on Windows (the CI job `windows`, with no passing result for the current code), or not at all: the Windows API calls themselves (including the Recycle Bin restore), power loss, and real OneDrive or Dropbox placeholders.
-- Partly met: the scan root is checked when it is saved, not at scan time, and destination checks work on path text only; "being written" is a name and modification-time heuristic; copies and cross-volume moves need a Recycle Bin on the destination volume (and on the source volume for moves); paths that are not valid Unicode are refused.
-- Not met: Windows directory-change overflow is not reported by `notify` 6.1 (mitigated by the 10-minute rescan), approval for automatic organizing is per rule and not per folder, and two double-failure cases can leave a file at both source and destination.
+- Met in code and covered by tests that run on Linux with a fake Recycle Bin: journal before each operation, recovery after a crash (unit tests and a process-kill test with a trash variant), no replacing of existing files, undo with a hash check, restore of trashed files, default exclusions below a scan root and for destinations, skipping of placeholders, locked and recently written files, executing only the previewed plan, and executing automatically only rules approved at their current version under the file's watched folder.
+- Covered only by tests that run on Windows (the CI job `windows`: its test steps passed at `c5acb7d`, step level; the later commits have not been run there), or not at all: the Windows API calls themselves (including the Recycle Bin restore), power loss, and real OneDrive or Dropbox placeholders.
+- Partly met: the scan root is checked when it is saved and when `config.json` is read, not at scan time, and destination checks work on path text only; "being written" is a name and modification-time heuristic; copies and cross-volume moves need a Recycle Bin on the destination volume (and on the source volume for moves); paths that are not valid Unicode are refused.
+- Not met: Windows directory-change overflow is not reported by `notify` 6.1 (mitigated by the 10-minute rescan), a preview approves all watched folders at once, and two double-failure cases can leave a file at both source and destination.
 - No network code exists in the workspace. The updater, license check and crash reports are not built.
 
 ## License

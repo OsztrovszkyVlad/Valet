@@ -50,12 +50,13 @@ Capturile de ecran din ghid arată foldere de test, de aceea căile încep cu `/
 
 ## 2. Prima pornire
 
-La prima pornire apare un ghid în 3 pași. Nimic nu se mută în timpul lui. Ecranele sunt în română. Limba se schimbă în Setări, după ce termini ghidul. Presetările instalate la prima pornire folosesc numele de foldere din limba activă atunci, deci în română (Imagini, Documente și așa mai departe).
+La prima pornire apare un ghid în 3 pași. Nimic nu se mută în timpul lui. Ghidul pornește în română.
 
 **Pasul 1 din 3: folderele**
 
 ![Pasul 1: alegerea folderelor](images/onboarding-1-folders.png)
 
+- Sus, lista „Limba” oferă Română și English. Ecranele se schimbă imediat, iar alegerea se salvează, deci numele și descrierile presetărilor de la pasul 2 și numele folderelor presetărilor instalate la final (Imagini sau Images, Documente sau Documents și așa mai departe) o urmează. Dacă limba nu poate fi salvată, ecranele revin la limba de dinainte și apare un mesaj de eroare. „Continuă” e inactiv cât timp se salvează limba.
 - Descărcări și Desktop sunt bifate. Documente și Imagini nu sunt.
 - Poți adăuga alt folder scriind calea lui în câmpul „Adaugă alt folder”, de exemplu `C:\Users\nume\Proiecte`. Nu există fereastră de alegere a folderului.
 - Trebuie să bifezi cel puțin un folder.
@@ -194,7 +195,7 @@ Orice lot de organizare terminat se poate anula și din Istoric, nu doar ultimul
 | Locul inițial e ocupat (un fișier cu același nume există din nou acolo) | Nu mută nimic. Apare „Locul inițial e ocupat; fișierul va primi un nume nou”. Cu „Anulează oricum”, fișierul e pus lângă cel existent, ca `nume (2).ext`. Rezultatul spune „X restaurat ca Y”. Fișierul existent nu e atins. |
 | Fișierul a fost trimis la Coș (regulă „La Coș”) | Valet îl restaurează din Coșul de reciclare la locul lui. În listă apare „restaurare din Coș”. Se restaurează și folderele goale trimise la Coș. |
 | Fișierul trimis la Coș nu mai e în Coș (l-ai golit) | Anularea eșuează pentru acel fișier cu „Fișierul nu mai există”. |
-| Fișier trimis la Coș, iar locul inițial e ocupat | La „Anulează oricum”, Valet nu restaurează lângă fișierul existent. Elementul rămâne în Coș și apare „Locul inițial e ocupat; elementul a rămas în Coșul de reciclare”. Îl poți restaura tu din Coș. Atenție: lista de confirmare scrie și pentru el „fișierul va primi un nume nou”, dar nu e adevărat pentru fișierele din Coș. |
+| Fișier trimis la Coș, iar locul inițial e ocupat | Nu se restaurează nimic. Lista de confirmare scrie „Locul inițial e ocupat; elementul nu poate fi restaurat și rămâne în Coșul de reciclare. Mută sau redenumește fișierul de acolo, apoi anulează din nou.” Și cu „Anulează oricum”, Valet nu restaurează lângă fișierul existent: elementul rămâne în Coș, iar rezultatul spune „Locul inițial e ocupat; elementul a rămas în Coșul de reciclare”. Poți muta sau redenumi fișierul care încurcă și anula din nou, sau poți restaura tu elementul din Coș. |
 | Fișier restaurat din Coș cu conținut diferit de cel de la trimitere | Rămâne restaurat și e listat: „restaurat, dar conținutul diferă de cel de la momentul trimiterii la Coș”. |
 | Fișierul era o copie (regulă „Copiază în”) | Copia e trimisă la Coș. Dacă originalul nu mai există, copia e ultima, deci Valet cere confirmare: „Originalul nu mai există; anularea trimite această copie în Coșul de reciclare”. |
 | Fișierul de la destinație a dispărut, e blocat sau e la cerere | Eșuează pentru acel fișier, cu motivul. |
@@ -202,7 +203,7 @@ Orice lot de organizare terminat se poate anula și din Istoric, nu doar ultimul
 | Foldere create de lot | Rămân, goale. Anularea nu le trimite la Coș. |
 | Anulare între două discuri | Cere Coș de reciclare pe ambele. Altfel eșuează cu „Volumul nu are Coș” și fișierul rămâne unde e. |
 
-Restaurarea din Coșul de reciclare Windows nu are încă un rezultat de test reușit pe Windows (vezi [SAFETY.md](SAFETY.md)). Dacă anularea eșuează pentru un fișier trimis la Coș, deschide Coșul de reciclare și restaurează-l cu mâna.
+Restaurarea din Coșul de reciclare Windows a fost testată pe mașina Windows a testelor automate (CI), nu pe Coșul de reciclare al unui utilizator real (vezi [SAFETY.md](SAFETY.md)). Dacă anularea eșuează pentru un fișier trimis la Coș, deschide Coșul de reciclare și restaurează-l cu mâna.
 
 Anularea e un lot nou, de tip „Anulare”. Un lot de tip „Anulare” sau „Recuperare după oprire” nu se poate anula. A doua anulare a aceluiași lot nu mai găsește nimic de făcut.
 
@@ -242,7 +243,7 @@ Ce s-a verificat: teste automate, inclusiv unul cu 100 de iterații, în care pr
 
 ## 7. Cele 8 presetări
 
-O presetare e un set de reguli gata făcute. Se aleg la prima pornire. După aceea apar în ecranul Reguli, cu eticheta „presetare”, și le poți opri, edita sau șterge ca pe orice regulă.
+O presetare e un set de reguli gata făcute. Se aleg la prima pornire, iar mai târziu poți instala altele cu „Adaugă presetări” din ecranul Reguli (vezi [secțiunea 8](#8-reguli-proprii)). Presetările instalate apar în ecranul Reguli, cu eticheta „presetare”, și le poți opri, edita sau șterge ca pe orice regulă.
 
 Regulile unei presetări se aplică într-un folder doar dacă acel folder e în lista folderelor urmărite. De exemplu, dacă Desktop nu e urmărit, „Desktop curat” nu face nimic. Dacă urmărești `C:\Users\nume` în loc de Descărcări, presetările pentru Descărcări nu se potrivesc.
 
@@ -274,8 +275,9 @@ Note:
 - „Foldere goale” nu atinge niciodată folderul urmărit însuși. Păstrează folderele goale care sunt destinații ale altor reguli, de exemplu un folder `Audio` încă gol.
 - Ordinea de evaluare a presetărilor: Facturi și chitanțe, Capturi de ecran, Instalatoare vechi, Descărcări după tip, Desktop curat, Fișiere mari, Duplicate, Foldere goale. Cu „Instalatoare vechi” și „Descărcări după tip” pornite, un instalator mai vechi de 30 de zile merge la Coș, iar unul mai nou merge în Instalatoare.
 - Regulile „doar raport” nu opresc alte reguli să mute același fișier.
-- Dacă limba aplicației era engleza când s-au instalat presetările, numele folderelor sunt în engleză (Images, Documents, Archives, Installers, Videos, Music, Pictures\Screenshots, Documents\Invoices, Documents\From Desktop). Schimbarea limbii mai târziu nu redenumește regulile deja instalate.
-- Ecranul Reguli nu are buton pentru a reinstala o presetare ștearsă. O poți reface cu o regulă proprie.
+- Dacă limba aplicației era engleza când s-au instalat presetările, numele folderelor sunt în engleză (Images, Documents, Archives, Installers, Videos, Music, Pictures\Screenshots, Documents\Invoices, Documents\From Desktop). Schimbarea limbii mai târziu nu redenumește regulile deja instalate. Când instalezi din nou o presetare, se folosește limba activă în acel moment.
+- O presetare ștearsă, sau o regulă ștearsă dintr-o presetare, revine când instalezi presetarea din nou cu „Adaugă presetări”. Instalarea unei presetări deja instalate readuce toate regulile ei la versiunea livrată: modificările tale la acele reguli se pierd. O regulă schimbată astfel rulează automat doar după o nouă previzualizare aprobată (vezi [secțiunea 9](#9-organizarea-automată)).
+- Regulile presetărilor sunt mereu listate după regulile tale (vezi „Ordinea regulilor” în [secțiunea 8](#8-reguli-proprii)).
 
 ## 8. Reguli proprii
 
@@ -290,6 +292,15 @@ Ecranul Reguli listează regulile. Pentru fiecare vezi:
 ![Ecranul Reguli](images/rules.png)
 
 „Adaugă regulă” deschide editorul. Salvarea unei reguli nu atinge niciun fișier.
+
+### Adaugă presetări
+
+„Adaugă presetări”, sus în ecranul Reguli, deschide lista celor 8 presetări, în limba interfeței, fiecare cu descrierea, numărul de reguli și, unde e cazul, eticheta „trimite la Coș” sau „doar raport”. O presetare deja instalată are eticheta „instalată”.
+
+- Bifează presetările de instalat și apasă „Instalează (N)”. Regulile lor se adaugă după regulile tale. Instalarea nu schimbă niciun fișier.
+- Dacă bifezi o presetare deja instalată, panoul o listează la „Se reinstalează” și avertizează că regulile ei revin la versiunea livrată, deci modificările tale la ele se pierd.
+- La final vezi „Presetări instalate: N.” și nota că regulile noi sau schimbate rulează automat doar după o previzualizare aprobată.
+- „Renunță” închide panoul.
 
 ### Condițiile
 
@@ -355,10 +366,10 @@ Orice alt text între acolade e refuzat la salvare, cu mesajul „Destinația nu
 
 Valet parcurge regulile în ordinea din lista Reguli. Primul fișier care se potrivește cu o regulă care mută, copiază sau trimite la Coș primește acea operație. Regulile următoare sunt ignorate pentru el. Regulile „Doar raport” se adaugă oricum.
 
-- O regulă nouă se adaugă la sfârșitul listei, deci după presetări.
+- Lista arată întâi regulile tale, în ordinea în care le-ai creat, apoi regulile presetărilor, în ordinea de evaluare din [secțiunea 7](#7-cele-8-presetări). O regulă pe care o creezi merge după celelalte reguli ale tale și înaintea oricărei reguli de presetare, indiferent dacă o creezi înainte sau după instalarea presetărilor. Deci, când regula ta și o presetare se potrivesc cu același fișier, decide regula ta.
 - O regulă editată rămâne pe locul ei.
 - Nu există buton pentru a muta o regulă mai sus.
-- Dacă o presetare ia deja fișierele pe care le vrei, oprește-o din bifa „Activă” sau editează-o. Previzualizarea arată în coloana „Regula” ce regulă a decis.
+- Ca să decidă o presetare în locul regulii tale, oprește regula ta din bifa „Activă” sau editeaz-o. Previzualizarea arată în coloana „Regula” ce regulă a decis.
 
 ### Exemple
 
@@ -385,7 +396,7 @@ Butonul „Organizează” apare doar când previzualizarea are cel puțin o ope
 
 ### Ce reguli rulează singure
 
-Doar regulile aprobate la versiunea lor de acum. O regulă e aprobată când apeși „Organizează” pe o previzualizare care o conținea: regula avea o operație, o linie de raport sau un fișier sărit în acea previzualizare. Regula nouă, regula modificată (inclusiv oprită și repornită) sau regula care n-a avut nimic de făcut în previzualizare așteaptă o previzualizare nouă. Operațiile ei se văd la următoarea previzualizare manuală.
+Doar regulile aprobate la versiunea lor de acum, și doar pentru fișierele din folderele urmărite pe care le-a acoperit previzualizarea care le-a aprobat. O regulă e aprobată când apeși „Organizează” pe o previzualizare care o conținea: regula avea o operație, o linie de raport sau un fișier sărit în acea previzualizare. Aprobarea acoperă toate folderele urmărite pe care le-a planificat acea previzualizare, adică toate folderele urmărite care existau când ai apăsat „Rulează previzualizarea”, chiar dacă niciun fișier din ele n-a fost listat. Regula nouă, regula modificată (inclusiv oprită și repornită) sau regula care n-a avut nimic de făcut în previzualizare așteaptă o previzualizare nouă. Operațiile ei se văd la următoarea previzualizare manuală. La fel și operațiile dintr-un folder urmărit adăugat după ultima previzualizare aprobată (vezi „Foldere noi și foldere eliminate” mai jos).
 
 ### Cum lucrează
 
@@ -411,9 +422,16 @@ Doar regulile aprobate la versiunea lor de acum. O regulă e aprobată când ape
 
 Dacă un fișier e blocat de alt program într-o trecere automată, Valet îl încearcă din nou la următoarele 3 treceri. Dacă e tot blocat, îl lasă în pace până apare o schimbare în el sau în folderul lui. Contorul stă doar în memorie și se reia la repornire. Trecerile automate au loc la schimbări și la fiecare 10 minute, deci reîncercările pot fi la 10 minute distanță.
 
-### Atenție
+### Foldere noi și foldere eliminate
 
-Aprobarea ține de regulă, nu de folder. Dacă adaugi mai târziu un folder urmărit nou, regulile deja aprobate se aplică și în el, fără o previzualizare separată pentru acel folder. După ce adaugi un folder, rulează o previzualizare manuală înainte de a lăsa organizarea automată pornită, sau oprește-o.
+Aprobarea ține de o regulă, la o versiune, și de folderele urmărite ale previzualizării care a aprobat-o.
+
+- Un folder urmărit pe care îl adaugi, inclusiv unul eliminat mai devreme și adăugat din nou, nu se organizează automat până nu rulezi o previzualizare și nu apeși „Organizează”. Până atunci Valet lasă fișierele din el unde sunt, chiar și pentru regulile aprobate înainte. Operațiile lor se văd la următoarea previzualizare manuală.
+- După ce adaugi un folder în Setări, o notă scrie „Folderul nou se organizează automat doar după o previzualizare aprobată.” și are butonul „Deschide Previzualizarea”.
+- Eliminarea unui folder din listă îi șterge aprobările. Folderele rămase le păstrează pe ale lor.
+- Dacă un folder urmărit e în interiorul altuia, un fișier din folderul interior are nevoie de aprobare sub amândouă.
+- Butonul „Organizează” apare doar când previzualizarea are cel puțin o operație. Un folder în care nu e încă nimic de organizat se aprobă printr-o previzualizare ulterioară care are ceva de făcut.
+- Un `approvals.json` scris de o versiune mai veche de Valet nu reținea foldere, deci nu aprobă niciun folder. După actualizare, rulează o previzualizare și apasă „Organizează” o dată.
 
 ## 10. Zona de notificare și pornirea cu Windows
 
@@ -435,7 +453,8 @@ Aprobarea ține de regulă, nu de folder. Dacă adaugi mai târziu un folder urm
 
 ![Setări](images/settings.png)
 
-- **Foldere urmărite:** lista folderelor. Scrii calea și apeși „Adaugă”, sau apeși „Elimină”. Valet refuză un disc întreg, un folder cu un nume exclus în cale (de exemplu `AppData`) și un folder care nu există.
+- **Foldere urmărite:** lista folderelor. Scrii calea și apeși „Adaugă”, sau apeși „Elimină”. Valet refuză un disc întreg, un folder cu un nume exclus în cale (de exemplu `AppData`, `Program Files`, `.git`, `node_modules`) și un folder care nu există. Un folder adăugat nu se organizează automat până nu aprobi o previzualizare (vezi [secțiunea 9](#9-organizarea-automată)); o notă cu butonul „Deschide Previzualizarea” o spune.
+- **Foldere neurmărite:** aceleași verificări se fac și când Valet citește `config.json`, deci și un folder adăugat acolo cu mâna e verificat. O intrare care e un disc întreg, are un nume exclus în cale sau nu există nu e urmărită și nu e planificată. Rămâne în fișier. Setările o listează cu „Nu e urmărit:” și motivul, fără buton „Elimină”, și arată „Elimină folderele neurmărite”. Cât timp o asemenea intrare e în listă, „Adaugă” și celelalte butoane „Elimină” sunt inactive; un singur buton le elimină pe toate odată. Dacă nu rămâne niciun folder valid, previzualizarea scrie „Niciun folder urmărit nu există pe disc. Adaugă unul în Setări.”
 - **Limba:** Română sau English. Se schimbă imediat. Regulile și presetările deja instalate își păstrează numele și folderele.
 - **Notificare scurtă după un lot:** pornită din oficiu.
 - **Pornește Valet odată cu Windows:** vezi [secțiunea 10](#10-zona-de-notificare-și-pornirea-cu-windows).
@@ -485,7 +504,7 @@ Cazul „disc fără Coș” s-a testat cu un Coș simulat. Nu s-a testat cu un 
 - `valet.sqlite3`: regulile și jurnalul de operații;
 - `config.json`: folderele urmărite;
 - `app_settings.json`: limba, notificările, pornirea cu Windows, aplicarea automată, dacă ai terminat ghidul de prima pornire și dacă ai aprobat o previzualizare;
-- `approvals.json`: regulile aprobate și versiunea la care au fost aprobate.
+- `approvals.json`: regulile aprobate, versiunea la care a fost aprobată fiecare și folderele urmărite ale previzualizării care a aprobat-o.
 
 Valet nu șterge niciodată rânduri din jurnal. Jurnalul crește cu fiecare lot.
 
@@ -493,8 +512,8 @@ Valet nu șterge niciodată rânduri din jurnal. Jurnalul crește cu fiecare lot
 
 - Versiune de test. Valet nu are instalator și nu a fost lansat.
 - Acțiunile „redenumește” și „etichetează” din plan nu există.
-- Anularea merge pe lot întreg, nu pe fișier. Regulile nu se pot reordona din interfață. O presetare ștearsă nu se poate reinstala din interfață.
-- Aprobarea pentru organizarea automată e pe regulă, nu pe folder (vezi [secțiunea 9](#9-organizarea-automată)).
+- Anularea merge pe lot întreg, nu pe fișier. Regulile nu se pot reordona din interfață.
+- Un folder urmărit adăugat mai târziu se organizează automat doar după ce aprobi o previzualizare (vezi [secțiunea 9](#9-organizarea-automată)).
 - Windows poate pierde evenimente de schimbare când sunt foarte multe. Verificarea completă la 10 minute le prinde. Valet nu poate cere singur o rescanare în acel caz, așa că un fișier poate aștepta până la 10 minute.
-- Testele care folosesc Windows real (Coș, atribute, restaurare din Coș) rulează în CI pe `windows-latest`. Pentru versiunea curentă nu au un rezultat reușit; detalii în [SAFETY.md](SAFETY.md). Restaurarea din Coșul de reciclare Windows e neconfirmată. Pana de curent, OneDrive și Dropbox reale, USB și resursele de rețea nu s-au testat.
+- Testele care folosesc Windows real (Coș, atribute, restaurare din Coș) rulează în CI pe `windows-latest`. Au trecut la ultima versiune rulată de CI (`c5acb7d`); schimbările mai noi nu au fost încă rulate pe Windows. Detalii în [SAFETY.md](SAFETY.md). Restaurarea din Coșul de reciclare Windows a fost testată doar pe mașina CI. Pană de curent, OneDrive și Dropbox reale, USB și resursele de rețea nu s-au testat.
 - Alte limite și cazuri, cu testele care le acoperă, sunt în [SAFETY.md](SAFETY.md).
