@@ -116,7 +116,7 @@ pub(crate) async fn configure_auto_start(enabled: bool) -> Result<(), String> {
     if enabled {
       // Add to Windows startup via registry
       let status = Command::new("reg")
-        .args(&[
+        .args([
           "add",
           "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
           "/v",
@@ -139,7 +139,7 @@ pub(crate) async fn configure_auto_start(enabled: bool) -> Result<(), String> {
     } else {
       // Remove from Windows startup
       let status = Command::new("reg")
-        .args(&[
+        .args([
           "delete",
           "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
           "/v",
@@ -160,6 +160,7 @@ pub(crate) async fn configure_auto_start(enabled: bool) -> Result<(), String> {
   
   #[cfg(not(target_os = "windows"))]
   {
+    let _ = enabled;
     log::warn!("Auto-start configuration not supported on this platform");
     Err("Auto-start configuration not supported on this platform".to_string())
   }
@@ -172,7 +173,7 @@ pub(crate) async fn show_in_explorer(path: String) -> Result<(), String> {
     use std::process::Command;
     
     let status = Command::new("explorer")
-      .args(&["/select,", &path])
+      .args(["/select,", &path])
       .status()
       .map_err(|e| format!("Failed to open explorer: {}", e))?;
     
@@ -185,6 +186,7 @@ pub(crate) async fn show_in_explorer(path: String) -> Result<(), String> {
   
   #[cfg(not(target_os = "windows"))]
   {
+    let _ = path;
     Err("Show in explorer not supported on this platform".to_string())
   }
 }
@@ -279,7 +281,7 @@ pub(crate) fn show_in_explorer_internal(path: &str) -> Result<(), String> {
     use std::process::Command;
     
     let status = Command::new("explorer")
-      .args(&["/select,", path])
+      .args(["/select,", path])
       .status()
       .map_err(|e| format!("Failed to open explorer: {}", e))?;
     
@@ -292,6 +294,7 @@ pub(crate) fn show_in_explorer_internal(path: &str) -> Result<(), String> {
   
   #[cfg(not(target_os = "windows"))]
   {
+    let _ = path;
     Err("Show in explorer not supported on this platform".to_string())
   }
 }

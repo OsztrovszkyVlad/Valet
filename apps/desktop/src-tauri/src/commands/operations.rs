@@ -64,7 +64,7 @@ pub(crate) async fn dry_run(app: tauri::AppHandle) -> Result<serde_json::Value, 
       .map_err(|e| format!("Failed to parse config JSON: {}", e))?;
     
     config.inbox_paths.into_iter()
-      .map(|p| std::path::PathBuf::from(p))
+      .map(std::path::PathBuf::from)
       .filter(|p| p.exists())
       .collect()
   } else {
@@ -130,7 +130,7 @@ pub(crate) async fn execute_operations_bulk(app: tauri::AppHandle, max_concurren
       .map_err(|e| format!("Failed to parse config JSON: {}", e))?;
     
     config.inbox_paths.into_iter()
-      .map(|p| std::path::PathBuf::from(p))
+      .map(std::path::PathBuf::from)
       .filter(|p| p.exists())
       .collect()
   } else {
@@ -148,7 +148,7 @@ pub(crate) async fn execute_operations_bulk(app: tauri::AppHandle, max_concurren
   log::info!("Executing {} file operation(s) with {} concurrent workers", plan.actions.len(), concurrent_ops);
 
   // Notify user of starting operations
-  if settings.notifications_enabled && plan.actions.len() > 0 {
+  if settings.notifications_enabled && !plan.actions.is_empty() {
     let _ = send_notification(
       "Valet File Manager".to_string(),
       format!("Starting bulk organization of {} files", plan.actions.len()),
@@ -364,7 +364,7 @@ pub(crate) async fn execute_operations(app: tauri::AppHandle) -> Result<ExecuteR
       .map_err(|e| format!("Failed to parse config JSON: {}", e))?;
     
     config.inbox_paths.into_iter()
-      .map(|p| std::path::PathBuf::from(p))
+      .map(std::path::PathBuf::from)
       .filter(|p| p.exists())
       .collect()
   } else {
@@ -382,7 +382,7 @@ pub(crate) async fn execute_operations(app: tauri::AppHandle) -> Result<ExecuteR
   log::info!("Executing {} file operation(s) across {} path(s)", plan.actions.len(), paths.len());
 
   // Notify user of starting operations
-  if settings.notifications_enabled && plan.actions.len() > 0 {
+  if settings.notifications_enabled && !plan.actions.is_empty() {
     let _ = send_notification(
       "Valet File Manager".to_string(),
       format!("Starting organization of {} files", plan.actions.len()),
@@ -426,7 +426,7 @@ pub(crate) async fn execute_operations(app: tauri::AppHandle) -> Result<ExecuteR
       total_bytes_processed += metadata.len();
     }
     
-    match execute_single_operation(&action).await {
+    match execute_single_operation(action).await {
       Ok(_) => {
         executed_count += 1;
         log::info!("✅ Successfully executed: {} -> {:?}", action.file_path, action.op);
@@ -712,16 +712,9 @@ mod tests {
   use super::*;
   use valet_core::model::Op;
 
-  // No `tempfile` dev-dependency in this crate yet, so each test uses a fresh
-  // directory under the OS temp dir. It is not removed (invariant 1).
-  fn scratch_dir() -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join(format!("valet-app-test-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-  }
-
-  fn run(op: fn(String) -> Op) -> (std::path::PathBuf, std::path::PathBuf, std::path::PathBuf) {
-    let dir = scratch_dir();
+  fn run(op: fn(String) -> Op) -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf, std::path::PathBuf) {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
     let src = dir.join("a.txt");
     std::fs::write(&src, b"data").unwrap();
     let dest_dir = dir.join("dest");
@@ -740,18 +733,18 @@ mod tests {
 
     assert_eq!(std::fs::read(&user_file).unwrap(), b"user data");
     assert_eq!(std::fs::read(&dest).unwrap(), b"data");
-    (src, dest, user_file)
+    (tmp, src, dest, user_file)
   }
 
   #[test]
   fn move_leaves_existing_valet_test_file_untouched() {
-    let (src, _dest, _user_file) = run(|path| Op::MoveTo { path });
+    let (_tmp, src, _dest, _user_file) = run(|path| Op::MoveTo { path });
     assert!(!src.exists());
   }
 
   #[test]
   fn copy_leaves_existing_valet_test_file_untouched() {
-    let (src, _dest, _user_file) = run(|path| Op::CopyTo { path });
+    let (_tmp, src, _dest, _user_file) = run(|path| Op::CopyTo { path });
     assert_eq!(std::fs::read(&src).unwrap(), b"data");
   }
 }

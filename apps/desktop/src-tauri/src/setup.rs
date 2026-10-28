@@ -202,6 +202,8 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
         
         // Send notification about pause state
         let status = if now { "paused" } else { "resumed" };
+        // Pre-existing: the future is never awaited, so no notification is sent. Listed in docs/reports/phase-0.md.
+        #[allow(clippy::let_underscore_future)]
         let _ = send_notification(
           "Valet File Manager".to_string(),
           format!("File monitoring {}", status),

@@ -677,13 +677,11 @@ async fn test_rule_against_path(rule: &valet_core::rules::Rule, test_path: &str)
     let entries = fs::read_dir(path)
       .map_err(|e| format!("Failed to read directory: {}", e))?;
       
-    for entry in entries {
-      if let Ok(entry) = entry {
-        let file_path = entry.path();
-        if file_path.is_file() {
-          if let Some(preview) = simulate_rule_on_file(rule, &file_path)? {
-            previews.push(preview);
-          }
+    for entry in entries.flatten() {
+      let file_path = entry.path();
+      if file_path.is_file() {
+        if let Some(preview) = simulate_rule_on_file(rule, &file_path)? {
+          previews.push(preview);
         }
       }
     }

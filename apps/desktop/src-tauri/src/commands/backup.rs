@@ -469,7 +469,7 @@ async fn recover_single_file(backup: &BackupEntry, request: &RecoveryRequest) ->
   // Decrypt if necessary
   let mut temp_backup_path = backup_path.to_path_buf();
   if backup.metadata.encrypted {
-    temp_backup_path = decrypt_backup_file(&backup_path)?;
+    temp_backup_path = decrypt_backup_file(backup_path)?;
   }
 
   // Decompress if necessary
@@ -586,14 +586,6 @@ fn decompress_backup_file(file_path: &Path) -> Result<std::path::PathBuf, Recove
 mod tests {
   use super::*;
 
-  // No `tempfile` dev-dependency in this crate yet, so each test uses a fresh
-  // directory under the OS temp dir. It is not removed (invariant 1).
-  fn scratch_dir() -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join(format!("valet-app-test-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-  }
-
   fn entry(backup_path: &Path, original_path: &Path, compressed: bool, encrypted: bool) -> BackupEntry {
     BackupEntry {
       id: "b1".to_string(),
@@ -617,7 +609,8 @@ mod tests {
 
   #[test]
   fn cleanup_backup_file_refuses_and_leaves_backup_on_disk() {
-    let dir = scratch_dir();
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
     let backup = dir.join("backup.bin");
     std::fs::write(&backup, b"backup").unwrap();
     let e = entry(&backup, &dir.join("orig.txt"), false, false);
@@ -631,7 +624,8 @@ mod tests {
 
   #[test]
   fn recover_single_file_keeps_compressed_encrypted_backup() {
-    let dir = scratch_dir();
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
     let backup = dir.join("backup.bin");
     std::fs::write(&backup, b"backup").unwrap();
     let out = dir.join("out");

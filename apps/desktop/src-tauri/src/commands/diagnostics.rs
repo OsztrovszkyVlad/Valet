@@ -324,12 +324,12 @@ pub(crate) async fn optimize_system_performance(app: tauri::AppHandle) -> Result
   let mut optimizations = Vec::new();
   
   // Database optimization
-  if let Ok(_) = optimize_database(&app).await {
+  if optimize_database(&app).await.is_ok() {
     optimizations.push("Database indices optimized".to_string());
   }
   
   // Cache optimization
-  if let Ok(_) = optimize_caches(&app).await {
+  if optimize_caches(&app).await.is_ok() {
     optimizations.push("Memory caches optimized".to_string());
   }
   
@@ -339,12 +339,12 @@ pub(crate) async fn optimize_system_performance(app: tauri::AppHandle) -> Result
   }
   
   // Rule optimization
-  if let Ok(_) = optimize_rules(&app).await {
+  if optimize_rules(&app).await.is_ok() {
     optimizations.push("Rule execution paths optimized".to_string());
   }
   
   // File system cleanup
-  if let Ok(_) = cleanup_temp_files(&app).await {
+  if cleanup_temp_files(&app).await.is_ok() {
     optimizations.push("Temporary files cleaned up".to_string());
   }
   
