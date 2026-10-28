@@ -96,11 +96,15 @@ pub(crate) async fn dry_run(app: tauri::AppHandle) -> Result<serde_json::Value, 
         paths.len()
     );
 
-    Ok(dry_run_json(&plan))
+    let plan_id = uuid::Uuid::new_v4().to_string();
+    let json = dry_run_json(&plan, &plan_id);
+    state.store_preview(plan_id, plan);
+    Ok(json)
 }
 
-/// The shape `DryRunView.tsx` reads, plus `skipped` (path, reason, rule_name).
-fn dry_run_json(plan: &Plan) -> serde_json::Value {
+/// The shape `DryRunView.tsx` reads, plus `skipped` (path, reason, rule_name)
+/// and `plan_id`, which `execute_operations` needs.
+fn dry_run_json(plan: &Plan, plan_id: &str) -> serde_json::Value {
     let results: Vec<serde_json::Value> = plan
         .ops
         .iter()
@@ -130,6 +134,7 @@ fn dry_run_json(plan: &Plan) -> serde_json::Value {
       "total_rules_applied": results.len(),
       "results": results,
       "skipped": skipped,
+      "plan_id": plan_id,
     })
 }
 
@@ -172,68 +177,23 @@ fn execute_response(report: &BatchReport) -> ExecuteResponse {
     }
 }
 
-#[tauri::command]
-pub(crate) async fn execute_operations(app: tauri::AppHandle) -> Result<ExecuteResponse, String> {
-    log::info!("Executing file operations on configured paths");
-
-    let start_time = std::time::Instant::now();
-    let state = app.state::<AppState>();
-    let db = Db::connect(&state._db_path)
-        .await
-        .map_err(|e| format!("Database connection failed: {}", e))?;
-
-    // Load settings for notifications
-    let settings = get_app_settings(app.clone()).await.unwrap_or_default();
-
-    // Get configured paths from config
-    let app_cfg_dir = config_dir(&app)?;
-    let cfg_path = app_cfg_dir.join("config.json");
-
-    let paths = if cfg_path.exists() {
-        let contents = std::fs::read_to_string(&cfg_path)
-            .map_err(|e| format!("Failed to read config file: {}", e))?;
-        let config: Config = serde_json::from_str(&contents)
-            .map_err(|e| format!("Failed to parse config JSON: {}", e))?;
-
-        config
-            .inbox_paths
-            .into_iter()
-            .map(std::path::PathBuf::from)
-            .filter(|p| p.exists())
-            .collect()
-    } else {
-        vec![]
-    };
-
-    if paths.is_empty() {
-        return Err(
-            "No valid configured paths found. Please set up your inbox paths in Preferences."
-                .to_string(),
-        );
-    }
-
-    // One batch at a time: plan and execute under the same lock.
+/// Runs exactly the operations of the previewed plan `plan_id` and records
+/// each result in the statistics table. Files that appeared after the preview
+/// are not in the plan and are not touched; the executor re-checks every
+/// planned file (missing, changed, placeholder, locked) before acting on it.
+/// The stored plan is consumed: a second call with the same id, a wrong id or
+/// no preview returns `PREVIEW_REQUIRED` and touches nothing.
+/// `before_execute` runs once the plan is taken, before any file operation.
+pub(crate) async fn execute_previewed(
+    state: &AppState,
+    db: &Db,
+    plan_id: &str,
+    before_execute: impl FnOnce(&Plan),
+) -> Result<BatchReport, String> {
+    // One batch at a time.
     let _file_ops = state.file_ops.lock().await;
-
-    let plan = plan_for_paths(&paths, &db, state.platform.as_ref())
-        .await
-        .map_err(|e| format!("Failed to generate execution plan: {}", e))?;
-
-    log::info!(
-        "Executing {} file operation(s) across {} path(s)",
-        plan.ops.len(),
-        paths.len()
-    );
-
-    // Notify user of starting operations
-    if settings.notifications_enabled && !plan.ops.is_empty() {
-        let _ = send_notification(
-            "Valet File Manager".to_string(),
-            format!("Starting organization of {} files", plan.ops.len()),
-            app.clone(),
-        )
-        .await;
-    }
+    let plan = state.take_preview(plan_id)?;
+    before_execute(&plan);
 
     let report = executor::execute(&plan.ops, &db.journal(), state.platform.as_ref())
         .await
@@ -255,6 +215,40 @@ pub(crate) async fn execute_operations(app: tauri::AppHandle) -> Result<ExecuteR
             log::warn!("Failed to record operation: {}", e);
         }
     }
+    Ok(report)
+}
+
+/// Executes the plan the last `dry_run` returned. `plan_id` is that
+/// response's `plan_id`; without a matching preview the error is
+/// `"preview_required"`.
+#[tauri::command]
+pub(crate) async fn execute_operations(
+    plan_id: String,
+    app: tauri::AppHandle,
+) -> Result<ExecuteResponse, String> {
+    log::info!("Executing the previewed plan");
+
+    let start_time = std::time::Instant::now();
+    let state = app.state::<AppState>();
+    let db = Db::connect(&state._db_path)
+        .await
+        .map_err(|e| format!("Database connection failed: {}", e))?;
+
+    // Load settings for notifications
+    let settings = get_app_settings(app.clone()).await.unwrap_or_default();
+
+    let notify_app = app.clone();
+    let report = execute_previewed(&state, &db, &plan_id, |plan| {
+        log::info!("Executing {} file operation(s)", plan.ops.len());
+        if settings.notifications_enabled && !plan.ops.is_empty() {
+            let message = format!("Starting organization of {} files", plan.ops.len());
+            tauri::async_runtime::spawn(async move {
+                let _ =
+                    send_notification("Valet File Manager".to_string(), message, notify_app).await;
+            });
+        }
+    })
+    .await?;
 
     let response = execute_response(&report);
     let executed_count = response.executed_count;
@@ -464,8 +458,117 @@ pub(crate) async fn clear_operation_history(app: tauri::AppHandle) -> Result<(),
 mod tests {
     use super::*;
 
+    use std::path::Path;
+
     use valet_core::executor::{FailCode, OpError, OpResult};
     use valet_core::planner::PlannedOp;
+
+    use crate::state::PREVIEW_REQUIRED;
+
+    /// A move of `source` to `dest` as the planner would record it now.
+    fn planned_move(source: &Path, dest: &Path) -> PlannedOp {
+        let meta = std::fs::metadata(source).unwrap();
+        PlannedOp {
+            source: source.to_path_buf(),
+            dest: dest.to_path_buf(),
+            kind: OpKind::Move,
+            rule_id: uuid::Uuid::nil(),
+            rule_name: "r".to_string(),
+            size: meta.len(),
+            mtime: meta.modified().unwrap(),
+        }
+    }
+
+    struct Fixture {
+        _tmp: tempfile::TempDir,
+        inbox: PathBuf,
+        out: PathBuf,
+        state: AppState,
+        db: Db,
+    }
+
+    async fn fixture() -> Fixture {
+        let tmp = tempfile::tempdir().unwrap();
+        let inbox = tmp.path().join("inbox");
+        let out = tmp.path().join("out");
+        std::fs::create_dir_all(&inbox).unwrap();
+        std::fs::create_dir_all(&out).unwrap();
+        let db_path = tmp.path().join("db").join("valet.sqlite3");
+        let state = AppState::new(db_path.clone());
+        let db = Db::connect(&db_path).await.unwrap();
+        Fixture {
+            _tmp: tmp,
+            inbox,
+            out,
+            state,
+            db,
+        }
+    }
+
+    #[tokio::test]
+    async fn execute_without_matching_preview_touches_nothing() {
+        let f = fixture().await;
+        let a = f.inbox.join("a.txt");
+        std::fs::write(&a, b"a").unwrap();
+
+        // No preview stored.
+        let err = execute_previewed(&f.state, &f.db, "missing", |_| panic!("ran"))
+            .await
+            .unwrap_err();
+        assert_eq!(err, PREVIEW_REQUIRED);
+
+        // A preview stored under another id.
+        let plan = Plan {
+            ops: vec![planned_move(&a, &f.out.join("a.txt"))],
+            skipped: vec![],
+        };
+        f.state.store_preview("p-1".to_string(), plan);
+        let err = execute_previewed(&f.state, &f.db, "p-2", |_| panic!("ran"))
+            .await
+            .unwrap_err();
+        assert_eq!(err, PREVIEW_REQUIRED);
+
+        assert_eq!(std::fs::read(&a).unwrap(), b"a");
+        assert!(!f.out.join("a.txt").exists());
+        assert!(f.db.journal().list_batches(10).await.unwrap().is_empty());
+        assert!(f.db.get_recent_operations(10).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn execute_runs_only_the_previewed_ops_and_consumes_the_plan() {
+        let f = fixture().await;
+        let a = f.inbox.join("a.txt");
+        std::fs::write(&a, b"a").unwrap();
+        let plan = Plan {
+            ops: vec![planned_move(&a, &f.out.join("a.txt"))],
+            skipped: vec![],
+        };
+        f.state.store_preview("p-1".to_string(), plan);
+
+        // Appears after the preview; the same rule would match it.
+        let late = f.inbox.join("late.txt");
+        std::fs::write(&late, b"late").unwrap();
+
+        let mut seen = 0;
+        let report = execute_previewed(&f.state, &f.db, "p-1", |p| seen = p.ops.len())
+            .await
+            .unwrap();
+        assert_eq!(seen, 1);
+        assert_eq!(report.results.len(), 1);
+        assert_eq!(report.done_count(), 1);
+        assert!(!a.exists());
+        assert_eq!(std::fs::read(f.out.join("a.txt")).unwrap(), b"a");
+        assert_eq!(std::fs::read(&late).unwrap(), b"late");
+        assert!(!f.out.join("late.txt").exists());
+        assert_eq!(f.db.get_recent_operations(10).await.unwrap().len(), 1);
+
+        // The plan is used up.
+        let err = execute_previewed(&f.state, &f.db, "p-1", |_| panic!("ran"))
+            .await
+            .unwrap_err();
+        assert_eq!(err, PREVIEW_REQUIRED);
+        assert_eq!(f.db.journal().list_batches(10).await.unwrap().len(), 1);
+    }
 
     fn result(name: &str, kind: OpKind, error: Option<OpError>) -> OpResult {
         OpResult {
@@ -542,7 +645,7 @@ mod tests {
                 rule_name: None,
             }],
         };
-        let v = dry_run_json(&plan);
+        let v = dry_run_json(&plan, "p-1");
         assert_eq!(v["total_files"], 1);
         assert_eq!(v["total_rules_applied"], 1);
         let r = &v["results"][0];
@@ -563,5 +666,6 @@ mod tests {
         );
         assert_eq!(k["reason"], "excluded");
         assert!(k["rule_name"].is_null());
+        assert_eq!(v["plan_id"], "p-1");
     }
 }

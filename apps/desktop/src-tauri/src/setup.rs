@@ -10,7 +10,7 @@ use tauri::{
 };
 use valet_core::{executor, storage::Db};
 
-use crate::commands::operations::{execute_operations, plan_for_paths};
+use crate::commands::operations::plan_for_paths;
 use crate::commands::platform::{send_notification, show_in_explorer_internal};
 use crate::state::{config_dir, AppState};
 
@@ -96,7 +96,6 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
     // --- Tray + menu (v2 API) ---
     let dry_run =
         MenuItemBuilder::with_id("index-dry-run", "Index Downloads (dry run)").build(app)?;
-    let execute_now = MenuItemBuilder::with_id("execute-now", "Organize Files Now").build(app)?;
     let show_stats = MenuItemBuilder::with_id("show-stats", "Show Statistics").build(app)?;
     let open_config_folder =
         MenuItemBuilder::with_id("open-config", "Open Config Folder").build(app)?;
@@ -112,7 +111,6 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
         app,
         &[
             &dry_run,
-            &execute_now,
             &show_stats,
             &open_config_folder,
             &separator1,
@@ -191,23 +189,6 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
                         log::warn!("Could not read config for dry run: {:?}", e);
                     }
                 }
-            }
-            "execute-now" => {
-                log::info!("Tray: execute-now clicked");
-                let app_handle = app.clone();
-                tauri::async_runtime::spawn(async move {
-                    match execute_operations(app_handle).await {
-                        Ok(response) => {
-                            log::info!(
-                                "Manual execution completed: {} files processed",
-                                response.executed_count
-                            );
-                        }
-                        Err(e) => {
-                            log::error!("Manual execution failed: {}", e);
-                        }
-                    }
-                });
             }
             "show-stats" => {
                 log::info!("Tray: show-stats clicked");

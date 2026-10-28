@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::sync::{atomic::AtomicBool, Arc, Mutex};
 
 use tauri::{Manager, Runtime};
+use valet_core::planner::Plan;
 use valet_core::platform::Platform;
 use valet_platform::WatchCancel;
 
@@ -17,7 +18,14 @@ pub(crate) struct AppState {
     pub(crate) watcher: Arc<Mutex<Option<WatchCancel>>>,
     /// Held while a batch is executed or undone, so batches never overlap.
     pub(crate) file_ops: Arc<tauri::async_runtime::Mutex<()>>,
+    /// The latest plan `dry_run` showed, with its id. `execute_operations`
+    /// runs only this plan, and only when given the same id.
+    pub(crate) preview: Arc<Mutex<Option<(String, Plan)>>>,
 }
+
+/// Error string `execute_operations` returns when there is no previewed plan
+/// with the given id. The UI asks the user to preview again.
+pub(crate) const PREVIEW_REQUIRED: &str = "preview_required";
 
 impl AppState {
     pub(crate) fn new(db_path: PathBuf) -> Self {
@@ -27,6 +35,32 @@ impl AppState {
             platform: Arc::new(valet_platform::SystemPlatform),
             watcher: Arc::new(Mutex::new(None)),
             file_ops: Arc::new(tauri::async_runtime::Mutex::new(())),
+            preview: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    /// Stores `plan` under `plan_id` as the latest preview, replacing any
+    /// earlier one.
+    pub(crate) fn store_preview(&self, plan_id: String, plan: Plan) {
+        *self
+            .preview
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some((plan_id, plan));
+    }
+
+    /// Removes and returns the stored preview if its id is `plan_id`.
+    /// Otherwise leaves it in place and returns `PREVIEW_REQUIRED`.
+    pub(crate) fn take_preview(&self, plan_id: &str) -> Result<Plan, String> {
+        let mut slot = self
+            .preview
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match slot.take() {
+            Some((id, plan)) if id == plan_id => Ok(plan),
+            other => {
+                *slot = other;
+                Err(PREVIEW_REQUIRED.to_string())
+            }
         }
     }
 
@@ -81,6 +115,37 @@ mod tests {
         state.stop_watcher();
         state.stop_watcher();
         assert!(state.watcher.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn take_preview_without_stored_plan_requires_preview() {
+        let state = AppState::new(PathBuf::from("valet.sqlite3"));
+        assert_eq!(state.take_preview("any").unwrap_err(), PREVIEW_REQUIRED);
+    }
+
+    #[test]
+    fn take_preview_with_wrong_id_keeps_the_stored_plan() {
+        let state = AppState::new(PathBuf::from("valet.sqlite3"));
+        state.store_preview("p-1".to_string(), Plan::default());
+        assert_eq!(state.take_preview("other").unwrap_err(), PREVIEW_REQUIRED);
+        assert_eq!(state.take_preview("p-1").unwrap(), Plan::default());
+    }
+
+    #[test]
+    fn take_preview_is_single_use() {
+        let state = AppState::new(PathBuf::from("valet.sqlite3"));
+        state.store_preview("p-1".to_string(), Plan::default());
+        state.take_preview("p-1").unwrap();
+        assert_eq!(state.take_preview("p-1").unwrap_err(), PREVIEW_REQUIRED);
+    }
+
+    #[test]
+    fn newer_preview_replaces_older_one() {
+        let state = AppState::new(PathBuf::from("valet.sqlite3"));
+        state.store_preview("old".to_string(), Plan::default());
+        state.store_preview("new".to_string(), Plan::default());
+        assert_eq!(state.take_preview("old").unwrap_err(), PREVIEW_REQUIRED);
+        state.take_preview("new").unwrap();
     }
 
     #[test]
