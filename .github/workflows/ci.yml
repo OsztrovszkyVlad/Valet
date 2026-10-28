@@ -2,77 +2,65 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
-  test-windows:
+  core-linux:
+    name: core (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Format check
+        run: cargo fmt --all -- --check
+      - name: Clippy (core, platform)
+        run: cargo clippy -p valet-core -p valet-platform --all-targets -- -D warnings
+      - name: Test (core, platform)
+        run: cargo test -p valet-core -p valet-platform
+
+  windows:
+    name: workspace (Windows)
     runs-on: windows-latest
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        toolchain: stable-x86_64-pc-windows-msvc
-    
-    - name: Install Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20'
-    
-    - name: Enable Corepack
-      run: corepack enable
-    
-    - name: Install dependencies
-      run: pnpm install
-      working-directory: apps/desktop
-    
-    - name: Rust check
-      run: cargo check --all-targets --all-features
-    
-    - name: Rust clippy (strict)
-      run: cargo clippy --all-targets --all-features -- -D warnings
-    
-    - name: Node build
-      run: pnpm build
-      working-directory: apps/desktop
-    
-    - name: Tauri build
-      run: pnpm tauri build
-      working-directory: apps/desktop
-
-  test-macos:
-    runs-on: macos-latest
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@stable
-    
-    - name: Install Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20'
-    
-    - name: Enable Corepack
-      run: corepack enable
-    
-    - name: Install dependencies
-      run: pnpm install
-      working-directory: apps/desktop
-    
-    - name: Rust check
-      run: cargo check --all-targets --all-features
-    
-    - name: Rust clippy (strict)
-      run: cargo clippy --all-targets --all-features -- -D warnings
-    
-    - name: Node build
-      run: pnpm build
-      working-directory: apps/desktop
-    
-    - name: Tauri build
-      run: pnpm tauri build
-      working-directory: apps/desktop
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable-x86_64-pc-windows-msvc
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+      - name: Install frontend dependencies
+        working-directory: apps/desktop
+        run: pnpm install --frozen-lockfile
+      - name: Build frontend (creates dist for generate_context!)
+        working-directory: apps/desktop
+        run: pnpm build
+      - name: Build workspace
+        run: cargo build --workspace --all-targets
+      - name: Clippy (workspace)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Test (workspace)
+        run: cargo test --workspace

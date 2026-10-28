@@ -68,7 +68,7 @@ cargo clippy --all-targets -- -D warnings
 cargo fmt --all -- --check
 ```
 
-Clippy and fmt are the required checks before a commit. At the time of writing they report errors that are being cleaned up.
+Clippy (with `-D warnings`), fmt and the tests are the required checks before a commit. CI runs them on `ubuntu-latest` (valet-core and valet-platform) and `windows-latest` (whole workspace, after `pnpm build`), see `.github/workflows/ci.yml`.
 
 Front end:
 
@@ -138,7 +138,7 @@ These are the goal, not a description of the current code. The current code does
 - Default exclusions (none exist).
 - Skipping files being written, locked files and cloud placeholders (not implemented).
 - Recycle Bin for removals (not implemented; no current action removes files).
-- Collision naming. Never overwriting is only partly met: `moveTo` and `copyTo` check whether the destination exists and fail with "Destination file already exists" instead of choosing a new name. The check and the move are separate steps, so it is not atomic.
+- Collision naming. Never overwriting is only partly met: `moveTo` and `copyTo` check whether the destination exists and fail with "Destination file already exists" instead of choosing a new name. The check and the move are separate steps, so it is not atomic, and on Windows `std::fs::rename` replaces an existing file if one appears in between. The backend `recover_files` command (not used by the UI) overwrites the target when called with `overwrite_existing: true`.
 
 ## License
 
