@@ -75,7 +75,8 @@ export interface ExecuteResponse {
 
 export type BatchKind = 'apply' | 'undo' | 'recovery';
 export type OpState = 'planned' | 'in_progress' | 'done' | 'failed' | 'rolled_back';
-export type OpType = 'move' | 'copy' | 'trash';
+/** `restore`: undo of a `trash` operation (back from the Recycle Bin to `source_path`). */
+export type OpType = 'move' | 'copy' | 'trash' | 'restore';
 
 export interface StateCounts {
     planned: number;
@@ -130,7 +131,9 @@ export type FailCode =
     | 'Occupied'
     | 'Interrupted'
     | 'InvalidPath'
-    | 'Io';
+    | 'Io'
+    /** Undo of a `trash` operation: the original path is taken; the item stays in the Recycle Bin. */
+    | 'RestoreOccupied';
 
 export interface OpError {
     code: FailCode;
@@ -173,6 +176,11 @@ export interface UndoReport {
     needs_confirmation: NeedsConfirmation[];
     failed: UndoFailure[];
     skipped: SkippedOp[];
+    /**
+     * Trashed files restored from the Recycle Bin whose content differs from
+     * the hash taken before trashing. Also listed in `undone`.
+     */
+    restored_modified: Restored[];
 }
 
 export function dryRun(): Promise<DryRunResponse> {

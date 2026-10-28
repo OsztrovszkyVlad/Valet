@@ -28,6 +28,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeView, onViewChange, ban
                             <button
                                 key={view}
                                 role="tab"
+                                data-testid={`nav-tab-${view}`}
                                 aria-selected={activeView === view}
                                 className={`nav-tab ${activeView === view ? 'active' : ''}`}
                                 onClick={() => onViewChange(view)}
@@ -39,6 +40,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeView, onViewChange, ban
                     <button
                         className={`nav-settings ${activeView === 'settings' ? 'active' : ''}`}
                         aria-pressed={activeView === 'settings'}
+                        data-testid="nav-settings"
                         onClick={() => onViewChange('settings')}
                     >
                         <span className="nav-settings-icon" aria-hidden="true">

@@ -47,6 +47,7 @@ function report(partial: Partial<UndoReport>): UndoReport {
         needs_confirmation: [],
         failed: [],
         skipped: [],
+        restored_modified: [],
         ...partial,
     };
 }
@@ -109,6 +110,62 @@ describe('UndoPanel', () => {
 
         expect(await screen.findByText('Rămase neanulate (fără confirmare): 1')).toBeTruthy();
         expect(invokeMock).not.toHaveBeenCalledWith('undo_batch', { batchId: 'b1', force: true });
+
+        fireEvent.click(screen.getByRole('button', { name: 'Închide' }));
+        expect(onClose).toHaveBeenCalledWith(false);
+    });
+
+    it('restores trashed files and reports changed content and a taken original path', async () => {
+        const trashed = { ...op(3, 'C:\\in\\old.exe', ''), op_type: 'trash' as const, dest_path: null };
+        const blocked = { ...op(4, 'C:\\in\\big.msi', ''), op_type: 'trash' as const, dest_path: null };
+        invokeMock.mockImplementation(async (cmd, args) => {
+            if (cmd === 'get_batch') return { ...detail, operations: [trashed, blocked] };
+            if (cmd === 'undo_batch') {
+                const { force } = args as { force: boolean };
+                if (!force) {
+                    return report({
+                        undone: [],
+                        needs_confirmation: [
+                            { op_id: 3, source: 'C:\\in\\old.exe', dest: null, reasons: ['Modified'] },
+                            { op_id: 4, source: 'C:\\in\\big.msi', dest: null, reasons: ['SourceOccupied'] },
+                        ],
+                    });
+                }
+                return report({
+                    undone: [3],
+                    restored_modified: [{ op_id: 3, path: 'C:\\in\\old.exe' }],
+                    failed: [
+                        {
+                            op_id: 4,
+                            source: 'C:\\in\\big.msi',
+                            dest: null,
+                            error: { code: 'RestoreOccupied', detail: null },
+                        },
+                    ],
+                });
+            }
+            throw new Error(`unexpected command ${cmd}`);
+        });
+        const onClose = vi.fn();
+        render(<UndoPanel batchId="b1" canUndo onClose={onClose} />);
+
+        fireEvent.click(screen.getByTestId('undo-start'));
+        expect(await screen.findByText('Fișiere de mutat înapoi: 2')).toBeTruthy();
+        expect(screen.getAllByText(/restaurare din Coș/)).toHaveLength(2);
+
+        fireEvent.click(screen.getByTestId('undo-confirm'));
+        expect(await screen.findByText('Fișiere care cer confirmare: 2')).toBeTruthy();
+        fireEvent.click(screen.getByTestId('undo-force'));
+
+        expect(await screen.findByText('Rezultatul anulării')).toBeTruthy();
+        expect(screen.getByText('Operații anulate: 1')).toBeTruthy();
+        expect(
+            screen.getByText(
+                'C:\\in\\old.exe: restaurat, dar conținutul diferă de cel de la momentul trimiterii la Coș',
+            ),
+        ).toBeTruthy();
+        expect(screen.getByText('Eșuate: 1')).toBeTruthy();
+        expect(screen.getByText(/Locul inițial e ocupat; elementul a rămas în Coșul de reciclare/)).toBeTruthy();
 
         fireEvent.click(screen.getByRole('button', { name: 'Închide' }));
         expect(onClose).toHaveBeenCalledWith(false);

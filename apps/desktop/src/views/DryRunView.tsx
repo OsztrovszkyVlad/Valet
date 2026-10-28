@@ -212,6 +212,7 @@ const DryRunView: React.FC<DryRunViewProps> = ({
                     {hasRun && results.length > 0 && (
                         <button
                             className="btn-execute"
+                            data-testid="preview-execute"
                             onClick={executeOperations}
                             disabled={loading || executing || planId === null}
                         >

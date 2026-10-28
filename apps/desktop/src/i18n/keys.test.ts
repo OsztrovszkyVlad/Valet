@@ -62,7 +62,27 @@ function skipReasons(): string[] {
     return [...body.matchAll(/^\s{4}([A-Z][A-Za-z]+),/gm)].map((m) => m[1][0].toLowerCase() + m[1].slice(1));
 }
 
+const EXECUTOR = import.meta.glob('../../../../crates/valet-core/src/executor.rs', {
+    query: '?raw',
+    import: 'default',
+    eager: true,
+}) as Record<string, string>;
+
+/** Variants of `valet_core::executor::FailCode`, serialized as the variant name. */
+function failCodes(): string[] {
+    const text = Object.values(EXECUTOR)[0] ?? '';
+    const body = /pub enum FailCode \{([\s\S]*?)\n\}/.exec(text)?.[1] ?? '';
+    return [...body.matchAll(/^\s{4}([A-Z][A-Za-z]+),/gm)].map((m) => m[1]);
+}
+
 describe('run-time i18n keys', () => {
+    it('translate every executor fail code', () => {
+        const codes = failCodes();
+        expect(codes).toContain('RestoreOccupied');
+        expect(codes).not.toContain('Unsupported');
+        expect(missing(codes.map((c) => `failCode.${c}`))).toEqual([]);
+    });
+
     it('explain every skip reason the planner returns', () => {
         const reasons = skipReasons();
         expect(reasons).toContain('excluded');
@@ -95,6 +115,7 @@ describe('run-time i18n keys', () => {
                 'noConditions',
             ].map((e) => `editorError.${e}`),
             ...['move', 'copy', 'trash'].map((o) => `opType.${o}`),
+            ...['move', 'copy', 'trash', 'restore'].map((o) => `historyOpType.${o}`),
         ];
         expect(missing(keys)).toEqual([]);
     });

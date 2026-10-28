@@ -90,6 +90,7 @@
   "undo": {
     "button": "Anulează lotul",
     "previewTitle": "Fișiere de mutat înapoi: {{count}}",
+    "previewRestore": "restaurare din Coș",
     "previewNothing": "Lotul nu mai are operații de anulat.",
     "confirm": "Confirmă anularea",
     "running": "Se anulează...",
@@ -98,6 +99,7 @@
     "resultTitle": "Rezultatul anulării",
     "undone": "Operații anulate: {{count}}",
     "restoredAs": "{{original}} restaurat ca {{path}}",
+    "restoredModified": "{{path}}: restaurat, dar conținutul diferă de cel de la momentul trimiterii la Coș",
     "failed": "Eșuate: {{count}}",
     "pending": "Rămase neanulate (fără confirmare): {{count}}",
     "skipped": "Sărite (nu erau făcute în lot): {{count}}",
@@ -119,7 +121,8 @@
     "Occupied": "Destinația e ocupată",
     "Interrupted": "Întrerupt de o oprire a aplicației",
     "InvalidPath": "Cale nevalidă",
-    "Io": "Eroare de citire sau scriere"
+    "Io": "Eroare de citire sau scriere",
+    "RestoreOccupied": "Locul inițial e ocupat; elementul a rămas în Coșul de reciclare"
   },
   "batchKind": {
     "apply": "Organizare",
@@ -137,6 +140,12 @@
     "move": "mutare",
     "copy": "copiere",
     "trash": "în Coș"
+  },
+  "historyOpType": {
+    "move": "mutare",
+    "copy": "copiere",
+    "trash": "Trimis la Coș",
+    "restore": "Restaurat din Coș"
   },
   "history": {
     "title": "Istoric",

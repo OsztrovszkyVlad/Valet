@@ -196,7 +196,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({ onBatchUndone, reloadToken })
                                     {detail.operations.map((op) => (
                                         <tr key={op.id}>
                                             <td>{op.id}</td>
-                                            <td>{t(`opType.${op.op_type}`, { defaultValue: op.op_type })}</td>
+                                            <td>{t(`historyOpType.${op.op_type}`, { defaultValue: op.op_type })}</td>
                                             <td>
                                                 <code className="path-code">{op.source_path}</code>
                                             </td>

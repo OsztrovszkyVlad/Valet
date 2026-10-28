@@ -180,6 +180,7 @@ const OnboardingView: React.FC<OnboardingViewProps> = ({ onFinished }) => {
                     <div className="onboarding-buttons">
                         <button
                             className="btn-primary"
+                            data-testid="onboarding-next"
                             disabled={folders.length === 0}
                             onClick={() => {
                                 setFolderError('');
@@ -218,6 +219,7 @@ const OnboardingView: React.FC<OnboardingViewProps> = ({ onFinished }) => {
                                         <input
                                             type="checkbox"
                                             className="form-checkbox"
+                                            data-testid={`preset-${p.id}`}
                                             checked={selected.has(p.id)}
                                             onChange={(e) => togglePreset(p.id, e.target.checked)}
                                         />
@@ -252,6 +254,7 @@ const OnboardingView: React.FC<OnboardingViewProps> = ({ onFinished }) => {
                         </button>
                         <button
                             className="btn-primary"
+                            data-testid="onboarding-finish"
                             disabled={finishing || presets === null}
                             onClick={() => void finish(orderedPresetIds())}
                         >

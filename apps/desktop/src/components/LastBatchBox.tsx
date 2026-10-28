@@ -36,6 +36,7 @@ const LastBatchBox: React.FC<LastBatchBoxProps> = ({ batch, canUndo, onUndoRan, 
                 canUndo={canUndo}
                 onUndoRan={onUndoRan}
                 onClose={onClose}
+                startTestId="last-batch-undo"
             />
         </section>
     );

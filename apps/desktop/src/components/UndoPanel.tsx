@@ -18,6 +18,8 @@ interface UndoPanelProps {
     onUndoRan?: () => void;
     /** Called when the user closes the result. `complete`: nothing left to confirm or retry. */
     onClose?: (complete: boolean) => void;
+    /** `data-testid` of the start button, for UI automation. */
+    startTestId?: string;
 }
 
 type Step =
@@ -31,7 +33,13 @@ type Step =
  * Undo of one apply batch: preview of the files that go back, confirm,
  * then a second confirm for files that changed or whose place is taken.
  */
-const UndoPanel: React.FC<UndoPanelProps> = ({ batchId, canUndo, onUndoRan, onClose }) => {
+const UndoPanel: React.FC<UndoPanelProps> = ({
+    batchId,
+    canUndo,
+    onUndoRan,
+    onClose,
+    startTestId = 'undo-start',
+}) => {
     const { t } = useTranslation();
     const [step, setStep] = useState<Step>({ kind: 'idle' });
     const [error, setError] = useState('');
@@ -81,6 +89,7 @@ const UndoPanel: React.FC<UndoPanelProps> = ({ batchId, canUndo, onUndoRan, onCl
         const last = forced ?? first;
         const undone = first.undone.length + (forced?.undone.length ?? 0);
         const restoredAs = [...first.restored_as, ...(forced?.restored_as ?? [])];
+        const restoredModified = [...first.restored_modified, ...(forced?.restored_modified ?? [])];
         const complete = last.failed.length === 0 && last.needs_confirmation.length === 0;
         const sourceOf = (opId: number) =>
             [...first.needs_confirmation, ...last.failed].find((x) => x.op_id === opId)?.source;
@@ -97,6 +106,13 @@ const UndoPanel: React.FC<UndoPanelProps> = ({ batchId, canUndo, onUndoRan, onCl
                                     path: r.path,
                                 })}
                             </li>
+                        ))}
+                    </ul>
+                )}
+                {restoredModified.length > 0 && (
+                    <ul className="undo-list undo-modified">
+                        {restoredModified.map((r) => (
+                            <li key={r.op_id}>{t('undo.restoredModified', { path: r.path })}</li>
                         ))}
                     </ul>
                 )}
@@ -130,7 +146,7 @@ const UndoPanel: React.FC<UndoPanelProps> = ({ batchId, canUndo, onUndoRan, onCl
             {error && <p className="undo-error">{error}</p>}
 
             {step.kind === 'idle' && canUndo && (
-                <button className="btn-undo" onClick={loadPreview}>
+                <button className="btn-undo" data-testid={startTestId} onClick={loadPreview}>
                     {t('undo.button')}
                 </button>
             )}
@@ -147,8 +163,16 @@ const UndoPanel: React.FC<UndoPanelProps> = ({ batchId, canUndo, onUndoRan, onCl
                             <ul className="undo-list">
                                 {step.ops.map((op) => (
                                     <li key={op.id}>
-                                        {t(`opType.${op.op_type}`)}: <code>{op.dest_path ?? ''}</code> →{' '}
-                                        <code>{op.source_path}</code>
+                                        {op.op_type === 'trash' ? (
+                                            <>
+                                                {t('undo.previewRestore')}: <code>{op.source_path}</code>
+                                            </>
+                                        ) : (
+                                            <>
+                                                {t(`opType.${op.op_type}`)}: <code>{op.dest_path ?? ''}</code> →{' '}
+                                                <code>{op.source_path}</code>
+                                            </>
+                                        )}
                                     </li>
                                 ))}
                             </ul>
@@ -156,7 +180,11 @@ const UndoPanel: React.FC<UndoPanelProps> = ({ batchId, canUndo, onUndoRan, onCl
                     )}
                     <div className="undo-actions">
                         {step.ops.length > 0 && (
-                            <button className="btn-undo" onClick={() => runUndo(false, null)}>
+                            <button
+                                className="btn-undo"
+                                data-testid="undo-confirm"
+                                onClick={() => runUndo(false, null)}
+                            >
                                 {t('undo.confirm')}
                             </button>
                         )}
@@ -188,7 +216,11 @@ const UndoPanel: React.FC<UndoPanelProps> = ({ batchId, canUndo, onUndoRan, onCl
                         ))}
                     </ul>
                     <div className="undo-actions">
-                        <button className="btn-undo" onClick={() => runUndo(true, step.first)}>
+                        <button
+                            className="btn-undo"
+                            data-testid="undo-force"
+                            onClick={() => runUndo(true, step.first)}
+                        >
                             {t('undo.force')}
                         </button>
                         <button

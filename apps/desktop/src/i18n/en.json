@@ -90,6 +90,7 @@
   "undo": {
     "button": "Undo batch",
     "previewTitle": "Files to move back: {{count}}",
+    "previewRestore": "restore from Recycle Bin",
     "previewNothing": "The batch has nothing left to undo.",
     "confirm": "Confirm undo",
     "running": "Undoing...",
@@ -98,6 +99,7 @@
     "resultTitle": "Undo result",
     "undone": "Operations undone: {{count}}",
     "restoredAs": "{{original}} restored as {{path}}",
+    "restoredModified": "{{path}}: restored, but the content differs from when it was sent to the Recycle Bin",
     "failed": "Failed: {{count}}",
     "pending": "Left as is (not confirmed): {{count}}",
     "skipped": "Skipped (not done in the batch): {{count}}",
@@ -119,7 +121,8 @@
     "Occupied": "The destination is taken",
     "Interrupted": "Interrupted by the app stopping",
     "InvalidPath": "Invalid path",
-    "Io": "Read or write error"
+    "Io": "Read or write error",
+    "RestoreOccupied": "The original location is taken; the item stays in the Recycle Bin"
   },
   "batchKind": {
     "apply": "Organize",
@@ -137,6 +140,12 @@
     "move": "move",
     "copy": "copy",
     "trash": "to Recycle Bin"
+  },
+  "historyOpType": {
+    "move": "move",
+    "copy": "copy",
+    "trash": "Sent to Recycle Bin",
+    "restore": "Restored from Recycle Bin"
   },
   "history": {
     "title": "History",
