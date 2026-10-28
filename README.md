@@ -11,8 +11,9 @@ It is a pre-release prototype. There is no installer and no release. The code is
 What works today:
 
 - Rules are stored in SQLite.
-- The `dry_run` command walks the configured inbox folders (`planner::plan`) and lists the planned moves and copies, plus the files it skipped and why (excluded folder, hidden, being written, cloud placeholder, and so on). It changes nothing.
-- The `execute_operations` command runs planned operations through the operation journal (`executor::execute`). Each operation is journaled, checked again right before it runs, and moved without replacing anything. Removals go to the Recycle Bin.
+- The `dry_run` command walks the configured inbox folders (`planner::plan`) and lists the planned moves and copies, plus the files it skipped and why (excluded folder, hidden, being written, cloud placeholder, destination in an excluded folder, and so on). It changes no file. It keeps the plan in memory and returns a `plan_id`.
+- The `execute_operations` command takes that `plan_id` and runs exactly the previewed operations through the operation journal (`executor::execute`); it does not plan again. The plan can be used once; without a matching preview the command returns `preview_required` and does nothing. Each operation is journaled, checked again right before it runs, and moved without replacing anything. Removals go to the Recycle Bin. The tray has no "execute" item.
+- Only one Valet process runs at a time (`tauri-plugin-single-instance`); a second launch exits and shows the window of the first.
 - The `undo_batch`, `list_batches` and `get_batch` commands undo and inspect journaled batches. On startup the app recovers operations that a crash left unfinished.
 - Implemented conditions: `ext`, `nameMatches` (regex on the file name), `sizeGt`, `sizeLt`, `pathContains`.
 - Actions that execute: `moveTo` and `copyTo`. The `path` parameter is the destination folder; the file name is appended and a taken name becomes `name (2).ext`. The folder may use `~`, `%VAR%`, `{year}`, `{month}` and `{ext}`; a relative folder is resolved against the scan root. `tag`, `rename`, `quarantine` and any other action type are not run; the preview reports them as `unsupportedAction` when no move or copy was planned for the file.
@@ -23,11 +24,11 @@ Known gaps. The details, with the tests that cover each case, are in [docs/SAFET
 - UI text: Romanian is the default language and the i18n files are in `apps/desktop/src/i18n/`, but the Rules, Settings, Preferences and Statistics views still have hardcoded English text.
 - The form in the Rules view does not match the backend rule schema, so creating a rule from the UI fails.
 - The backend has diagnostics, backup and template commands that the UI does not use. Whether to keep them is undecided.
-- No check that stops a scan root such as `C:\`, and the default exclusions are not applied to destination folders.
+- No check that stops a scan root such as `C:\`. Destination folders inside a default-excluded folder or under a `.valetignore` are refused, except for the part of the path shared with the scan root; the check is on path text and does not follow junctions.
 - Two cases can leave a file at both the source and the destination after a double failure (never zero copies); see SAFETY.md, invariant 3.
-- Debug-level log lines contain full paths, and `main.rs` sets the log level to Debug.
+- Debug-level log lines contain full paths. `main.rs` sets the level to Debug in dev builds and to Info in release builds; no release build was made to confirm this.
 
-The Windows-specific code (Recycle Bin, placeholders, locks, `MoveFileExW`) is tested by `crates/valet-platform/tests/windows.rs`, which runs only on Windows. Do not point this build at folders whose contents you cannot lose.
+The Windows-specific code (Recycle Bin, placeholders, locks, `MoveFileExW`) is tested by `crates/valet-platform/tests/windows.rs` and `windows_e2e.rs`, which run only on Windows. The last five CI runs failed at the Clippy step, before any test step, so no Windows test result exists for the current code (details in [docs/SAFETY.md](docs/SAFETY.md)). Do not point this build at folders whose contents you cannot lose.
 
 ## Repository layout
 
@@ -84,8 +85,11 @@ Tests that exist:
 
 - 52 characterization tests in `crates/valet-core/tests/characterization_*.rs`. They pin the matcher and dry-run behavior. A change that alters that behavior should change these tests on purpose.
 - Unit tests next to the code in `valet-core` (planner, executor with recovery and undo, journal, collision naming) and in `valet-platform`. `cargo test -p valet-core -p valet-platform` runs them on Linux.
-- `crates/valet-platform/tests/windows.rs` runs only on Windows.
-- Unit tests in the app crate (`apps/desktop/src-tauri`).
+- Property tests for the planner and for collision naming (`prop_planner.rs`, `prop_collision.rs`).
+- `fault_injection.rs`: kills a `valet-fault` child process at a random time during a batch, runs recovery, checks that every file exists once, then undoes the batch. 10 iterations by default; `VALET_FAULT_ITERS=100` sets more. It uses the fake platform and runs on Linux.
+- `integration_10k.rs`: plan, execute and undo on a generated tree of 1,000 and 10,000 files (about a minute in a debug build). The perf tests (`perf_*.rs`) are `#[ignore]`.
+- `crates/valet-platform/tests/windows.rs` and `windows_e2e.rs` run only on Windows (`windows_e2e.rs` needs `--features valet-core`).
+- Unit tests in the app crate (`apps/desktop/src-tauri`): `cargo test -p app`, including the tests that `execute_operations` runs only a previewed plan.
 
 On Linux, building the Tauri crate needs the webkit2gtk-4.1 development packages. This is only for building and testing; the app targets Windows.
 
@@ -135,9 +139,9 @@ The invariants are listed in `CLAUDE.md` under "Safety invariants" and in [docs/
 
 [docs/SAFETY.md](docs/SAFETY.md) says, for each invariant, how the code meets it and which tests cover it, what happens in each edge case, how the journal works, and what is not covered yet. Where the code does less than the plan, it says so. Short version:
 
-- Met in code and covered by tests that run on Linux with a fake Recycle Bin: journal before each operation, recovery after a crash, no replacing of existing files, undo with a hash check, default exclusions below a scan root, skipping of placeholders, locked and recently written files.
-- Covered only by tests that run on Windows (the CI job `windows`; its results were not checked), or not at all: the Windows API calls themselves, and real OneDrive or Dropbox placeholders.
-- Partly met: exclusions are not applied to destinations or to the scan root itself; "being written" is a name and modification-time heuristic; copies and cross-volume moves need a Recycle Bin on the destination volume (and on the source volume for moves); paths that are not valid Unicode are refused.
+- Met in code and covered by tests that run on Linux with a fake Recycle Bin: journal before each operation, recovery after a crash (unit tests and a process-kill test), no replacing of existing files, undo with a hash check, default exclusions below a scan root and for destinations, skipping of placeholders, locked and recently written files, executing only the previewed plan.
+- Covered only by tests that run on Windows (the CI job `windows`, which has not reached its test steps), or not at all: the Windows API calls themselves, power loss, and real OneDrive or Dropbox placeholders.
+- Partly met: the scan root itself is not checked, and destination checks work on path text only; "being written" is a name and modification-time heuristic; copies and cross-volume moves need a Recycle Bin on the destination volume (and on the source volume for moves); paths that are not valid Unicode are refused.
 - Not met: the watcher does not apply rules, Windows directory-change overflow is not reported by `notify` 6.1, and two double-failure cases can leave a file at both source and destination.
 - No network code exists in the workspace. The updater, license check and crash reports are not built.
 
