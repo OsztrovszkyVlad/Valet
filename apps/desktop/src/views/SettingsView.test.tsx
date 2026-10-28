@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import i18n from '../i18n';
 import SettingsView from './SettingsView';
-import type { AppSettings, Config } from '../api/commands';
+import type { AppSettings, Config, InvalidConfigPath } from '../api/commands';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 const invokeMock = vi.mocked(invoke);
@@ -12,6 +12,7 @@ const DOWNLOADS = 'C:\\Users\\ana\\Downloads';
 
 let settings: AppSettings;
 let config: Config;
+let invalidPaths: InvalidConfigPath[];
 let osAutoStart: boolean | Error;
 
 function baseSettings(): AppSettings {
@@ -28,6 +29,7 @@ function baseSettings(): AppSettings {
 beforeEach(() => {
     settings = baseSettings();
     config = { inbox_paths: [DOWNLOADS], pause_watchers: false };
+    invalidPaths = [];
     osAutoStart = false;
     invokeMock.mockReset();
     invokeMock.mockImplementation(async (cmd, args) => {
@@ -36,7 +38,7 @@ beforeEach(() => {
             case 'get_app_settings':
                 return settings;
             case 'get_config':
-                return config;
+                return { ...config, invalid_paths: invalidPaths };
             case 'save_app_settings':
                 settings = a?.settings as AppSettings;
                 return settings;
@@ -45,6 +47,8 @@ beforeEach(() => {
                 if (next.inbox_paths.includes('D:\\')) throw 'config.driveRoot';
                 if (next.inbox_paths.includes('C:\\Windows')) throw 'config.excludedFolder: C:\\Windows';
                 if (next.inbox_paths.includes('X:\\broken')) throw 'Failed to write config file: denied';
+                const bad = invalidPaths.find((p) => next.inbox_paths.includes(p.path));
+                if (bad) throw `${bad.code}: ${bad.path}`;
                 config = next;
                 return config;
             }
@@ -115,6 +119,71 @@ describe('SettingsView', () => {
         fireEvent.click(screen.getByRole('button', { name: `Elimină ${DOWNLOADS}` }));
         await waitFor(() => expect(screen.queryByText(DOWNLOADS)).toBeNull());
         expect(config.inbox_paths).toEqual(['C:\\Users\\ana\\Desktop']);
+    });
+
+    it('offers the Preview after a folder is added', async () => {
+        const onOpenPreview = vi.fn();
+        render(<SettingsView onOpenPreview={onOpenPreview} />);
+        await screen.findByText(DOWNLOADS);
+        expect(screen.queryByText(/Folderul nou se organizează/)).toBeNull();
+
+        addFolder('C:\\Users\\ana\\Desktop');
+        expect(
+            await screen.findByText('Folderul nou se organizează automat doar după o previzualizare aprobată.'),
+        ).toBeTruthy();
+        fireEvent.click(screen.getByRole('button', { name: 'Deschide Previzualizarea' }));
+        expect(onOpenPreview).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not show the new-folder note when adding fails', async () => {
+        await renderLoaded();
+        addFolder('D:\\');
+        await screen.findByText(/Nu poți urmări un disc întreg/);
+        expect(screen.queryByText(/Folderul nou se organizează/)).toBeNull();
+    });
+
+    it('marks invalid entries with the reason and removes them, saving the valid list', async () => {
+        config = {
+            inbox_paths: ['E:\\', DOWNLOADS, 'C:\\Users\\ana\\Gone'],
+            pause_watchers: false,
+        };
+        invalidPaths = [
+            { path: 'E:\\', code: 'config.driveRoot' },
+            { path: 'C:\\Users\\ana\\Gone', code: 'config.missing' },
+        ];
+        await renderLoaded();
+        expect(screen.getByText('E:\\')).toBeTruthy();
+        expect(
+            screen.getByText('Nu e urmărit: Nu poți urmări un disc întreg. Alege un folder, de exemplu Descărcări.'),
+        ).toBeTruthy();
+        expect(screen.getByText('Nu e urmărit: Folderul nu există.')).toBeTruthy();
+        // The backend refuses any list with an invalid entry, so other edits wait.
+        expect((screen.getByRole('button', { name: `Elimină ${DOWNLOADS}` }) as HTMLButtonElement).disabled).toBe(true);
+        fireEvent.change(screen.getByLabelText('Cale folder'), { target: { value: 'C:\\Users\\ana\\Desktop' } });
+        expect((screen.getByRole('button', { name: 'Adaugă' }) as HTMLButtonElement).disabled).toBe(true);
+
+        fireEvent.click(screen.getByRole('button', { name: 'Elimină folderele neurmărite' }));
+        await screen.findByText('Salvat.');
+        expect(callsTo('save_config').at(-1)?.[1]).toEqual({
+            config: { inbox_paths: [DOWNLOADS], pause_watchers: false },
+        });
+        expect(screen.queryByText('E:\\')).toBeNull();
+        expect(screen.queryByText(/Nu e urmărit/)).toBeNull();
+        expect((screen.getByRole('button', { name: `Elimină ${DOWNLOADS}` }) as HTMLButtonElement).disabled).toBe(false);
+        expect((screen.getByRole('button', { name: 'Adaugă' }) as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    it('shows invalid entries in English', async () => {
+        await i18n.changeLanguage('en');
+        try {
+            config = { inbox_paths: ['C:\\Windows\\Temp'], pause_watchers: false };
+            invalidPaths = [{ path: 'C:\\Windows\\Temp', code: 'config.excludedFolder' }];
+            render(<SettingsView />);
+            expect(await screen.findByText(/^Not watched: This folder is excluded by default/)).toBeTruthy();
+            expect(screen.getByRole('button', { name: 'Remove the folders not watched' })).toBeTruthy();
+        } finally {
+            await i18n.changeLanguage('ro');
+        }
     });
 
     it('shows translated backend errors and keeps the list unchanged', async () => {

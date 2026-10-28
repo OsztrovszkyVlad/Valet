@@ -200,7 +200,12 @@
     "autoApply": "Apply rules automatically in watched folders",
     "autoApplyHelp": "New files are organized without a preview. It starts only after you have approved a preview.",
     "autoApplyLocked": "Available after you approve your first preview.",
-    "folderDuplicate": "The folder is already in the list."
+    "folderDuplicate": "The folder is already in the list.",
+    "invalidReason": "Not watched: {{reason}}",
+    "invalidHelp": "Some folders in the list are not watched. Remove them to change the list.",
+    "removeInvalid": "Remove the folders not watched",
+    "newFolderNotice": "The new folder is organized automatically only after an approved preview.",
+    "openPreview": "Open Preview"
   },
   "backendError": {
     "config": {

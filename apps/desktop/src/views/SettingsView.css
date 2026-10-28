@@ -43,6 +43,39 @@
     word-break: break-all;
 }
 
+.settings-folder-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+.settings-folder-invalid code {
+    color: #6b7280;
+    text-decoration: line-through;
+}
+
+.settings-folder-reason {
+    font-size: 0.8rem;
+    color: #b45309;
+}
+
+.settings-invalid-notice {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-radius: 6px;
+    padding: 0.75rem;
+    margin: 0.5rem 0;
+    color: #92400e;
+}
+
+.settings-added-notice {
+    margin-top: 0.5rem;
+}
+
 .settings-add-folder {
     display: grid;
     grid-template-columns: 1fr auto;

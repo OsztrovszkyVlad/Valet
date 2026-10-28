@@ -131,7 +131,7 @@ function App() {
       case 'history':
         return <HistoryView onBatchUndone={clearIfUndone} reloadToken={journalVersion} />
       case 'settings':
-        return <SettingsView />
+        return <SettingsView onOpenPreview={() => changeView('preview')} />
     }
   }
 

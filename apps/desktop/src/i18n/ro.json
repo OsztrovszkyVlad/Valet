@@ -200,7 +200,12 @@
     "autoApply": "Aplicare automată în folderele urmărite",
     "autoApplyHelp": "Fișierele noi sunt organizate fără previzualizare. Pornește doar după ce ai aprobat o previzualizare.",
     "autoApplyLocked": "Disponibil după ce aprobi prima previzualizare.",
-    "folderDuplicate": "Folderul e deja în listă."
+    "folderDuplicate": "Folderul e deja în listă.",
+    "invalidReason": "Nu e urmărit: {{reason}}",
+    "invalidHelp": "Unele foldere din listă nu sunt urmărite. Elimină-le ca să poți schimba lista.",
+    "removeInvalid": "Elimină folderele neurmărite",
+    "newFolderNotice": "Folderul nou se organizează automat doar după o previzualizare aprobată.",
+    "openPreview": "Deschide Previzualizarea"
   },
   "backendError": {
     "config": {

@@ -239,8 +239,26 @@ export function saveAppSettings(settings: AppSettings): Promise<AppSettings> {
     return invoke<AppSettings>('save_app_settings', { settings });
 }
 
-export function getConfig(): Promise<Config> {
-    return invoke<Config>('get_config');
+/** Why a `config.json` entry is not watched. */
+export type InvalidConfigCode = 'config.driveRoot' | 'config.excludedFolder' | 'config.missing';
+
+/** A `config.json` entry (from a hand-edited file) that is not watched or planned. */
+export interface InvalidConfigPath {
+    path: string;
+    code: InvalidConfigCode;
+}
+
+/**
+ * What `get_config` returns: the stored config, invalid entries included in
+ * `inbox_paths`, plus `invalid_paths`. `saveConfig` refuses a list that still
+ * contains an invalid entry.
+ */
+export interface ConfigView extends Config {
+    invalid_paths: InvalidConfigPath[];
+}
+
+export function getConfig(): Promise<ConfigView> {
+    return invoke<ConfigView>('get_config');
 }
 
 /** Rejects with a code such as `config.driveRoot` when a folder cannot be watched. */

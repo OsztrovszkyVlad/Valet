@@ -10,6 +10,7 @@ import {
     saveConfig,
     type AppSettings,
     type Config,
+    type InvalidConfigPath,
     type Language,
 } from '../api/commands';
 import { commandErrorText } from '../i18n/format';
@@ -19,8 +20,17 @@ type Status = 'idle' | 'saving' | 'saved';
 
 const LANGUAGES: Language[] = ['ro', 'en'];
 
-/** Secondary screen: language, watched folders, notifications, autostart, auto-apply. Each change saves at once. */
-const SettingsView: React.FC = () => {
+interface SettingsViewProps {
+    /** Opens the Preview screen (offered after a folder is added). */
+    onOpenPreview?: () => void;
+}
+
+/**
+ * Secondary screen: language, watched folders, notifications, autostart, auto-apply. Each change saves at once.
+ * Watched folders the backend reports as invalid are marked with the reason; the list can be changed only
+ * after they are removed, because `save_config` refuses a list that contains one.
+ */
+const SettingsView: React.FC<SettingsViewProps> = ({ onOpenPreview }) => {
     const { t, i18n } = useTranslation();
     const [settings, setSettings] = useState<AppSettings | null>(null);
     const [config, setConfig] = useState<Config | null>(null);
@@ -28,6 +38,10 @@ const SettingsView: React.FC = () => {
     const [error, setError] = useState('');
     const [status, setStatus] = useState<Status>('idle');
     const [newFolder, setNewFolder] = useState('');
+    // Entries of a hand-edited config.json that are not watched.
+    const [invalid, setInvalid] = useState<InvalidConfigPath[]>([]);
+    // Shown after a folder is added: it needs an approved preview first.
+    const [addedNotice, setAddedNotice] = useState(false);
 
     useEffect(() => {
         let cancelled = false;
@@ -37,7 +51,9 @@ const SettingsView: React.FC = () => {
             .then(([s, c, a]) => {
                 if (!cancelled) {
                     setSettings(a === null ? s : { ...s, auto_start: a });
-                    setConfig(c);
+                    const { invalid_paths: invalidPaths, ...stored } = c;
+                    setConfig(stored);
+                    setInvalid(Array.isArray(invalidPaths) ? invalidPaths : []);
                 }
             })
             .catch((err: unknown) => {
@@ -71,6 +87,8 @@ const SettingsView: React.FC = () => {
     }
 
     const saving = status === 'saving';
+    const hasInvalid = invalid.length > 0;
+    const invalidCode = (path: string) => invalid.find((p) => p.path === path)?.code;
 
     const updateSettings = async (patch: Partial<AppSettings>): Promise<boolean> => {
         setError('');
@@ -109,6 +127,8 @@ const SettingsView: React.FC = () => {
         setStatus('saving');
         try {
             setConfig(await saveConfig({ ...config, inbox_paths: inboxPaths }));
+            // save_config accepts only lists without invalid entries.
+            setInvalid([]);
             setStatus('saved');
             return true;
         } catch (err) {
@@ -126,12 +146,16 @@ const SettingsView: React.FC = () => {
             setError(t('settings.folderDuplicate'));
             return;
         }
+        setAddedNotice(false);
         if (await saveFolders([...config.inbox_paths, path])) {
             setNewFolder('');
+            setAddedNotice(true);
         }
     };
 
     const removeFolder = (path: string) => saveFolders(config.inbox_paths.filter((p) => p !== path));
+
+    const removeInvalid = () => saveFolders(config.inbox_paths.filter((p) => invalidCode(p) === undefined));
 
     return (
         <div className="settings-view">
@@ -154,23 +178,62 @@ const SettingsView: React.FC = () => {
             <section className="settings-section">
                 <h3>{t('settings.foldersTitle')}</h3>
                 <p className="form-help">{t('settings.foldersHelp')}</p>
+                {addedNotice && (
+                    <div className="notice-message settings-added-notice" role="note">
+                        <span>{t('settings.newFolderNotice')}</span>
+                        {onOpenPreview && (
+                            <button className="btn-secondary" onClick={onOpenPreview}>
+                                {t('settings.openPreview')}
+                            </button>
+                        )}
+                        <button
+                            className="error-close"
+                            onClick={() => setAddedNotice(false)}
+                            aria-label={t('common.close')}
+                        >
+                            ×
+                        </button>
+                    </div>
+                )}
+                {hasInvalid && (
+                    <div className="settings-invalid-notice" role="note">
+                        <span>{t('settings.invalidHelp')}</span>
+                        <button className="btn-secondary" onClick={() => void removeInvalid()} disabled={saving}>
+                            {t('settings.removeInvalid')}
+                        </button>
+                    </div>
+                )}
                 {config.inbox_paths.length === 0 ? (
                     <p>{t('settings.foldersEmpty')}</p>
                 ) : (
                     <ul className="settings-folders">
-                        {config.inbox_paths.map((path) => (
-                            <li key={path}>
-                                <code>{path}</code>
-                                <button
-                                    className="btn-secondary"
-                                    onClick={() => void removeFolder(path)}
-                                    disabled={saving}
-                                    aria-label={t('settings.removeFolderLabel', { path })}
-                                >
-                                    {t('settings.removeFolder')}
-                                </button>
-                            </li>
-                        ))}
+                        {config.inbox_paths.map((path) => {
+                            const code = invalidCode(path);
+                            return (
+                                <li key={path} className={code ? 'settings-folder-invalid' : undefined}>
+                                    <div className="settings-folder-text">
+                                        <code>{path}</code>
+                                        {code && (
+                                            <small className="settings-folder-reason">
+                                                {t('settings.invalidReason', {
+                                                    reason: t(`backendError.${code}`),
+                                                })}
+                                            </small>
+                                        )}
+                                    </div>
+                                    {!code && (
+                                        <button
+                                            className="btn-secondary"
+                                            onClick={() => void removeFolder(path)}
+                                            disabled={saving || hasInvalid}
+                                            aria-label={t('settings.removeFolderLabel', { path })}
+                                        >
+                                            {t('settings.removeFolder')}
+                                        </button>
+                                    )}
+                                </li>
+                            );
+                        })}
                     </ul>
                 )}
                 <form className="settings-add-folder" onSubmit={(e) => void addFolder(e)}>
@@ -183,7 +246,11 @@ const SettingsView: React.FC = () => {
                         placeholder={t('settings.folderPlaceholder')}
                         onChange={(e) => setNewFolder(e.target.value)}
                     />
-                    <button className="btn-primary" type="submit" disabled={saving || newFolder.trim() === ''}>
+                    <button
+                        className="btn-primary"
+                        type="submit"
+                        disabled={saving || hasInvalid || newFolder.trim() === ''}
+                    >
                         {t('settings.addFolder')}
                     </button>
                 </form>
