@@ -14,16 +14,16 @@
 //!
 //! The functions are `async` because the journal is; file I/O runs inline.
 //!
-//! Test hook: when the environment variable [`FAULT_SLOW_ENV`]
-//! (`VALET_FAULT_SLOW_MS`) holds a number, the executor sleeps that many
-//! milliseconds after every journal state change, so the fault-injection
-//! harness can kill the process mid-batch. Not meant for production use.
+//! Test hook, compiled only with the `test-support` feature: when the
+//! environment variable `VALET_FAULT_SLOW_MS` holds a number, the executor
+//! sleeps that many milliseconds after every journal state change, so the
+//! fault-injection harness can kill the process mid-batch. In normal builds
+//! the variable has no effect.
 
 use std::{
     fs::{self, File, OpenOptions},
     io,
     path::{Path, PathBuf},
-    time::Duration,
 };
 
 use anyhow::Result;
@@ -44,6 +44,7 @@ pub use undo::{
 };
 
 /// Environment variable read by the fault-injection test hook (milliseconds).
+#[cfg(feature = "test-support")]
 pub const FAULT_SLOW_ENV: &str = "VALET_FAULT_SLOW_MS";
 
 /// Attempts to find a free destination name when the planned one got taken.
@@ -160,15 +161,25 @@ impl BatchReport {
 // ---------------------------------------------------------------- helpers
 
 /// Fault-injection test hook, see the module docs.
+#[cfg(feature = "test-support")]
 fn fault_pause() {
     if let Some(ms) = std::env::var(FAULT_SLOW_ENV)
         .ok()
         .and_then(|v| v.trim().parse::<u64>().ok())
         .filter(|ms| *ms > 0)
     {
-        std::thread::sleep(Duration::from_millis(ms));
+        std::thread::sleep(std::time::Duration::from_millis(ms));
     }
 }
+
+/// Shipped builds: no hook. There is no `cfg(not(feature = "test-support"))`
+/// unit test for this, because the crate's self dev-dependency turns
+/// `test-support` on for every `cargo test -p valet-core` build, so such a
+/// test would never compile or run. Checked instead by building the desktop
+/// binary alone and confirming `VALET_FAULT_SLOW_MS` does not occur in it.
+#[cfg(not(feature = "test-support"))]
+#[inline(always)]
+fn fault_pause() {}
 
 /// Journal calls that change an operation's state, each followed by the test hook.
 struct Steps<'a> {
