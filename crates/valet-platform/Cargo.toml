@@ -27,3 +27,11 @@ windows-sys = { version = "=0.61.2", features = [
 [dev-dependencies]
 tempfile = "3"
 tokio = { version = "1", features = ["rt", "macros", "time"] }
+# Rule JSON in tests/windows_e2e.rs.
+serde_json = "1"
+uuid = "1"
+
+# Real SystemPlatform + valet-core planner/executor/journal on NTFS.
+[[test]]
+name = "windows_e2e"
+required-features = ["valet-core"]

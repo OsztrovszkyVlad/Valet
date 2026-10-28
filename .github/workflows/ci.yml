@@ -33,6 +33,14 @@ jobs:
         run: cargo clippy -p valet-core -p valet-platform --all-targets -- -D warnings
       - name: Test (core, platform)
         run: cargo test -p valet-core -p valet-platform
+      - name: Clippy (core with test-support)
+        run: cargo clippy -p valet-core --all-targets --features test-support -- -D warnings
+      - name: Test (core with test-support; fault injection x100)
+        run: cargo test -p valet-core --features test-support
+        env:
+          VALET_FAULT_ITERS: "100"
+      - name: Perf plan 10k and integration 10k (release)
+        run: cargo test -p valet-core --release --features test-support --test perf_plan_10k --test integration_10k -- --include-ignored --nocapture
 
   windows:
     name: workspace (Windows)
@@ -64,3 +72,11 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Test (workspace)
         run: cargo test --workspace
+      - name: Test (core with test-support; fault injection x100)
+        run: cargo test -p valet-core --features test-support
+        env:
+          VALET_FAULT_ITERS: "100"
+      - name: Clippy (platform with valet-core)
+        run: cargo clippy -p valet-platform --all-targets --features valet-core -- -D warnings
+      - name: Test (platform with valet-core; Windows end-to-end)
+        run: cargo test -p valet-platform --features valet-core -- --nocapture

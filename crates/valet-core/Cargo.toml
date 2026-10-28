@@ -22,6 +22,7 @@ test-support = []
 
 [dev-dependencies]
 tempfile = "3"
+proptest = "1"
 # Self dev-dependency so integration tests get FakePlatform.
 valet-core = { path = ".", features = ["test-support"] }
 
@@ -29,4 +30,16 @@ valet-core = { path = ".", features = ["test-support"] }
 [[bin]]
 name = "valet-fault"
 path = "src/bin/valet-fault.rs"
+required-features = ["test-support"]
+
+[[test]]
+name = "prop_planner"
+required-features = ["test-support"]
+
+[[test]]
+name = "fault_injection"
+required-features = ["test-support"]
+
+[[test]]
+name = "integration_10k"
 required-features = ["test-support"]
