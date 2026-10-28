@@ -21,11 +21,9 @@ fn rule(n: u128, name: &str, conditions: serde_json::Value, path: &str) -> Rule 
     .unwrap()
 }
 
-#[test]
-#[ignore = "timing; run in release with --ignored"]
-fn plan_10k_files_under_budget() {
-    let tmp = tempfile::tempdir().unwrap();
-    let root = tmp.path().join("Downloads");
+/// Writes 10,000 one-byte files under `root` (100 folders, 8 extensions,
+/// every tenth named `factura_*`).
+fn fixture(root: &std::path::Path) {
     let exts = ["pdf", "jpg", "png", "docx", "zip", "txt", "mp4", "xlsx"];
     for i in 0..10_000 {
         let dir = root.join(format!("d{:03}", i % 100));
@@ -39,6 +37,40 @@ fn plan_10k_files_under_budget() {
         };
         fs::write(dir.join(name), b"x").unwrap();
     }
+}
+
+fn ctx() -> PlanContext {
+    PlanContext {
+        now: SystemTime::now() + Duration::from_secs(3600),
+        home_dir: None,
+        env: Box::new(|_| None),
+    }
+}
+
+fn timed_plan(label: &str, root: &std::path::PathBuf, rules: &[Rule]) -> (usize, Duration) {
+    let start = Instant::now();
+    let p = plan(
+        std::slice::from_ref(root),
+        rules,
+        &FakePlatform::default(),
+        &ctx(),
+    );
+    let elapsed = start.elapsed();
+    println!(
+        "plan ({label}): 10000 files, {} ops, {} skipped, {:.3} s",
+        p.ops.len(),
+        p.skipped.len(),
+        elapsed.as_secs_f64()
+    );
+    (p.ops.len(), elapsed)
+}
+
+#[test]
+#[ignore = "timing; run in release with --ignored"]
+fn plan_10k_files_under_budget() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("Downloads");
+    fixture(&root);
     let rules = vec![
         rule(
             1,
@@ -71,26 +103,44 @@ fn plan_10k_files_under_budget() {
             "Altele/{ext}",
         ),
     ];
-    let ctx = PlanContext {
-        now: SystemTime::now() + Duration::from_secs(3600),
-        home_dir: None,
-        env: Box::new(|_| None),
-    };
+    let (ops, elapsed) = timed_plan("1 nameMatches", &root, &rules);
+    assert_eq!(ops, 10_000);
+    assert!(elapsed < Duration::from_secs(3), "{elapsed:?}");
+}
 
-    let start = Instant::now();
-    let p = plan(
-        std::slice::from_ref(&root),
-        &rules,
-        &FakePlatform::default(),
-        &ctx,
-    );
-    let elapsed = start.elapsed();
-    println!(
-        "plan: 10000 files, {} ops, {} skipped, {:.3} s",
-        p.ops.len(),
-        p.skipped.len(),
-        elapsed.as_secs_f64()
-    );
-    assert_eq!(p.ops.len(), 10_000);
+#[test]
+#[ignore = "timing; run in release with --ignored"]
+fn plan_10k_files_three_name_rules_under_budget() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("Downloads");
+    fixture(&root);
+    let rules = vec![
+        rule(
+            1,
+            "Contracte",
+            json!([{ "type": "nameMatches", "value": "(?i)contract|acord" }]),
+            "Contracte",
+        ),
+        rule(
+            2,
+            "Scanari",
+            json!([{ "type": "nameMatches", "value": "(?i)^scan_\\d+" }]),
+            "Scanari",
+        ),
+        rule(
+            3,
+            "Facturi",
+            json!([{ "type": "nameMatches", "value": "(?i)factura|invoice" }]),
+            "Facturi/{year}",
+        ),
+        rule(
+            4,
+            "Rest",
+            json!([{ "type": "sizeLt", "value": 100 }]),
+            "Altele/{ext}",
+        ),
+    ];
+    let (ops, elapsed) = timed_plan("3 nameMatches", &root, &rules);
+    assert_eq!(ops, 10_000);
     assert!(elapsed < Duration::from_secs(3), "{elapsed:?}");
 }
