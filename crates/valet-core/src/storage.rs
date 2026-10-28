@@ -310,4 +310,36 @@ mod tests {
         db.load_sample_rules_if_empty().await.unwrap();
         assert_eq!(db.list_rules().await.unwrap().len(), expected.len());
     }
+
+    #[tokio::test]
+    async fn clearing_history_keeps_the_journal() {
+        use crate::journal::{BatchKind, NewOp, OpType};
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Db::connect(&tmp.path().join("valet.sqlite3"))
+            .await
+            .unwrap();
+        db.record_operation("a", "b", "move", "r", "success", None)
+            .await
+            .unwrap();
+        let j = db.journal();
+        let batch = j.create_batch(BatchKind::Apply).await.unwrap();
+        j.insert_planned(
+            &batch,
+            0,
+            &NewOp {
+                op_type: OpType::Move,
+                source: "a".into(),
+                dest: Some("b".into()),
+                size: Some(1),
+                undo_of: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        db.clear_operation_history().await.unwrap();
+        assert!(db.get_recent_operations(10).await.unwrap().is_empty());
+        assert_eq!(j.list_batches(10).await.unwrap().len(), 1);
+        assert_eq!(j.list_ops(&batch).await.unwrap().len(), 1);
+    }
 }
