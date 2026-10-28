@@ -16,4 +16,12 @@ void i18n.use(initReactI18next).init({
     },
 });
 
+function applyToDocument(lng: string) {
+    document.documentElement.lang = lng;
+    document.title = i18n.t('app.title');
+}
+
+applyToDocument(i18n.language);
+i18n.on('languageChanged', applyToDocument);
+
 export default i18n;

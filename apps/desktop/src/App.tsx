@@ -1,18 +1,31 @@
 import { useEffect, useState } from 'react'
-import Layout from './components/Layout'
+import { useTranslation } from 'react-i18next'
+import Layout, { type View } from './components/Layout'
+import LastBatchBox, { type LastBatch } from './components/LastBatchBox'
 import RulesView from './views/RulesView'
 import SettingsView from './views/SettingsView'
-import DryRunView, { type LastBatch } from './views/DryRunView'
-import StatsView from './views/StatsView'
+import DryRunView from './views/DryRunView'
 import HistoryView from './views/HistoryView'
-import { listBatches } from './api/commands'
+import { getAppSettings, listBatches } from './api/commands'
 import './App.css'
 
 function App() {
-  const [activeView, setActiveView] = useState('rules')
-  // The batch the undo button on the preview screen refers to. Kept here so it
-  // stays visible across tab changes until undone or replaced by a new batch.
+  const { i18n } = useTranslation()
+  const [activeView, setActiveView] = useState<View>('preview')
+  // The batch the undo box refers to. Kept here so it stays visible on every
+  // screen until undone or replaced by a new batch.
   const [lastBatch, setLastBatch] = useState<LastBatch | null>(null)
+  const [batchRunning, setBatchRunning] = useState(false)
+  // Bumped when the journal changes outside the History screen.
+  const [journalVersion, setJournalVersion] = useState(0)
+
+  useEffect(() => {
+    getAppSettings()
+      .then((s) => {
+        if (s.language !== i18n.language) void i18n.changeLanguage(s.language)
+      })
+      .catch((err) => console.error('Failed to read app settings:', err))
+  }, [i18n])
 
   useEffect(() => {
     // After a restart, offer undo for the newest apply batch that still has done operations.
@@ -32,33 +45,35 @@ function App() {
     }
   }
 
+  const onBatchRan = (batch: LastBatch | null) => {
+    setLastBatch(batch)
+    setJournalVersion((v) => v + 1)
+  }
+
   const renderActiveView = () => {
     switch (activeView) {
+      case 'preview':
+        return <DryRunView onBatchRan={onBatchRan} onBusyChange={setBatchRunning} />
       case 'rules':
         return <RulesView />
+      case 'history':
+        return <HistoryView onBatchUndone={clearIfUndone} reloadToken={journalVersion} />
       case 'settings':
         return <SettingsView />
-      case 'dry-run':
-        return (
-          <DryRunView
-            lastBatch={lastBatch}
-            onBatchRan={setLastBatch}
-            onLastBatchClosed={(complete) => {
-              if (lastBatch) clearIfUndone(lastBatch.id, complete)
-            }}
-          />
-        )
-      case 'history':
-        return <HistoryView onBatchUndone={clearIfUndone} />
-      case 'stats':
-        return <StatsView />
-      default:
-        return <RulesView />
     }
   }
 
+  const banner = lastBatch && (
+    <LastBatchBox
+      batch={lastBatch}
+      canUndo={!batchRunning}
+      onUndoRan={() => setJournalVersion((v) => v + 1)}
+      onClose={(complete) => clearIfUndone(lastBatch.id, complete)}
+    />
+  )
+
   return (
-    <Layout activeView={activeView} onViewChange={setActiveView}>
+    <Layout activeView={activeView} onViewChange={setActiveView} banner={banner}>
       {renderActiveView()}
     </Layout>
   )

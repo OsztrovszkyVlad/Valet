@@ -27,6 +27,8 @@ export interface SkippedFile {
     path: string;
     reason: SkipReason;
     rule_name: string | null;
+    /** For `noExtension`: the extension(s) the rule expects. Optional until the backend sends it. */
+    ext?: string | null;
 }
 
 export interface DryRunResponse {
@@ -177,4 +179,110 @@ export function getBatch(batchId: string): Promise<BatchDetail> {
 
 export function undoBatch(batchId: string, force: boolean): Promise<UndoReport> {
     return invoke<UndoReport>('undo_batch', { batchId, force });
+}
+
+export type Language = 'ro' | 'en';
+
+/** `app_settings.json`, settings v2. */
+export interface AppSettings {
+    language: Language;
+    notifications_enabled: boolean;
+    auto_start: boolean;
+    /** Takes effect only once `first_preview_approved` is true. */
+    auto_apply_enabled: boolean;
+    /** Set by the backend after the user approves a preview. Read-only here. */
+    first_preview_approved: boolean;
+    onboarding_done: boolean;
+}
+
+/** `config.json`. Only `inbox_paths` is edited by the UI; other fields are sent back unchanged. */
+export interface Config {
+    /** Watched folders. */
+    inbox_paths: string[];
+    [field: string]: unknown;
+}
+
+export function getAppSettings(): Promise<AppSettings> {
+    return invoke<AppSettings>('get_app_settings');
+}
+
+export function saveAppSettings(settings: AppSettings): Promise<AppSettings> {
+    return invoke<AppSettings>('save_app_settings', { settings });
+}
+
+export function getConfig(): Promise<Config> {
+    return invoke<Config>('get_config');
+}
+
+/** Rejects with a code such as `config.driveRoot` when a folder cannot be watched. */
+export function saveConfig(config: Config): Promise<Config> {
+    return invoke<Config>('save_config', { config });
+}
+
+export function configureAutoStart(enabled: boolean): Promise<void> {
+    return invoke<void>('configure_auto_start', { enabled });
+}
+
+/** Error raised by a command: either a plain string or `{ code, detail }`. */
+export interface CommandError {
+    code: string;
+    detail: string | null;
+}
+
+const CODE_RE = /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$/;
+
+/**
+ * Splits a command error into a code and detail when it looks like one
+ * (`config.driveRoot`, `config.driveRoot: D:\\`, or `{ code, detail }`).
+ * Returns `null` for free text.
+ */
+export function parseCommandError(err: unknown): CommandError | null {
+    if (typeof err === 'object' && err !== null && 'code' in err) {
+        const { code, detail } = err as { code: unknown; detail?: unknown };
+        if (typeof code === 'string') {
+            return { code, detail: typeof detail === 'string' ? detail : null };
+        }
+    }
+    if (typeof err !== 'string') {
+        return null;
+    }
+    const sep = err.indexOf(': ');
+    const code = sep === -1 ? err : err.slice(0, sep);
+    if (!CODE_RE.test(code)) {
+        return null;
+    }
+    return { code, detail: sep === -1 ? null : err.slice(sep + 2) };
+}
+
+/** Text of any rejected value, for messages that are not translated codes. */
+export function errorMessage(err: unknown): string {
+    if (typeof err === 'string') return err;
+    if (err instanceof Error) return err.message;
+    if (typeof err === 'object' && err !== null && 'message' in err) {
+        const { message } = err as { message: unknown };
+        if (typeof message === 'string') return message;
+    }
+    return String(err);
+}
+
+/**
+ * Temporary: the shape the Phase 1 RulesView sends. It does not match
+ * `valet_core::rules::Rule`; the F1 Rules editor replaces it.
+ */
+export interface LegacyRule {
+    id?: number;
+    name: string;
+    pattern: string;
+    destination: string;
+    enabled: boolean;
+    created_at?: string;
+    updated_at?: string;
+}
+
+export function getRulesLegacy(): Promise<LegacyRule[]> {
+    return invoke<LegacyRule[]>('get_rules');
+}
+
+export function upsertRuleLegacy(rule: LegacyRule): Promise<LegacyRule> {
+    return invoke<LegacyRule>('upsert_rule', { rule });
 }

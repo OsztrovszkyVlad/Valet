@@ -2,65 +2,57 @@ import React, { type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import './Layout.css';
 
+export type MainView = 'preview' | 'rules' | 'history';
+export type View = MainView | 'settings';
+
+const MAIN_VIEWS: MainView[] = ['preview', 'rules', 'history'];
+
 interface LayoutProps {
     children: ReactNode;
-    activeView: string;
-    onViewChange: (view: string) => void;
+    activeView: View;
+    onViewChange: (view: View) => void;
+    /** Shown above the active view on every screen, e.g. the last-batch undo box. */
+    banner?: ReactNode;
 }
 
-const Layout: React.FC<LayoutProps> = ({ children, activeView, onViewChange }) => {
+const Layout: React.FC<LayoutProps> = ({ children, activeView, onViewChange, banner }) => {
     const { t } = useTranslation();
-    const views = [
-        { id: 'rules', label: 'Rules', icon: '📁' },
-        { id: 'settings', label: 'Settings', icon: '⚙️' },
-        { id: 'dry-run', label: 'Dry Run', icon: '🔍' },
-        { id: 'history', label: t('nav.history'), icon: '🕘' },
-        { id: 'stats', label: 'Statistics', icon: '📊' }
-    ];
 
     return (
         <div className="layout">
-            {/* Header */}
             <header className="header">
                 <div className="header-content">
-                    <h1 className="app-title">
-                        <span className="app-icon">🗃️</span>
-                        Valet
-                    </h1>
-                    <p className="app-subtitle">Automated File Organization</p>
+                    <h1 className="app-title">{t('app.title')}</h1>
+                    <nav className="nav-tabs" role="tablist" aria-label={t('nav.label')}>
+                        {MAIN_VIEWS.map((view) => (
+                            <button
+                                key={view}
+                                role="tab"
+                                aria-selected={activeView === view}
+                                className={`nav-tab ${activeView === view ? 'active' : ''}`}
+                                onClick={() => onViewChange(view)}
+                            >
+                                {t(`nav.${view}`)}
+                            </button>
+                        ))}
+                    </nav>
+                    <button
+                        className={`nav-settings ${activeView === 'settings' ? 'active' : ''}`}
+                        aria-pressed={activeView === 'settings'}
+                        onClick={() => onViewChange('settings')}
+                    >
+                        <span className="nav-settings-icon" aria-hidden="true">
+                            ⚙
+                        </span>
+                        {t('nav.settings')}
+                    </button>
                 </div>
             </header>
 
-            {/* Navigation */}
-            <nav className="nav">
-                <div className="nav-tabs">
-                    {views.map((view) => (
-                        <button
-                            key={view.id}
-                            className={`nav-tab ${activeView === view.id ? 'active' : ''}`}
-                            onClick={() => onViewChange(view.id)}
-                        >
-                            <span className="nav-icon">{view.icon}</span>
-                            <span className="nav-label">{view.label}</span>
-                        </button>
-                    ))}
-                </div>
-            </nav>
-
-            {/* Main Content */}
             <main className="main-content">
+                {banner}
                 {children}
             </main>
-
-            {/* Footer */}
-            <footer className="footer">
-                <div className="footer-content">
-                    <span className="status-indicator">
-                        <span className="status-dot active"></span>
-                        File watcher active
-                    </span>
-                </div>
-            </footer>
         </div>
     );
 };

@@ -392,25 +392,6 @@
         gap: 3rem;
     }
 }
-/* Last batch (undo) */
-.last-batch {
-    margin: 1.5rem 0;
-    padding: 1rem;
-    background: #fffbeb;
-    border: 1px solid #fcd34d;
-    border-radius: 8px;
-}
-
-.last-batch .results-title {
-    margin-top: 0;
-}
-
-.last-batch-date {
-    margin: 0 0 0.5rem;
-    font-size: 0.85rem;
-    color: #6b7280;
-}
-
 /* Skipped files */
 .skipped-files {
     margin: 1.5rem 0;

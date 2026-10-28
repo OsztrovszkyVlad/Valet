@@ -1,13 +1,20 @@
 {
   "nav": {
-    "history": "Istoric"
+    "history": "Istoric",
+    "label": "Ecran principal",
+    "preview": "Previzualizare",
+    "rules": "Reguli",
+    "settings": "Setări"
   },
   "common": {
     "cancel": "Renunță",
     "close": "Închide",
     "loading": "Se încarcă...",
     "refresh": "Reîncarcă",
-    "error": "Eroare: {{message}}"
+    "error": "Eroare: {{message}}",
+    "save": "Salvează",
+    "saving": "Se salvează...",
+    "saved": "Salvat."
   },
   "skipped": {
     "title": "Fișiere sărite: {{count}}",
@@ -25,14 +32,40 @@
     "cloudPlaceholder": "Fișier OneDrive/Dropbox la cerere, nedescărcat",
     "conflict": "Altă regulă se aplică înaintea acesteia",
     "alreadyInPlace": "E deja la destinație",
-    "noExtension": "Fișier fără extensie",
+    "noExtension": "Fișierul nu are extensie; regula folosește {{ext}}.",
     "invalidDestination": "Destinația regulii nu e validă",
     "unsupportedAction": "Acțiunea regulii nu e suportată încă",
     "unreadable": "Nu poate fi citit",
-    "unknown": "Motiv necunoscut: {{reason}}"
+    "unknown": "Motiv necunoscut: {{reason}}",
+    "noExtensionPlain": "Fișierul nu are extensie."
   },
   "preview": {
-    "expired": "Previzualizarea a expirat. Rulează din nou previzualizarea."
+    "expired": "Previzualizarea a expirat. Rulează din nou previzualizarea.",
+    "title": "Previzualizare",
+    "description": "Vezi ce s-ar muta și unde, înainte să se miște vreun fișier.",
+    "run": "Rulează previzualizarea",
+    "running": "Se analizează fișierele...",
+    "execute": "Organizează fișierele ({{count}})",
+    "executing": "Se organizează...",
+    "clear": "Golește rezultatul",
+    "approveHint": "Verifică lista. „Organizează” aprobă și rulează exact aceste operații.",
+    "summaryOps": "Operații planificate",
+    "summarySkipped": "Fișiere sărite",
+    "plannedTitle": "Ce se va face",
+    "colFile": "Fișier",
+    "colOperation": "Operație",
+    "colFrom": "De unde",
+    "colTo": "Unde",
+    "colRule": "Regula",
+    "colError": "Eroare",
+    "failedTitle": "Operații eșuate",
+    "done": "Operații făcute: {{count}}.",
+    "partial": "Făcute: {{done}}. Eșuate: {{failed}}. Detalii mai jos.",
+    "failed": "Previzualizarea nu a putut rula: {{message}}",
+    "executeFailed": "Operațiile nu au putut porni: {{message}}",
+    "emptyTitle": "Nimic de organizat",
+    "emptyText": "Nicio regulă nu se aplică fișierelor din folderele urmărite.",
+    "idleText": "Rulează previzualizarea ca să vezi lista. Nimic nu se mută până nu apeși „Organizează”."
   },
   "lastBatch": {
     "title": "Ultimul lot",
@@ -64,7 +97,7 @@
     "ChangedSincePreview": "Fișierul s-a schimbat de la previzualizare",
     "CloudPlaceholder": "Fișier la cerere, nedescărcat",
     "Locked": "Fișierul e blocat de alt program",
-    "NoRecycleBin": "Coșul de reciclare nu e disponibil",
+    "NoRecycleBin": "Volumul nu are Coș de reciclare; Valet nu mută și nu copiază aici.",
     "VerifyFailed": "Verificarea copiei a eșuat",
     "TrashFailed": "Nu s-a putut trimite în Coșul de reciclare",
     "Occupied": "Destinația e ocupată",
@@ -109,5 +142,69 @@
     "colTo": "La",
     "colState": "Stare",
     "colError": "Eroare"
+  },
+  "app": {
+    "title": "Valet"
+  },
+  "rulesLegacy": {
+    "title": "Reguli",
+    "description": "Regulile spun ce fișiere se mută și unde.",
+    "add": "Adaugă regulă",
+    "emptyTitle": "Nicio regulă încă",
+    "emptyText": "Creează o regulă ca Valet să știe ce să organizeze.",
+    "colStatus": "Stare",
+    "colName": "Nume",
+    "colPattern": "Model",
+    "colDestination": "Destinație",
+    "colCreated": "Creată",
+    "colActions": "Acțiuni",
+    "on": "Activă",
+    "off": "Oprită",
+    "enable": "Activează regula",
+    "disable": "Oprește regula",
+    "edit": "Editează",
+    "formNewTitle": "Regulă nouă",
+    "formEditTitle": "Editează regula",
+    "name": "Nume",
+    "namePlaceholder": "de exemplu Documente PDF",
+    "pattern": "Model de fișier",
+    "patternPlaceholder": "de exemplu *.pdf",
+    "patternHelp": "Folosește * pentru orice text, de exemplu *.pdf sau factura_*.xlsx",
+    "destination": "Folder destinație",
+    "destinationPlaceholder": "de exemplu C:\\Users\\nume\\Documents\\PDF",
+    "destinationHelp": "Calea completă a folderului",
+    "enabledNow": "Activează regula acum",
+    "create": "Creează regula",
+    "loadFailed": "Regulile nu au putut fi citite: {{message}}",
+    "saveFailed": "Regula nu a putut fi salvată: {{message}}"
+  },
+  "settings": {
+    "title": "Setări",
+    "loadFailed": "Setările nu au putut fi citite: {{message}}",
+    "language": "Limba",
+    "languageRo": "Română",
+    "languageEn": "English",
+    "foldersTitle": "Foldere urmărite",
+    "foldersHelp": "Valet organizează doar fișierele din aceste foldere.",
+    "foldersEmpty": "Niciun folder urmărit.",
+    "folderInput": "Cale folder",
+    "folderPlaceholder": "de exemplu C:\\Users\\nume\\Downloads",
+    "addFolder": "Adaugă",
+    "removeFolder": "Elimină",
+    "removeFolderLabel": "Elimină {{path}}",
+    "generalTitle": "General",
+    "notifications": "Notificare scurtă după un lot",
+    "autoStart": "Pornește Valet odată cu Windows",
+    "autoApply": "Aplicare automată în folderele urmărite",
+    "autoApplyHelp": "Fișierele noi sunt organizate fără previzualizare. Pornește doar după ce ai aprobat o previzualizare.",
+    "autoApplyLocked": "Disponibil după ce aprobi prima previzualizare.",
+    "folderDuplicate": "Folderul e deja în listă."
+  },
+  "backendError": {
+    "config": {
+      "driveRoot": "Nu poți urmări un disc întreg. Alege un folder, de exemplu Descărcări.",
+      "excludedFolder": "Folderul e exclus implicit (folder de sistem, AppData, Program Files sau ascuns). Alege alt folder.",
+      "missing": "Folderul nu există."
+    }
   }
 }

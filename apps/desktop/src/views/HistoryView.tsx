@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
+    errorMessage,
     getBatch,
     listBatches,
     type BatchDetail,
@@ -15,15 +16,13 @@ import './HistoryView.css';
 interface HistoryViewProps {
     /** The user closed an undo result for `batchId`. */
     onBatchUndone: (batchId: string, complete: boolean) => void;
+    /** Changes when the journal changed elsewhere (a batch ran or was undone); triggers a reload. */
+    reloadToken?: number;
 }
 
 const STATES: OpState[] = ['done', 'failed', 'rolled_back', 'in_progress', 'planned'];
 
-function errorMessage(err: unknown): string {
-    return typeof err === 'string' ? err : err instanceof Error ? err.message : String(err);
-}
-
-const HistoryView: React.FC<HistoryViewProps> = ({ onBatchUndone }) => {
+const HistoryView: React.FC<HistoryViewProps> = ({ onBatchUndone, reloadToken }) => {
     const { t } = useTranslation();
     const [batches, setBatches] = useState<BatchInfo[]>([]);
     const [loading, setLoading] = useState(true);
@@ -57,7 +56,19 @@ const HistoryView: React.FC<HistoryViewProps> = ({ onBatchUndone }) => {
 
     useEffect(() => {
         void loadBatches();
-    }, [loadBatches]);
+    }, [loadBatches, reloadToken]);
+
+    // The open batch, read by the reload below without re-running it on selection.
+    const selectedRef = useRef<string | null>(null);
+    useEffect(() => {
+        selectedRef.current = selectedId;
+    }, [selectedId]);
+
+    useEffect(() => {
+        if (selectedRef.current !== null) {
+            void loadDetail(selectedRef.current);
+        }
+    }, [loadDetail, reloadToken]);
 
     const select = (batchId: string) => {
         setSelectedId(batchId);

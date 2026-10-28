@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
+    errorMessage,
     getBatch,
     undoBatch,
     type OpRecord,
@@ -25,10 +26,6 @@ type Step =
     | { kind: 'preview'; ops: OpRecord[] }
     | { kind: 'confirm'; first: UndoReport }
     | { kind: 'result'; first: UndoReport; forced: UndoReport | null };
-
-function errorMessage(err: unknown): string {
-    return typeof err === 'string' ? err : err instanceof Error ? err.message : String(err);
-}
 
 /**
  * Undo of one apply batch: preview of the files that go back, confirm,

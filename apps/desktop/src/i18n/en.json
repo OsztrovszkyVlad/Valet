@@ -1,13 +1,20 @@
 {
   "nav": {
-    "history": "History"
+    "history": "History",
+    "label": "Main screen",
+    "preview": "Preview",
+    "rules": "Rules",
+    "settings": "Settings"
   },
   "common": {
     "cancel": "Cancel",
     "close": "Close",
     "loading": "Loading...",
     "refresh": "Refresh",
-    "error": "Error: {{message}}"
+    "error": "Error: {{message}}",
+    "save": "Save",
+    "saving": "Saving...",
+    "saved": "Saved."
   },
   "skipped": {
     "title": "Skipped files: {{count}}",
@@ -25,14 +32,40 @@
     "cloudPlaceholder": "OneDrive/Dropbox on-demand file, not downloaded",
     "conflict": "Another rule applies before this one",
     "alreadyInPlace": "Already at the destination",
-    "noExtension": "File has no extension",
+    "noExtension": "The file has no extension; the rule uses {{ext}}.",
     "invalidDestination": "The rule's destination is not valid",
     "unsupportedAction": "The rule's action is not supported yet",
     "unreadable": "Cannot be read",
-    "unknown": "Unknown reason: {{reason}}"
+    "unknown": "Unknown reason: {{reason}}",
+    "noExtensionPlain": "The file has no extension."
   },
   "preview": {
-    "expired": "The preview has expired. Run the preview again."
+    "expired": "The preview has expired. Run the preview again.",
+    "title": "Preview",
+    "description": "See what would move and where, before any file moves.",
+    "run": "Run preview",
+    "running": "Checking files...",
+    "execute": "Organize files ({{count}})",
+    "executing": "Organizing...",
+    "clear": "Clear result",
+    "approveHint": "Check the list. \"Organize\" approves and runs exactly these operations.",
+    "summaryOps": "Planned operations",
+    "summarySkipped": "Skipped files",
+    "plannedTitle": "What will happen",
+    "colFile": "File",
+    "colOperation": "Operation",
+    "colFrom": "From",
+    "colTo": "To",
+    "colRule": "Rule",
+    "colError": "Error",
+    "failedTitle": "Failed operations",
+    "done": "Operations done: {{count}}.",
+    "partial": "Done: {{done}}. Failed: {{failed}}. Details below.",
+    "failed": "The preview could not run: {{message}}",
+    "executeFailed": "The operations could not start: {{message}}",
+    "emptyTitle": "Nothing to organize",
+    "emptyText": "No rule applies to the files in the watched folders.",
+    "idleText": "Run the preview to see the list. Nothing moves until you press \"Organize\"."
   },
   "lastBatch": {
     "title": "Last batch",
@@ -64,7 +97,7 @@
     "ChangedSincePreview": "The file changed since the preview",
     "CloudPlaceholder": "On-demand file, not downloaded",
     "Locked": "The file is locked by another program",
-    "NoRecycleBin": "The Recycle Bin is not available",
+    "NoRecycleBin": "This volume has no Recycle Bin; Valet does not move or copy files here.",
     "VerifyFailed": "Verifying the copy failed",
     "TrashFailed": "Could not send to the Recycle Bin",
     "Occupied": "The destination is taken",
@@ -109,5 +142,69 @@
     "colTo": "To",
     "colState": "State",
     "colError": "Error"
+  },
+  "app": {
+    "title": "Valet"
+  },
+  "rulesLegacy": {
+    "title": "Rules",
+    "description": "Rules say which files move and where.",
+    "add": "Add rule",
+    "emptyTitle": "No rules yet",
+    "emptyText": "Create a rule so Valet knows what to organize.",
+    "colStatus": "Status",
+    "colName": "Name",
+    "colPattern": "Pattern",
+    "colDestination": "Destination",
+    "colCreated": "Created",
+    "colActions": "Actions",
+    "on": "On",
+    "off": "Off",
+    "enable": "Turn rule on",
+    "disable": "Turn rule off",
+    "edit": "Edit",
+    "formNewTitle": "New rule",
+    "formEditTitle": "Edit rule",
+    "name": "Name",
+    "namePlaceholder": "for example PDF documents",
+    "pattern": "File pattern",
+    "patternPlaceholder": "for example *.pdf",
+    "patternHelp": "Use * for any text, for example *.pdf or invoice_*.xlsx",
+    "destination": "Destination folder",
+    "destinationPlaceholder": "for example C:\\Users\\name\\Documents\\PDF",
+    "destinationHelp": "Full path of the folder",
+    "enabledNow": "Turn the rule on now",
+    "create": "Create rule",
+    "loadFailed": "Could not read the rules: {{message}}",
+    "saveFailed": "Could not save the rule: {{message}}"
+  },
+  "settings": {
+    "title": "Settings",
+    "loadFailed": "Could not read the settings: {{message}}",
+    "language": "Language",
+    "languageRo": "Română",
+    "languageEn": "English",
+    "foldersTitle": "Watched folders",
+    "foldersHelp": "Valet organizes only the files in these folders.",
+    "foldersEmpty": "No watched folders.",
+    "folderInput": "Folder path",
+    "folderPlaceholder": "for example C:\\Users\\name\\Downloads",
+    "addFolder": "Add",
+    "removeFolder": "Remove",
+    "removeFolderLabel": "Remove {{path}}",
+    "generalTitle": "General",
+    "notifications": "Short notification after a batch",
+    "autoStart": "Start Valet with Windows",
+    "autoApply": "Apply rules automatically in watched folders",
+    "autoApplyHelp": "New files are organized without a preview. It starts only after you have approved a preview.",
+    "autoApplyLocked": "Available after you approve your first preview.",
+    "folderDuplicate": "The folder is already in the list."
+  },
+  "backendError": {
+    "config": {
+      "driveRoot": "You cannot watch a whole drive. Pick a folder, for example Downloads.",
+      "excludedFolder": "This folder is excluded by default (system folder, AppData, Program Files or hidden). Pick another folder.",
+      "missing": "The folder does not exist."
+    }
   }
 }
