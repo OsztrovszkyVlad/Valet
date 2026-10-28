@@ -136,8 +136,10 @@ pub enum SkipReason {
     AlreadyInPlace,
     NoExtension,
     /// No usable destination folder: missing or empty path, unset `~` or
-    /// `%VAR%`, a folder inside a default-excluded directory (outside the
-    /// file's own scan root), or a folder at or under a `.valetignore` marker.
+    /// `%VAR%`, a folder token missing from `PlanContext::folders`, an
+    /// unknown `{name}` token, a folder inside a default-excluded directory
+    /// (outside the file's own scan root), or a folder at or under a
+    /// `.valetignore` marker.
     InvalidDestination,
     UnsupportedAction,
     Unreadable,
