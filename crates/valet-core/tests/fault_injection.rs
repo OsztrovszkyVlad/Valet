@@ -377,11 +377,10 @@ fn iteration(iter: u64, rt: &tokio::runtime::Runtime, stats: &mut Stats) -> Resu
     let rec = run_json(cross, &[Path::new("recover"), &f.db])?;
     for d in rec["decisions"].as_array().into_iter().flatten() {
         let text = d["explanation"].as_str().unwrap_or("");
-        let key = text
-            .split([';', '/', '\\', '('])
-            .next()
-            .unwrap_or("")
-            .trim();
+        let key = valet_core::executor::explanation_key(text);
+        if key.is_empty() {
+            return Err(format!("recovery decision without explanation: {d}"));
+        }
         *stats
             .explanations
             .entry(format!(

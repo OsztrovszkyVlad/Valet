@@ -40,7 +40,7 @@ use crate::{
 };
 
 mod recover;
-pub use recover::{RecoveryDecision, RecoveryReport, recover};
+pub use recover::{RecoveryDecision, RecoveryReport, explanation_key, recover};
 mod undo;
 pub use undo::{
     ConfirmReason, NeedsConfirmation, Restored, SkippedOp, UndoFailure, UndoReport, undo_batch,

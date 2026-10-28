@@ -759,6 +759,219 @@ async fn recover_leaves_every_moved_file_exactly_once() {
     assert!(env.journal.unfinished_ops().await.unwrap().is_empty());
 }
 
+/// Journals an interrupted operation with any `dest` (also none) and
+/// `hash_before`.
+async fn interrupted_raw(
+    env: &Env,
+    op_type: OpType,
+    src: &Path,
+    dest: Option<&Path>,
+    hash_before: Option<&str>,
+) -> i64 {
+    let b = env.journal.create_batch(BatchKind::Apply).await.unwrap();
+    let id = env
+        .journal
+        .insert_planned(
+            &b,
+            0,
+            &NewOp {
+                op_type,
+                source: src.to_path_buf(),
+                dest: dest.map(Path::to_path_buf),
+                size: Some(1),
+                undo_of: None,
+            },
+        )
+        .await
+        .unwrap();
+    env.journal.start(id, hash_before).await.unwrap();
+    id
+}
+
+/// (case, op type, at source, source body, at dest, dest body, temp copy)
+type TransferCase = (
+    &'static str,
+    OpType,
+    bool,
+    &'static [u8],
+    bool,
+    &'static [u8],
+    bool,
+);
+
+/// One interrupted operation for every branch of the recovery decision, all
+/// recovered in one run: each decision has the expected outcome and an
+/// explanation with words before any path (`explanation_key` non-empty).
+#[tokio::test]
+async fn every_recovery_decision_has_an_explanation() {
+    use OpState::{Done, Failed};
+    use OpType::{Copy, Move, Trash};
+
+    let env = Env::new().await;
+    let mut p = env.fake();
+    // (case, op id, expected new state)
+    let mut cases: Vec<(&str, i64, OpState)> = vec![];
+    let src = |name: &str| env.path(&format!("in/{name}.txt"));
+    let dest = |name: &str| env.path(&format!("out/{name}/f.txt"));
+    let body = b"body";
+
+    // planned
+    write(&src("planned"), body);
+    let (_, id) = interrupted(&env, Move, &src("planned"), &dest("planned"), body, false).await;
+    cases.push(("planned", id, Failed));
+
+    // trash: still at its path / gone
+    write(&src("trash-still"), body);
+    let id = interrupted_raw(&env, Trash, &src("trash-still"), None, None).await;
+    cases.push(("trash-still", id, Failed));
+    let id = interrupted_raw(&env, Trash, &src("trash-gone"), None, None).await;
+    cases.push(("trash-gone", id, Done));
+
+    // transfer without a recorded destination
+    write(&src("no-dest"), body);
+    let id = interrupted_raw(&env, Move, &src("no-dest"), None, Some(&hash(body))).await;
+    cases.push(("no-dest", id, Failed));
+
+    let transfers: &[TransferCase] = &[
+        ("match-src-gone", Move, false, b"", true, body, false),
+        ("match-copy", Copy, true, body, true, body, false),
+        (
+            "match-src-changed",
+            Move,
+            true,
+            b"edited",
+            true,
+            body,
+            false,
+        ),
+        (
+            "match-src-changed-dest-stuck",
+            Move,
+            true,
+            b"edited",
+            true,
+            body,
+            false,
+        ),
+        ("match-src-trashed", Move, true, body, true, body, false),
+        ("match-src-trash-fails", Move, true, body, true, body, false),
+        ("ph-src-gone", Move, false, b"", true, body, false),
+        ("ph-copy", Copy, true, body, true, body, false),
+        ("ph-move", Move, true, body, true, body, false),
+        ("missing-src-kept", Move, true, body, false, b"", false),
+        ("missing-src-kept-temp", Move, true, body, false, b"", true),
+        (
+            "missing-src-kept-temp-stuck",
+            Move,
+            true,
+            body,
+            false,
+            b"",
+            true,
+        ),
+        ("missing-both", Move, false, b"", false, b"", false),
+        ("missing-both-temp", Move, false, b"", false, b"", true),
+        ("differs-src-kept", Move, true, body, true, b"other", false),
+        ("differs-src-gone", Move, false, b"", true, b"other", false),
+    ];
+    for &(name, op_type, at_src, src_body, at_dest, dest_body, temp) in transfers {
+        if at_src {
+            write(&src(name), src_body);
+        }
+        if at_dest {
+            write(&dest(name), dest_body);
+        }
+        let (_, id) = interrupted(&env, op_type, &src(name), &dest(name), body, true).await;
+        if temp {
+            let t = temp_path(dest(name).parent().unwrap(), id);
+            write(&t, b"bo");
+            if name.ends_with("stuck") {
+                p.trash_fails.insert(t);
+            }
+        }
+        if name.starts_with("ph-") {
+            p.placeholders.insert(dest(name));
+        }
+        if name == "match-src-changed-dest-stuck" {
+            p.trash_fails.insert(dest(name));
+        }
+        if name == "match-src-trash-fails" {
+            p.trash_fails.insert(src(name));
+        }
+        let expected = match name {
+            "match-src-gone" | "match-copy" | "match-src-trashed" | "ph-src-gone" | "ph-copy" => {
+                Done
+            }
+            _ => Failed,
+        };
+        cases.push((name, id, expected));
+    }
+
+    // restore from the Recycle Bin (undo of a trash)
+    let missing = env.path("in/restore-missing.txt");
+    let (_, id) = interrupted_restore(&env, &missing, &hash(body)).await;
+    cases.push(("restore-missing", id, Failed));
+    let folder = env.path("in/restore-dir");
+    fs::create_dir_all(&folder).unwrap();
+    let (_, id) = interrupted_restore(&env, &folder, EMPTY_DIR_MARK).await;
+    cases.push(("restore-dir", id, Done));
+    let not_dir = env.path("in/restore-not-dir");
+    write(&not_dir, body);
+    let (_, id) = interrupted_restore(&env, &not_dir, EMPTY_DIR_MARK).await;
+    cases.push(("restore-not-dir", id, Failed));
+    let back = env.path("in/restore-back.txt");
+    write(&back, body);
+    let (_, id) = interrupted_restore(&env, &back, &hash(body)).await;
+    cases.push(("restore-back", id, Done));
+    let ph = env.path("in/restore-ph.txt");
+    write(&ph, body);
+    p.placeholders.insert(ph.clone());
+    let (_, id) = interrupted_restore(&env, &ph, &hash(body)).await;
+    cases.push(("restore-ph", id, Done));
+    let other = env.path("in/restore-other.txt");
+    write(&other, b"other");
+    let (_, id) = interrupted_restore(&env, &other, &hash(body)).await;
+    cases.push(("restore-other", id, Failed));
+
+    let rep = recover(&env.journal, &p).await.unwrap();
+    assert_eq!(rep.decisions.len(), cases.len());
+    let mut keys = std::collections::BTreeSet::new();
+    for (name, id, expected) in &cases {
+        let d = decision(&rep, *id);
+        assert_eq!(d.new_state, *expected, "{name}: {}", d.explanation);
+        assert!(!d.explanation.trim().is_empty(), "{name}");
+        let key = explanation_key(&d.explanation);
+        assert!(!key.is_empty(), "{name}: {:?}", d.explanation);
+        keys.insert((d.new_state.to_string(), key.to_owned()));
+        // The journal error carries the same text for failures.
+        if d.new_state == Failed {
+            let err = env.op(*id).await.error.unwrap();
+            assert!(err.contains(&d.explanation), "{name}: {err}");
+        }
+    }
+    // Distinct situations read differently (a few share a sentence and
+    // differ only in the detail after `;`).
+    assert!(keys.len() >= 18, "{keys:?}");
+}
+
+#[test]
+fn explanation_key_is_the_text_before_a_path_or_detail() {
+    assert_eq!(
+        explanation_key("not at destination; file kept at source"),
+        "not at destination"
+    );
+    assert_eq!(
+        explanation_key("destination holds other content (content hash differs)"),
+        "destination holds other content"
+    );
+    assert_eq!(
+        explanation_key("missing at source and destination; copy kept at /x"),
+        "missing at source and destination"
+    );
+    assert_eq!(explanation_key("/in/a.txt is still there"), "");
+    assert_eq!(explanation_key(""), "");
+}
+
 // ---------------------------------------------------------------- undo
 
 /// A small tree under `root/in` plus an unrelated file already in `root/out`.

@@ -17,7 +17,20 @@ pub struct RecoveryDecision {
     pub op_type: OpType,
     pub previous_state: OpState,
     pub new_state: OpState,
+    /// Never empty. Starts with words, not a path: a path, when present,
+    /// follows a `;`, `(` or `at`.
     pub explanation: String,
+}
+
+/// The words of `explanation` before the first path or detail (`;`, `(`,
+/// `/`, `\`), trimmed. Recovery explanations always have some; history
+/// summaries and the fault-injection report group decisions by it.
+pub fn explanation_key(explanation: &str) -> &str {
+    explanation
+        .split([';', '/', '\\', '('])
+        .next()
+        .unwrap_or("")
+        .trim()
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -118,14 +131,10 @@ impl Recoverer<'_> {
             (OpState::Planned, _) => self.fail(op, "never started; nothing was touched").await,
             (OpState::InProgress, OpType::Trash) => {
                 if exists(self.platform, &op.source_path) {
-                    self.fail(
-                        op,
-                        &format!(
-                            "{} is still there; not sent to the Recycle Bin",
-                            op.source_path.display()
-                        ),
-                    )
-                    .await
+                    // Text first: readers (history, the fault-injection
+                    // summary) key on the words before the first path.
+                    self.fail(op, "still at its path; not sent to the Recycle Bin")
+                        .await
                 } else {
                     self.done(
                         op,
