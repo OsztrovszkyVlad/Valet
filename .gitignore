@@ -1,6 +1,5 @@
 # Rust
 /target
-Cargo.lock
 
 # Node/Vite/Tauri
 apps/desktop/node_modules
