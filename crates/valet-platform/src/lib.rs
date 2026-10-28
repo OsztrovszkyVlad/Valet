@@ -1,11 +1,13 @@
 //! Windows platform layer for Valet: file attributes, locks, volumes, long
-//! paths, Recycle Bin (trash and restore), Explorer and the file watcher. Off
-//! Windows every function compiles and returns the neutral answer documented
-//! on it, so the workspace builds and tests on Linux.
+//! paths, Recycle Bin (trash and restore), Explorer, per-user auto-start and
+//! the file watcher. Off Windows every function compiles and returns the
+//! neutral answer documented on it, so the workspace builds and tests on
+//! Linux.
 //!
 //! `SystemPlatform` (feature `valet-core`) implements
 //! `valet_core::platform::Platform` with these functions.
 
+mod autostart;
 mod fs_win;
 mod recycle;
 mod shell;
@@ -13,6 +15,10 @@ mod shell;
 mod system;
 mod watcher;
 
+pub use autostart::{
+    AUTOSTART_ARG, AUTOSTART_VALUE_NAME, autostart_entry_state, autostart_state, set_autostart,
+    set_autostart_entry,
+};
 pub use fs_win::{
     can_trash, is_cloud_placeholder, is_hidden_or_system, is_locked, is_reparse_point,
     rename_no_replace, same_volume, to_long_path,

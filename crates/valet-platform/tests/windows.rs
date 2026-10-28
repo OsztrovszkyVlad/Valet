@@ -8,8 +8,9 @@ use std::os::windows::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
 use valet_platform::{
-    can_trash, is_cloud_placeholder, is_hidden_or_system, is_locked, is_reparse_point,
-    rename_no_replace, restore_from_trash, same_volume, to_long_path, trash_path,
+    autostart_entry_state, can_trash, is_cloud_placeholder, is_hidden_or_system, is_locked,
+    is_reparse_point, rename_no_replace, restore_from_trash, same_volume, set_autostart_entry,
+    to_long_path, trash_path,
 };
 use windows_sys::Win32::Storage::FileSystem::{
     FILE_ATTRIBUTE_HIDDEN, FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_OFFLINE, FILE_ATTRIBUTE_SYSTEM,
@@ -257,4 +258,151 @@ fn restore_long_path_never_loses_the_file_silently() {
             assert!(std::fs::symlink_metadata(to_long_path(&f)).is_err());
         }
     }
+}
+
+const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
+const APPROVED_KEY: &str =
+    r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
+
+fn wide_str(s: &str) -> Vec<u16> {
+    s.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+/// Writes a value of type `kind` under `HKCU\<subkey>`.
+fn reg_set(subkey: &str, name: &str, kind: u32, data: &[u8]) {
+    use windows_sys::Win32::System::Registry::{
+        HKEY_CURRENT_USER, KEY_SET_VALUE, REG_OPTION_NON_VOLATILE, RegCloseKey, RegCreateKeyExW,
+        RegSetValueExW,
+    };
+    let (subkey, name) = (wide_str(subkey), wide_str(name));
+    let mut key = std::ptr::null_mut();
+    // SAFETY: NUL-terminated UTF-16 strings, out pointer to a local handle.
+    let code = unsafe {
+        RegCreateKeyExW(
+            HKEY_CURRENT_USER,
+            subkey.as_ptr(),
+            0,
+            std::ptr::null(),
+            REG_OPTION_NON_VOLATILE,
+            KEY_SET_VALUE,
+            std::ptr::null(),
+            &mut key,
+            std::ptr::null_mut(),
+        )
+    };
+    assert_eq!(code, 0, "RegCreateKeyExW");
+    // SAFETY: `key` is open; `data` has `data.len()` bytes.
+    let code = unsafe {
+        RegSetValueExW(
+            key,
+            name.as_ptr(),
+            0,
+            kind,
+            data.as_ptr(),
+            data.len() as u32,
+        )
+    };
+    // SAFETY: closes the handle opened above once.
+    unsafe { RegCloseKey(key) };
+    assert_eq!(code, 0, "RegSetValueExW");
+}
+
+/// REG_SZ value under `HKCU\<subkey>`, `None` if missing.
+fn reg_get_sz(subkey: &str, name: &str) -> Option<String> {
+    use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_SZ, RegGetValueW};
+    let (subkey, name) = (wide_str(subkey), wide_str(name));
+    let mut buf = vec![0u16; 2048];
+    let mut size = (buf.len() * 2) as u32;
+    // SAFETY: `buf` has `size` writable bytes.
+    let code = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            subkey.as_ptr(),
+            name.as_ptr(),
+            RRF_RT_REG_SZ,
+            std::ptr::null_mut(),
+            buf.as_mut_ptr().cast(),
+            &mut size,
+        )
+    };
+    if code == windows_sys::Win32::Foundation::ERROR_FILE_NOT_FOUND {
+        return None;
+    }
+    assert_eq!(code, 0, "RegGetValueW");
+    buf.truncate(size as usize / 2);
+    Some(
+        String::from_utf16_lossy(&buf)
+            .trim_end_matches('\0')
+            .to_string(),
+    )
+}
+
+/// Removes the test's Run, StartupApproved and stale values on drop, also
+/// when an assertion fails, so CI never keeps an auto-start entry.
+struct AutostartCleanup {
+    name: String,
+    stale: String,
+    exe: PathBuf,
+}
+
+impl Drop for AutostartCleanup {
+    fn drop(&mut self) {
+        let _ = set_autostart_entry(&self.name, &[self.stale.as_str()], false, &self.exe);
+    }
+}
+
+#[test]
+fn autostart_set_read_disable_unset() {
+    use windows_sys::Win32::System::Registry::{REG_BINARY, REG_SZ};
+
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let name = format!("ValetTest-{}-{nanos}", std::process::id());
+    let stale = format!("{name}-old");
+    let exe = PathBuf::from(r"C:\Program Files Test\Valet Test\Valet.exe");
+    let other_exe = PathBuf::from(r"C:\Other\Valet.exe");
+    let _cleanup = AutostartCleanup {
+        name: name.clone(),
+        stale: stale.clone(),
+        exe: exe.clone(),
+    };
+
+    assert!(!autostart_entry_state(&name, &exe).unwrap());
+
+    // A value left by the old implementation is removed when enabling.
+    reg_set(RUN_KEY, &stale, REG_SZ, &[b'x', 0, 0, 0]);
+    set_autostart_entry(&name, &[stale.as_str()], true, &exe).unwrap();
+    assert_eq!(reg_get_sz(RUN_KEY, &stale), None);
+    assert_eq!(
+        reg_get_sz(RUN_KEY, &name).as_deref(),
+        Some(r#""C:\Program Files Test\Valet Test\Valet.exe" --minimized"#)
+    );
+    assert!(autostart_entry_state(&name, &exe).unwrap());
+    // An entry pointing at another exe is not ours.
+    assert!(!autostart_entry_state(&name, &other_exe).unwrap());
+
+    // Task Manager "Disabled": first byte odd. "Enabled": even.
+    let mut approved = [0u8; 12];
+    approved[0] = 3;
+    reg_set(APPROVED_KEY, &name, REG_BINARY, &approved);
+    assert!(!autostart_entry_state(&name, &exe).unwrap());
+    approved[0] = 2;
+    reg_set(APPROVED_KEY, &name, REG_BINARY, &approved);
+    assert!(autostart_entry_state(&name, &exe).unwrap());
+
+    // Enabling again clears a Task Manager "Disabled" mark.
+    approved[0] = 3;
+    reg_set(APPROVED_KEY, &name, REG_BINARY, &approved);
+    set_autostart_entry(&name, &[stale.as_str()], true, &exe).unwrap();
+    assert!(autostart_entry_state(&name, &exe).unwrap());
+
+    // Disabling removes the value; disabling twice is fine.
+    reg_set(RUN_KEY, &stale, REG_SZ, &[b'x', 0, 0, 0]);
+    set_autostart_entry(&name, &[stale.as_str()], false, &exe).unwrap();
+    set_autostart_entry(&name, &[stale.as_str()], false, &exe).unwrap();
+    assert_eq!(reg_get_sz(RUN_KEY, &name), None);
+    assert_eq!(reg_get_sz(RUN_KEY, &stale), None);
+    assert!(!autostart_entry_state(&name, &exe).unwrap());
 }
