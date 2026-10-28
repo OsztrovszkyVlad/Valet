@@ -75,10 +75,13 @@ const RuleEditor: React.FC<RuleEditorProps> = ({ initial, isNew, folders, onSave
             scope: on ? [...d.scope, entry] : d.scope.filter((e) => e !== entry),
         }));
 
-    // Watched folders plus scope entries that are not among them (tokens from presets).
+    // Watched folders plus scope entries that are not among them (tokens from presets),
+    // kept in the list after being unchecked.
     const scopeChoices = [
         ...folders,
-        ...draft.scope.filter((e) => !folders.some((f) => f.toLowerCase() === e.toLowerCase())),
+        ...[...new Set([...initial.scope, ...draft.scope])].filter(
+            (e) => !folders.some((f) => f.toLowerCase() === e.toLowerCase()),
+        ),
     ];
 
     const save = async (e: React.FormEvent) => {

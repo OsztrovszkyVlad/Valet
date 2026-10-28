@@ -187,6 +187,10 @@ describe('RulesView', () => {
         expect((screen.getByLabelText('Nume') as HTMLInputElement).value).toBe('Facturi și chitanțe');
         expect((screen.getByRole('checkbox', { name: 'Descărcări' }) as HTMLInputElement).checked).toBe(true);
         expect((screen.getByRole('checkbox', { name: DOWNLOADS }) as HTMLInputElement).checked).toBe(false);
+        // An unchecked token entry stays in the list.
+        fireEvent.click(screen.getByRole('checkbox', { name: 'Descărcări' }));
+        expect((screen.getByRole('checkbox', { name: 'Descărcări' }) as HTMLInputElement).checked).toBe(false);
+        fireEvent.click(screen.getByRole('checkbox', { name: 'Descărcări' }));
         fireEvent.click(screen.getByRole('button', { name: 'Salvează regula' }));
         expect(
             await screen.findByText('Regula modificată se aplică automat doar după o previzualizare aprobată.'),
