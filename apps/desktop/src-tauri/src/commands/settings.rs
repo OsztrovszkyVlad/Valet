@@ -323,10 +323,35 @@ pub(crate) fn record_preview_approval(dir: &Path, rules: &[RuleVersion]) -> Resu
     Ok(())
 }
 
+/// Removes the approval of `rule_id` (the rule was deleted). Leaves the
+/// file alone when it holds no approval for that rule.
+pub(crate) fn remove_approval(dir: &Path, rule_id: Uuid) -> Result<(), String> {
+    let mut approvals = load_approvals(dir);
+    if approvals.0.remove(&rule_id).is_some() {
+        write_json(dir, APPROVALS_FILE, &approvals, ERR_SETTINGS_IO)?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn remove_approval_drops_only_that_rule() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        remove_approval(dir, Uuid::from_u128(1)).unwrap();
+        assert!(!dir.join(APPROVALS_FILE).exists(), "nothing to write");
+        record_preview_approval(dir, &[(Uuid::from_u128(1), 2), (Uuid::from_u128(2), 1)]).unwrap();
+        remove_approval(dir, Uuid::from_u128(1)).unwrap();
+        let a = load_approvals(dir);
+        assert!(!a.allows(&rule(1, 2)));
+        assert!(a.allows(&rule(2, 1)));
+        remove_approval(dir, Uuid::from_u128(9)).unwrap();
+        assert_eq!(load_approvals(dir), a);
+    }
 
     #[test]
     fn drive_and_share_roots_are_detected() {

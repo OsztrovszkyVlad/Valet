@@ -75,7 +75,8 @@ use valet_core::{
     typegroups,
 };
 
-use crate::state::AppState;
+use crate::commands::settings::remove_approval;
+use crate::state::{config_dir, AppState};
 
 pub(crate) const ERR_NAME_EMPTY: &str = "rule.nameEmpty";
 pub(crate) const ERR_NO_ACTIONS: &str = "rule.noActions";
@@ -282,7 +283,7 @@ fn storage_err(e: impl std::fmt::Display) -> String {
     ERR_STORAGE.to_string()
 }
 
-async fn connect(app: &tauri::AppHandle) -> Result<Db, String> {
+pub(crate) async fn connect(app: &tauri::AppHandle) -> Result<Db, String> {
     let state = app.state::<AppState>();
     Db::connect(&state._db_path).await.map_err(storage_err)
 }
@@ -318,12 +319,23 @@ pub(crate) async fn remove_rule(db: &Db, rule_id: Uuid) -> Result<(), String> {
     }
 }
 
-/// Deletes the rule with `ruleId` (JS argument name). Error `rule.notFound`
-/// when there is none.
+/// Removes the rule row and its approval in `approvals.json` (config folder
+/// `dir`), so a rule created later with the same id needs a new preview.
+pub(crate) async fn remove_rule_and_approval(
+    db: &Db,
+    dir: &std::path::Path,
+    rule_id: Uuid,
+) -> Result<(), String> {
+    remove_rule(db, rule_id).await?;
+    remove_approval(dir, rule_id)
+}
+
+/// Deletes the rule with `ruleId` (JS argument name) and its approval.
+/// Error `rule.notFound` when there is none.
 #[tauri::command]
 pub(crate) async fn delete_rule(rule_id: Uuid, app: tauri::AppHandle) -> Result<(), String> {
     let db = connect(&app).await?;
-    remove_rule(&db, rule_id).await?;
+    remove_rule_and_approval(&db, &config_dir(&app)?, rule_id).await?;
     log::info!("Rule deleted");
     Ok(())
 }
@@ -639,5 +651,27 @@ mod tests {
         remove_rule(&db, r.id).await.unwrap();
         assert!(db.list_rules().await.unwrap().is_empty());
         assert_eq!(remove_rule(&db, r.id).await.unwrap_err(), ERR_NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn deleting_a_rule_removes_its_approval() {
+        use crate::commands::settings::{load_approvals, record_preview_approval};
+        let (tmp, db) = db().await;
+        let dir = tmp.path().join("cfg");
+        let r = cond("ext", json!("pdf"));
+        let mut other = cond("ext", json!("txt"));
+        other.id = Uuid::from_u128(2);
+        save_rule(&db, r.clone()).await.unwrap();
+        save_rule(&db, other.clone()).await.unwrap();
+        record_preview_approval(&dir, &[(r.id, 1), (other.id, 1)]).unwrap();
+
+        remove_rule_and_approval(&db, &dir, r.id).await.unwrap();
+        let a = load_approvals(&dir);
+        assert!(!a.allows(&r), "a new rule with this id needs a preview");
+        assert!(a.allows(&other));
+        assert_eq!(
+            remove_rule_and_approval(&db, &dir, r.id).await.unwrap_err(),
+            ERR_NOT_FOUND
+        );
     }
 }
