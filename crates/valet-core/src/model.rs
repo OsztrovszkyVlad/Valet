@@ -20,28 +20,6 @@ impl FileRow {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum Op {
-    MoveTo { path: String },
-    CopyTo { path: String },
-    Tag { tags: Vec<String> },
-    Rename { pattern: String },
-    Quarantine,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DryRunAction {
-    pub file_path: String,
-    pub op: Op,
-    pub rule_id: Uuid,
-    pub rule_name: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct DryRunPlan {
-    pub actions: Vec<DryRunAction>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OperationStats {
     pub total_operations: u64,
     pub successful_operations: u64,

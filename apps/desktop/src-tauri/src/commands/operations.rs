@@ -1,13 +1,37 @@
 //! Operation commands: dry run, execute, statistics, history.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use tauri::{Emitter, Manager};
-use valet_core::{model::DryRunAction, storage::Db};
+use valet_core::{
+    planner::{self, OpKind, Plan, PlanContext, PlannedOp},
+    storage::Db,
+};
 
 use crate::commands::platform::{send_notification, NotificationLevel};
 use crate::commands::settings::{get_app_settings, Config};
-use crate::state::{config_dir, AppState};
+use crate::state::{config_dir, AppState, StdPlatform};
+
+/// Plans moves and copies for `paths` with the rules stored in `db`.
+pub(crate) async fn plan_for_paths(paths: &[PathBuf], db: &Db) -> Result<Plan, String> {
+    let rules = db
+        .list_rules()
+        .await
+        .map_err(|e| format!("Failed to load rules: {}", e))?;
+    Ok(planner::plan(
+        paths,
+        &rules,
+        &StdPlatform,
+        &PlanContext::from_system(),
+    ))
+}
+
+fn op_type(op: &PlannedOp) -> &'static str {
+    match op.kind {
+        OpKind::Move => "move",
+        OpKind::Copy => "copy",
+    }
+}
 
 // Tauri command types
 #[derive(serde::Serialize, Clone)]
@@ -80,43 +104,52 @@ pub(crate) async fn dry_run(app: tauri::AppHandle) -> Result<serde_json::Value, 
         );
     }
 
-    let plan = valet_core::engine::dry_run_for_paths(&paths, &db)
+    let plan = plan_for_paths(&paths, &db)
         .await
         .map_err(|e| format!("Dry run failed: {}", e))?;
 
     log::info!(
-        "Dry-run completed: {} action(s) proposed across {} path(s)",
-        plan.actions.len(),
+        "Dry-run completed: {} operation(s) proposed, {} skipped, across {} path(s)",
+        plan.ops.len(),
+        plan.skipped.len(),
         paths.len()
     );
 
-    // Convert to a format that matches the frontend interface
+    Ok(dry_run_json(&plan))
+}
+
+/// The shape `DryRunView.tsx` reads, plus `skipped` (path, reason, rule_name).
+fn dry_run_json(plan: &Plan) -> serde_json::Value {
     let results: Vec<serde_json::Value> = plan
-        .actions
-        .into_iter()
-        .map(|action| {
+        .ops
+        .iter()
+        .map(|op| {
             serde_json::json!({
-              "source_path": action.file_path,
-              "destination_path": match &action.op {
-                valet_core::model::Op::MoveTo { path } => path.clone(),
-                valet_core::model::Op::CopyTo { path } => path.clone(),
-                _ => "N/A".to_string(),
-              },
-              "rule_name": action.rule_name,
-              "operation": match &action.op {
-                valet_core::model::Op::MoveTo { .. } => "move",
-                valet_core::model::Op::CopyTo { .. } => "copy",
-                _ => "unknown",
-              }
+              "source_path": op.source.to_string_lossy(),
+              "destination_path": op.dest.to_string_lossy(),
+              "rule_name": op.rule_name,
+              "operation": op_type(op),
+            })
+        })
+        .collect();
+    let skipped: Vec<serde_json::Value> = plan
+        .skipped
+        .iter()
+        .map(|s| {
+            serde_json::json!({
+              "path": s.path.to_string_lossy(),
+              "reason": s.reason,
+              "rule_name": s.rule_name,
             })
         })
         .collect();
 
-    Ok(serde_json::json!({
-      "results": results,
+    serde_json::json!({
       "total_files": results.len(),
-      "total_rules_applied": results.len()
-    }))
+      "total_rules_applied": results.len(),
+      "results": results,
+      "skipped": skipped,
+    })
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -175,21 +208,21 @@ pub(crate) async fn execute_operations(app: tauri::AppHandle) -> Result<ExecuteR
     }
 
     // First, get the dry run plan for all configured paths
-    let plan = valet_core::engine::dry_run_for_paths(&paths, &db)
+    let plan = plan_for_paths(&paths, &db)
         .await
         .map_err(|e| format!("Failed to generate execution plan: {}", e))?;
 
     log::info!(
         "Executing {} file operation(s) across {} path(s)",
-        plan.actions.len(),
+        plan.ops.len(),
         paths.len()
     );
 
     // Notify user of starting operations
-    if settings.notifications_enabled && !plan.actions.is_empty() {
+    if settings.notifications_enabled && !plan.ops.is_empty() {
         let _ = send_notification(
             "Valet File Manager".to_string(),
-            format!("Starting organization of {} files", plan.actions.len()),
+            format!("Starting organization of {} files", plan.ops.len()),
             app.clone(),
         )
         .await;
@@ -198,15 +231,16 @@ pub(crate) async fn execute_operations(app: tauri::AppHandle) -> Result<ExecuteR
     let mut executed_count = 0;
     let mut failed_operations = Vec::new();
     let mut total_bytes_processed = 0u64;
-    let total_operations = plan.actions.len();
+    let total_operations = plan.ops.len();
 
     // Process operations with progress tracking
-    for (index, action) in plan.actions.iter().enumerate() {
+    for (index, action) in plan.ops.iter().enumerate() {
+        let source_path = action.source.to_string_lossy().to_string();
         // Send progress update
         let progress = ProgressUpdate {
             current: index + 1,
             total: total_operations,
-            current_file: action.file_path.clone(),
+            current_file: source_path.clone(),
             percentage: ((index + 1) as f32 / total_operations as f32) * 100.0,
         };
 
@@ -214,20 +248,12 @@ pub(crate) async fn execute_operations(app: tauri::AppHandle) -> Result<ExecuteR
             let _ = window.emit("operation-progress", &progress);
         }
 
-        let operation_type = match &action.op {
-            valet_core::model::Op::MoveTo { .. } => "move",
-            valet_core::model::Op::CopyTo { .. } => "copy",
-            _ => "other",
-        };
+        let operation_type = op_type(action);
 
-        let destination_path = match &action.op {
-            valet_core::model::Op::MoveTo { path } => path.clone(),
-            valet_core::model::Op::CopyTo { path } => path.clone(),
-            _ => "N/A".to_string(),
-        };
+        let destination_path = action.dest.to_string_lossy().to_string();
 
         // Get file size for metrics
-        if let Ok(metadata) = std::fs::metadata(&action.file_path) {
+        if let Ok(metadata) = std::fs::metadata(&action.source) {
             total_bytes_processed += metadata.len();
         }
 
@@ -235,15 +261,15 @@ pub(crate) async fn execute_operations(app: tauri::AppHandle) -> Result<ExecuteR
             Ok(_) => {
                 executed_count += 1;
                 log::info!(
-                    "✅ Successfully executed: {} -> {:?}",
-                    action.file_path,
-                    action.op
+                    "✅ Successfully executed: {} -> {}",
+                    source_path,
+                    destination_path
                 );
 
                 // Record successful operation
                 if let Err(e) = db
                     .record_operation(
-                        &action.file_path,
+                        &source_path,
                         &destination_path,
                         operation_type,
                         &action.rule_name,
@@ -258,23 +284,23 @@ pub(crate) async fn execute_operations(app: tauri::AppHandle) -> Result<ExecuteR
             Err(e) => {
                 let error_msg = e.clone();
                 let error = ExecuteError {
-                    source_path: action.file_path.clone(),
+                    source_path: source_path.clone(),
                     destination_path: destination_path.clone(),
                     rule_name: action.rule_name.clone(),
                     error_message: e.clone(),
                 };
                 failed_operations.push(error);
                 log::error!(
-                    "❌ Failed to execute operation: {} -> {:?}, Error: {}",
-                    action.file_path,
-                    action.op,
+                    "❌ Failed to execute operation: {} -> {}, Error: {}",
+                    source_path,
+                    destination_path,
                     error_msg
                 );
 
                 // Record failed operation
                 if let Err(record_err) = db
                     .record_operation(
-                        &action.file_path,
+                        &source_path,
                         &destination_path,
                         operation_type,
                         &action.rule_name,
@@ -361,28 +387,29 @@ pub(crate) async fn execute_operations(app: tauri::AppHandle) -> Result<ExecuteR
     })
 }
 
-async fn execute_single_operation(action: &DryRunAction) -> Result<(), String> {
+async fn execute_single_operation(action: &PlannedOp) -> Result<(), String> {
     execute_single_operation_with_retry(action, &RetryConfig::default()).await
 }
 
 async fn execute_single_operation_with_retry(
-    action: &DryRunAction,
+    action: &PlannedOp,
     retry_config: &RetryConfig,
 ) -> Result<(), String> {
-    use std::path::Path;
-
-    let source_path = Path::new(&action.file_path);
+    let source_path = action.source.as_path();
 
     // Validate source file exists and is accessible
     if !source_path.exists() {
-        return Err(format!("Source file does not exist: {}", action.file_path));
+        return Err(format!(
+            "Source file does not exist: {}",
+            source_path.display()
+        ));
     }
 
     if let Ok(metadata) = source_path.metadata() {
         if metadata.len() == 0 {
             log::warn!(
                 "Warning: Attempting to move zero-byte file: {}",
-                action.file_path
+                source_path.display()
             );
         }
     }
@@ -397,7 +424,7 @@ async fn execute_single_operation_with_retry(
                     log::info!(
                         "✅ Operation succeeded after {} retries: {}",
                         attempt,
-                        action.file_path
+                        source_path.display()
                     );
                 }
                 return Ok(());
@@ -437,18 +464,20 @@ async fn execute_single_operation_with_retry(
 }
 
 async fn execute_file_operation_internal(
-    action: &DryRunAction,
+    action: &PlannedOp,
     source_path: &Path,
 ) -> Result<(), String> {
     use std::fs;
 
-    match &action.op {
-        valet_core::model::Op::MoveTo { path } => {
-            let dest_path = Path::new(path);
-
+    let dest_path = action.dest.as_path();
+    match action.kind {
+        OpKind::Move => {
             // Check if destination already exists
             if dest_path.exists() {
-                return Err(format!("Destination file already exists: {}", path));
+                return Err(format!(
+                    "Destination file already exists: {}",
+                    dest_path.display()
+                ));
             }
 
             // Ensure destination directory exists
@@ -476,12 +505,13 @@ async fn execute_file_operation_internal(
 
             Ok(())
         }
-        valet_core::model::Op::CopyTo { path } => {
-            let dest_path = Path::new(path);
-
+        OpKind::Copy => {
             // Check if destination already exists
             if dest_path.exists() {
-                return Err(format!("Destination file already exists: {}", path));
+                return Err(format!(
+                    "Destination file already exists: {}",
+                    dest_path.display()
+                ));
             }
 
             // Ensure destination directory exists
@@ -509,7 +539,6 @@ async fn execute_file_operation_internal(
 
             Ok(())
         }
-        _ => Err("Unsupported operation type".to_string()),
     }
 }
 
@@ -576,10 +605,9 @@ pub(crate) async fn clear_operation_history(app: tauri::AppHandle) -> Result<(),
 #[cfg(test)]
 mod tests {
     use super::*;
-    use valet_core::model::Op;
 
     fn run(
-        op: fn(String) -> Op,
+        kind: OpKind,
     ) -> (
         tempfile::TempDir,
         std::path::PathBuf,
@@ -595,11 +623,14 @@ mod tests {
         let user_file = dest_dir.join(".valet_test");
         std::fs::write(&user_file, b"user data").unwrap();
         let dest = dest_dir.join("a.txt");
-        let action = DryRunAction {
-            file_path: src.to_string_lossy().to_string(),
-            op: op(dest.to_string_lossy().to_string()),
+        let action = PlannedOp {
+            source: src.clone(),
+            dest: dest.clone(),
+            kind,
             rule_id: uuid::Uuid::nil(),
             rule_name: "test".to_string(),
+            size: 4,
+            mtime: std::time::SystemTime::now(),
         };
 
         tauri::async_runtime::block_on(execute_file_operation_internal(&action, &src)).unwrap();
@@ -611,13 +642,54 @@ mod tests {
 
     #[test]
     fn move_leaves_existing_valet_test_file_untouched() {
-        let (_tmp, src, _dest, _user_file) = run(|path| Op::MoveTo { path });
+        let (_tmp, src, _dest, _user_file) = run(OpKind::Move);
         assert!(!src.exists());
     }
 
     #[test]
     fn copy_leaves_existing_valet_test_file_untouched() {
-        let (_tmp, src, _dest, _user_file) = run(|path| Op::CopyTo { path });
+        let (_tmp, src, _dest, _user_file) = run(OpKind::Copy);
         assert_eq!(std::fs::read(&src).unwrap(), b"data");
+    }
+
+    #[test]
+    fn dry_run_json_keeps_frontend_fields_and_adds_skipped() {
+        let plan = Plan {
+            ops: vec![PlannedOp {
+                source: PathBuf::from("in/a.pdf"),
+                dest: PathBuf::from("in/Out/a.pdf"),
+                kind: OpKind::Copy,
+                rule_id: uuid::Uuid::nil(),
+                rule_name: "r".to_string(),
+                size: 1,
+                mtime: std::time::SystemTime::UNIX_EPOCH,
+            }],
+            skipped: vec![valet_core::planner::Skipped {
+                path: PathBuf::from("in/.git"),
+                reason: valet_core::planner::SkipReason::Excluded,
+                rule_name: None,
+            }],
+        };
+        let v = dry_run_json(&plan);
+        assert_eq!(v["total_files"], 1);
+        assert_eq!(v["total_rules_applied"], 1);
+        let r = &v["results"][0];
+        assert_eq!(
+            r["source_path"],
+            PathBuf::from("in/a.pdf").to_string_lossy().as_ref()
+        );
+        assert_eq!(
+            r["destination_path"],
+            PathBuf::from("in/Out/a.pdf").to_string_lossy().as_ref()
+        );
+        assert_eq!(r["rule_name"], "r");
+        assert_eq!(r["operation"], "copy");
+        let k = &v["skipped"][0];
+        assert_eq!(
+            k["path"],
+            PathBuf::from("in/.git").to_string_lossy().as_ref()
+        );
+        assert_eq!(k["reason"], "excluded");
+        assert!(k["rule_name"].is_null());
     }
 }

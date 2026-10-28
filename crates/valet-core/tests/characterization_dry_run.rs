@@ -1,25 +1,29 @@
-//! Characterization tests for `valet_core::engine::dry_run_for_paths`.
+//! Characterization tests for the dry run, written in Phase 0 against
+//! `engine::dry_run_for_paths` and ported in Phase 1 to `planner::plan`.
 //!
-//! These pin the behavior as it is today (Phase 0), including behavior that
-//! looks wrong. Assertions marked `// characterization: current behavior, ...`
-//! describe a suspected bug or invariant gap; change them deliberately when
-//! the planner is rewritten.
+//! Assertions marked `// characterization: current behavior, ...` describe
+//! behavior that still holds and may be a gap. Assertions marked
+//! `// Phase 1: changed intentionally: <old> -> <new>` record where the
+//! planner deliberately differs from the Phase 0 engine.
 //!
-//! WalkDir is used without `sort_by`, so the order of files inside one
-//! directory follows the OS directory listing and is not guaranteed. Tests
-//! compare sorted rows unless they pin an order the code does guarantee
-//! (roots in argument order, rules in DB rowid order, actions in rule order).
+//! Phase 0 walked without `sort_by`; the planner sorts entries by file name.
+//! Tests that compare sorted rows keep doing so.
+//!
+//! Phase 1: `tag` actions are not planned until Phase 2, so the rules used to
+//! observe walking and matching move files to the relative folder `Out`
+//! instead of tagging them.
 
 mod common;
 
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
 use common::{rule, s, write_file};
 use serde_json::json;
 use tempfile::TempDir;
 use uuid::Uuid;
-use valet_core::engine::dry_run_for_paths;
-use valet_core::model::{DryRunPlan, Op};
+use valet_core::planner::{OpKind, Plan, PlanContext, SkipReason, plan};
+use valet_core::platform::testing::FakePlatform;
 use valet_core::rules::Rule;
 use valet_core::storage::Db;
 
@@ -48,8 +52,19 @@ impl Env {
         self.db.upsert_rule(r).await.expect("upsert rule");
     }
 
-    async fn plan(&self, roots: &[PathBuf]) -> DryRunPlan {
-        dry_run_for_paths(roots, &self.db).await.expect("dry run")
+    fn home(&self) -> PathBuf {
+        self.tmp.path().join("home")
+    }
+
+    async fn plan(&self, roots: &[PathBuf]) -> Plan {
+        let rules = self.db.list_rules().await.expect("list rules");
+        let ctx = PlanContext {
+            // One hour ahead so fresh fixtures are outside the being-written window.
+            now: SystemTime::now() + Duration::from_secs(3600),
+            home_dir: Some(self.home()),
+            env: Box::new(|_| None),
+        };
+        plan(roots, &rules, &FakePlatform::default(), &ctx)
     }
 
     async fn close(self) {
@@ -60,28 +75,35 @@ impl Env {
 
 type Row = (String, String, String);
 
-/// (file_path, op debug string, rule_name), in plan order.
-fn rows(plan: &DryRunPlan) -> Vec<Row> {
-    plan.actions
+/// (source, "<kind> <dest>", rule_name), in plan order.
+fn rows(plan: &Plan) -> Vec<Row> {
+    plan.ops
         .iter()
-        .map(|a| {
+        .map(|o| {
             (
-                a.file_path.clone(),
-                format!("{:?}", a.op),
-                a.rule_name.clone(),
+                s(&o.source),
+                format!("{:?} {}", o.kind, s(&o.dest)),
+                o.rule_name.clone(),
             )
         })
         .collect()
 }
 
-fn sorted_rows(plan: &DryRunPlan) -> Vec<Row> {
+fn skips(plan: &Plan) -> Vec<(String, SkipReason, Option<String>)> {
+    plan.skipped
+        .iter()
+        .map(|k| (s(&k.path), k.reason, k.rule_name.clone()))
+        .collect()
+}
+
+fn sorted_rows(plan: &Plan) -> Vec<Row> {
     let mut r = rows(plan);
     r.sort();
     r
 }
 
-fn sorted_paths(plan: &DryRunPlan) -> Vec<String> {
-    let mut v: Vec<String> = plan.actions.iter().map(|a| a.file_path.clone()).collect();
+fn sorted_paths(plan: &Plan) -> Vec<String> {
+    let mut v: Vec<String> = plan.ops.iter().map(|o| s(&o.source)).collect();
     v.sort();
     v
 }
@@ -92,17 +114,18 @@ fn sorted_strings(paths: &[&Path]) -> Vec<String> {
     v
 }
 
-fn tag_rule(n: u128, name: &str, conditions: serde_json::Value) -> Rule {
+/// Phase 1: was `tag_rule` (a `tag` action); moves to `Out` now, see the module doc.
+fn move_rule(n: u128, name: &str, conditions: serde_json::Value) -> Rule {
     rule(
         n,
         name,
         conditions,
-        json!([{ "type": "tag", "params": { "tags": [name] } }]),
+        json!([{ "type": "moveTo", "params": { "path": "Out" } }]),
     )
 }
 
 fn all_files_rule(n: u128, name: &str) -> Rule {
-    let mut r = tag_rule(n, name, json!([]));
+    let mut r = move_rule(n, name, json!([]));
     r.always_apply = true;
     r
 }
@@ -117,7 +140,7 @@ async fn char_dry_run_no_rules_gives_empty_plan() {
     write_file(&root.join("sub").join("b.txt"), 3);
 
     let plan = env.plan(&[root]).await;
-    assert!(plan.actions.is_empty());
+    assert!(plan.ops.is_empty());
     env.close().await;
 }
 
@@ -129,7 +152,7 @@ async fn char_dry_run_empty_directory_gives_empty_plan() {
     std::fs::create_dir_all(root.join("empty_sub")).unwrap();
 
     let plan = env.plan(&[root]).await;
-    assert!(plan.actions.is_empty());
+    assert!(plan.ops.is_empty());
     env.close().await;
 }
 
@@ -138,7 +161,7 @@ async fn char_dry_run_no_roots_gives_empty_plan() {
     let env = Env::new().await;
     env.add(&all_files_rule(1, "all")).await;
     let plan = env.plan(&[]).await;
-    assert!(plan.actions.is_empty());
+    assert!(plan.ops.is_empty());
     env.close().await;
 }
 
@@ -159,19 +182,18 @@ async fn char_dry_run_move_to_destination_is_raw_param() {
     .await;
 
     let plan = env.plan(std::slice::from_ref(&root)).await;
-    assert_eq!(plan.actions.len(), 1);
-    let a = &plan.actions[0];
-    // file_path is the walked path (root joined with the name), lossy UTF-8.
-    assert_eq!(a.file_path, s(&root.join("a.pdf")));
+    assert_eq!(plan.ops.len(), 1);
+    let a = &plan.ops[0];
+    // source is the walked path (root joined with the name).
+    assert_eq!(s(&a.source), s(&root.join("a.pdf")));
     assert_eq!(a.rule_id, Uuid::from_u128(1));
     assert_eq!(a.rule_name, "pdfs");
-    match &a.op {
-        Op::MoveTo { path } => {
-            // characterization: current behavior, MoveTo.path is the raw rule param: not joined with the file name, "~" not expanded, no collision-free final name computed
-            assert_eq!(path, "~/Documents/PDF");
-        }
-        other => panic!("expected MoveTo, got {other:?}"),
-    }
+    assert_eq!(a.kind, OpKind::Move);
+    // Phase 1: changed intentionally: MoveTo.path was the raw rule param "~/Documents/PDF" (not joined with the file name, "~" not expanded, no collision-free name) -> dest is the full file path: "~" expanded to the home dir, folder joined with the file name, collision-free
+    assert_eq!(
+        a.dest,
+        env.home().join("Documents").join("PDF").join("a.pdf")
+    );
     env.close().await;
 }
 
@@ -188,10 +210,10 @@ async fn char_dry_run_move_to_relative_destination_is_raw_param() {
     ))
     .await;
 
-    let plan = env.plan(&[root]).await;
-    assert_eq!(plan.actions.len(), 1);
-    // characterization: current behavior, a relative destination is passed through unresolved (relative to nothing in particular)
-    assert!(matches!(&plan.actions[0].op, Op::MoveTo { path } if path == "Sorted"));
+    let plan = env.plan(std::slice::from_ref(&root)).await;
+    assert_eq!(plan.ops.len(), 1);
+    // Phase 1: changed intentionally: a relative destination was passed through unresolved ("Sorted") -> it resolves against the scan root the file was found under
+    assert_eq!(plan.ops[0].dest, root.join("Sorted").join("a.pdf"));
     env.close().await;
 }
 
@@ -213,17 +235,20 @@ async fn char_dry_run_action_types_map_to_ops_in_order() {
     ))
     .await;
 
-    let plan = env.plan(&[root]).await;
-    assert_eq!(plan.actions.len(), 4);
-    assert!(matches!(&plan.actions[0].op, Op::CopyTo { path } if path == "C:\\Backup"));
-    match &plan.actions[1].op {
-        // Non-string tags are dropped silently.
-        Op::Tag { tags } => assert_eq!(tags, &vec!["work".to_string(), "2024".to_string()]),
-        other => panic!("expected Tag, got {other:?}"),
-    }
-    assert!(matches!(&plan.actions[2].op, Op::Rename { pattern } if pattern == "{date}-{name}"));
-    assert!(matches!(&plan.actions[3].op, Op::Quarantine));
-    assert!(plan.actions.iter().all(|a| a.rule_name == "multi"));
+    let plan = env.plan(std::slice::from_ref(&root)).await;
+    // Phase 1: changed intentionally: four entries (CopyTo, Tag, Rename, Quarantine) -> one Copy op; tag/rename/quarantine return in Phase 2 and are not reported when a copy or move is planned for the file
+    assert_eq!(plan.ops.len(), 1);
+    assert!(plan.skipped.is_empty());
+    let backup = Path::new("C:\\Backup");
+    // Absolute on Windows; on other systems a relative folder under the root.
+    let folder = if backup.is_absolute() {
+        backup.to_path_buf()
+    } else {
+        root.join(backup)
+    };
+    assert_eq!(plan.ops[0].kind, OpKind::Copy);
+    assert_eq!(plan.ops[0].dest, folder.join("a.pdf"));
+    assert!(plan.ops.iter().all(|a| a.rule_name == "multi"));
     env.close().await;
 }
 
@@ -249,10 +274,21 @@ async fn char_dry_run_unknown_or_incomplete_actions_are_dropped() {
     ))
     .await;
 
-    let plan = env.plan(&[root]).await;
-    // characterization: current behavior, unknown action types and actions with a missing/wrong-typed param are dropped silently (no error, no warning in the plan); only quarantine survives here
-    assert_eq!(plan.actions.len(), 1);
-    assert!(matches!(&plan.actions[0].op, Op::Quarantine));
+    let plan = env.plan(std::slice::from_ref(&root)).await;
+    // Phase 1: changed intentionally: unknown or incomplete actions were dropped silently and quarantine survived -> nothing is planned; the first moveTo (no path param) is reported as InvalidDestination and the rule's other actions as UnsupportedAction
+    assert!(plan.ops.is_empty());
+    let f = s(&root.join("a.pdf"));
+    assert_eq!(
+        skips(&plan),
+        vec![
+            (
+                f.clone(),
+                SkipReason::InvalidDestination,
+                Some("broken".to_string())
+            ),
+            (f, SkipReason::UnsupportedAction, Some("broken".to_string())),
+        ]
+    );
     env.close().await;
 }
 
@@ -274,17 +310,16 @@ async fn char_dry_run_rule_with_two_actions_gives_two_entries() {
 
     let plan = env.plan(std::slice::from_ref(&root)).await;
     let f = s(&root.join("a.pdf"));
+    // Phase 1: changed intentionally: two entries (MoveTo "D", Tag) -> one Move op to root/D/a.pdf; the tag is not planned until Phase 2 and not reported because a move was planned
     assert_eq!(
         rows(&plan),
-        vec![
-            (
-                f.clone(),
-                "MoveTo { path: \"D\" }".to_string(),
-                "two".to_string()
-            ),
-            (f, "Tag { tags: [\"t\"] }".to_string(), "two".to_string()),
-        ]
+        vec![(
+            f,
+            format!("Move {}", s(&root.join("D").join("a.pdf"))),
+            "two".to_string()
+        )]
     );
+    assert!(plan.skipped.is_empty());
     env.close().await;
 }
 
@@ -310,18 +345,26 @@ async fn char_dry_run_file_matching_two_rules_gets_both() {
     // Re-upserting rule 1 keeps its rowid, so it stays first.
     env.add(&r1).await;
 
-    let plan = env.plan(&[root]).await;
+    let plan = env.plan(std::slice::from_ref(&root)).await;
     let got: Vec<(String, String)> = rows(&plan)
         .into_iter()
         .map(|(_, op, name)| (name, op))
         .collect();
-    // characterization: current behavior, one file gets two conflicting MoveTo ops (A and B); no first-match-wins or conflict detection. Order = rules table rowid order
+    // Phase 1: changed intentionally: one file got two conflicting MoveTo ops (A and B) -> first match wins in rules table rowid order (one Move to A); the second rule is reported as Conflict
     assert_eq!(
         got,
-        vec![
-            ("first".to_string(), "MoveTo { path: \"A\" }".to_string()),
-            ("second".to_string(), "MoveTo { path: \"B\" }".to_string()),
-        ]
+        vec![(
+            "first".to_string(),
+            format!("Move {}", s(&root.join("A").join("a.pdf")))
+        )]
+    );
+    assert_eq!(
+        skips(&plan),
+        vec![(
+            s(&root.join("a.pdf")),
+            SkipReason::Conflict,
+            Some("second".to_string())
+        )]
     );
     env.close().await;
 }
@@ -336,7 +379,7 @@ async fn char_dry_run_disabled_rule_in_db_is_ignored() {
     env.add(&r).await;
 
     let plan = env.plan(&[root]).await;
-    assert!(plan.actions.is_empty());
+    assert!(plan.ops.is_empty());
     env.close().await;
 }
 
@@ -346,7 +389,7 @@ async fn char_dry_run_empty_conditions_rule_plans_every_file() {
     let root = env.root();
     write_file(&root.join("a.pdf"), 3);
     write_file(&root.join("sub").join("b.txt"), 0);
-    env.add(&tag_rule(1, "noconds", json!([]))).await;
+    env.add(&move_rule(1, "noconds", json!([]))).await;
 
     let plan = env.plan(std::slice::from_ref(&root)).await;
     // characterization: current behavior, an enabled rule without conditions (and without alwaysApply) plans an action for every file in scope
@@ -363,7 +406,7 @@ async fn char_dry_run_size_comes_from_file_metadata() {
     let root = env.root();
     write_file(&root.join("five.bin"), 5);
     write_file(&root.join("six.bin"), 6);
-    env.add(&tag_rule(
+    env.add(&move_rule(
         1,
         "gt5",
         json!([{ "type": "sizeGt", "value": 5 }]),
@@ -387,7 +430,7 @@ async fn char_dry_run_recurses_into_subdirectories() {
     for f in [&a, &b, &c] {
         write_file(f, 1);
     }
-    env.add(&tag_rule(
+    env.add(&move_rule(
         1,
         "pdf",
         json!([{ "type": "ext", "value": "pdf" }]),
@@ -417,9 +460,31 @@ async fn char_dry_run_does_not_exclude_hidden_or_default_excluded_dirs() {
     env.add(&all_files_rule(1, "all")).await;
 
     let plan = env.plan(std::slice::from_ref(&root)).await;
-    let refs: Vec<&Path> = files.iter().map(|p| p.as_path()).collect();
-    // characterization: current behavior, dot files and .git/node_modules/target are walked and planned; default exclusions (CLAUDE.md invariant 5) are not applied, .valetignore is not honored (known Phase 1 gap)
-    assert_eq!(sorted_paths(&plan), sorted_strings(&refs));
+    // Phase 1: changed intentionally: every file above was planned (no default exclusions, .valetignore ignored) -> the root contains .valetignore, so the whole root is one Excluded entry and nothing is planned
+    assert!(plan.ops.is_empty());
+    assert_eq!(skips(&plan), vec![(s(&root), SkipReason::Excluded, None)]);
+
+    // Same tree without .valetignore (second root).
+    let root2 = env.tmp.path().join("root2");
+    for f in &files[..5] {
+        write_file(&root2.join(f.strip_prefix(&root).unwrap()), 1);
+    }
+    let plan = env.plan(std::slice::from_ref(&root2)).await;
+    // Phase 1: changed intentionally: dot files and .git/node_modules/target were walked and planned -> only visible.pdf is planned; each excluded dir is one Excluded entry, the dot file is Hidden
+    assert_eq!(sorted_paths(&plan), vec![s(&root2.join("visible.pdf"))]);
+    assert_eq!(
+        skips(&plan),
+        vec![
+            (s(&root2.join(".git")), SkipReason::Excluded, None),
+            (
+                s(&root2.join(".hidden.pdf")),
+                SkipReason::Hidden,
+                Some("all".to_string())
+            ),
+            (s(&root2.join("node_modules")), SkipReason::Excluded, None),
+            (s(&root2.join("target")), SkipReason::Excluded, None),
+        ]
+    );
     env.close().await;
 }
 
@@ -458,7 +523,7 @@ async fn char_dry_run_multiple_roots_in_argument_order() {
     env.add(&all_files_rule(1, "all")).await;
 
     let plan = env.plan(&[r2.clone(), r1.clone()]).await;
-    let paths: Vec<String> = plan.actions.iter().map(|a| a.file_path.clone()).collect();
+    let paths: Vec<String> = plan.ops.iter().map(|o| s(&o.source)).collect();
     assert_eq!(paths.len(), 3);
     // All of the first root comes before the second root.
     assert_eq!(paths[0], s(&r2.join("c.pdf")));
@@ -481,13 +546,13 @@ async fn char_dry_run_overlapping_roots_duplicate_actions() {
     env.add(&all_files_rule(1, "all")).await;
 
     let plan = env.plan(&[root.clone(), inner.clone()]).await;
-    // characterization: current behavior, overlapping roots are not deduplicated; the same file is planned once per root that contains it
-    assert_eq!(sorted_paths(&plan), vec![s(&f), s(&f)]);
+    // Phase 1: changed intentionally: the same file was planned once per root that contains it -> overlapping roots are deduplicated, the file is planned once
+    assert_eq!(sorted_paths(&plan), vec![s(&f)]);
 
-    // Same root passed twice: also duplicated.
+    // Same root passed twice.
     let plan = env.plan(&[root.clone(), root]).await;
-    // characterization: current behavior, a repeated root plans every file twice
-    assert_eq!(plan.actions.len(), 2);
+    // Phase 1: changed intentionally: a repeated root planned every file twice -> once
+    assert_eq!(plan.ops.len(), 1);
     env.close().await;
 }
 
@@ -500,10 +565,13 @@ async fn char_dry_run_nonexistent_root_is_ok_and_empty() {
     write_file(&f, 1);
     let missing = env.tmp.path().join("does-not-exist");
 
-    let res = dry_run_for_paths(std::slice::from_ref(&missing), &env.db).await;
-    // characterization: current behavior, a missing root is not an error; WalkDir errors are dropped by filter_map(ok) and the plan is empty
-    let plan = res.expect("missing root returns Ok");
-    assert!(plan.actions.is_empty());
+    let plan = env.plan(std::slice::from_ref(&missing)).await;
+    // Phase 1: changed intentionally: a missing root gave a silently empty plan -> still no ops and no error, but the root is reported as Unreadable
+    assert!(plan.ops.is_empty());
+    assert_eq!(
+        skips(&plan),
+        vec![(s(&missing), SkipReason::Unreadable, None)]
+    );
 
     // Mixed with a real root, the real root is still scanned.
     let plan = env.plan(&[missing, root]).await;
@@ -542,8 +610,16 @@ async fn char_dry_run_destination_inside_root_is_not_excluded() {
     .await;
 
     let plan = env.plan(std::slice::from_ref(&root)).await;
-    // characterization: current behavior, a file already in the destination folder is planned to move into that same folder again (no destination exclusion / no-op detection)
-    assert_eq!(sorted_paths(&plan), sorted_strings(&[&already, &fresh]));
+    // Phase 1: changed intentionally: a file already in the destination folder was planned to move into that same folder again -> it is reported as AlreadyInPlace and only the new file is planned
+    assert_eq!(sorted_paths(&plan), sorted_strings(&[&fresh]));
+    assert_eq!(
+        skips(&plan),
+        vec![(
+            s(&already),
+            SkipReason::AlreadyInPlace,
+            Some("sort".to_string())
+        )]
+    );
     env.close().await;
 }
 
@@ -569,7 +645,7 @@ async fn char_dry_run_is_deterministic_when_sorted() {
         ]),
     ))
     .await;
-    env.add(&tag_rule(
+    env.add(&move_rule(
         2,
         "big",
         json!([{ "type": "sizeGt", "value": 10 }]),
@@ -578,10 +654,18 @@ async fn char_dry_run_is_deterministic_when_sorted() {
 
     let first = env.plan(std::slice::from_ref(&root)).await;
     let second = env.plan(std::slice::from_ref(&root)).await;
-    // pdf rule: 4 files x 2 actions; big rule: 2 files in sub.
-    assert_eq!(first.actions.len(), 10);
-    // Plan order depends on OS directory listing order (WalkDir has no
-    // sort_by), so only the sorted rows are compared.
+    // Phase 1: changed intentionally: 10 entries (pdf rule: 4 files x 2 actions; big rule: 2 files in sub) -> 5 ops (4 pdf moves to P, sub/y.txt moved by big) and one Conflict (sub/x.pdf also matches big)
+    assert_eq!(first.ops.len(), 5);
+    assert_eq!(
+        skips(&first),
+        vec![(
+            s(&root.join("sub").join("x.pdf")),
+            SkipReason::Conflict,
+            Some("big".to_string())
+        )]
+    );
     assert_eq!(sorted_rows(&first), sorted_rows(&second));
+    // Phase 1: changed intentionally: plan order followed the OS directory listing -> entries are sorted by file name, so the whole plan is identical
+    assert_eq!(first, second);
     env.close().await;
 }

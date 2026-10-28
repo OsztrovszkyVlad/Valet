@@ -15,9 +15,10 @@ mod tests {
 
 pub mod collision;
 pub mod config;
-pub mod engine;
+pub mod index;
 pub mod matcher;
 pub mod model;
+pub mod planner;
 pub mod platform;
 pub mod rules;
 pub mod storage;

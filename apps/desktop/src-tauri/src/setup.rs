@@ -13,7 +13,7 @@ use tauri::{
 };
 use valet_core::storage::Db;
 
-use crate::commands::operations::execute_operations;
+use crate::commands::operations::{execute_operations, plan_for_paths};
 use crate::commands::platform::{send_notification, show_in_explorer_internal};
 use crate::state::{config_dir, AppState};
 
@@ -146,23 +146,20 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
                                     match valet_core::storage::Db::connect(&db_path_for_async).await
                                     {
                                         Ok(db) => {
-                                            match valet_core::engine::dry_run_for_paths(
-                                                &watch_paths,
-                                                &db,
-                                            )
-                                            .await
-                                            {
+                                            match plan_for_paths(&watch_paths, &db).await {
                                                 Ok(plan) => {
                                                     log::info!(
-                                                        "🔍 Dry run results for {} action(s):",
-                                                        plan.actions.len()
+                                                        "🔍 Dry run results for {} operation(s), {} skipped:",
+                                                        plan.ops.len(),
+                                                        plan.skipped.len()
                                                     );
-                                                    for action in plan.actions {
+                                                    for op in plan.ops {
                                                         log::info!(
-                                                            "  - [{}] {} -> {:?}",
-                                                            action.rule_name,
-                                                            action.file_path,
-                                                            action.op
+                                                            "  - [{}] {} -> {} ({:?})",
+                                                            op.rule_name,
+                                                            op.source.display(),
+                                                            op.dest.display(),
+                                                            op.kind
                                                         );
                                                     }
                                                 }
