@@ -246,6 +246,8 @@ mod tests {
             .unwrap();
         assert_eq!(first.len(), 7);
         assert_eq!(first[0].name, "Facturi și chitanțe", "evaluated first");
+        assert_eq!(first[0].options["presetId"], "invoices");
+        assert_eq!(first[1].options["presetId"], "downloads-by-type");
         let again = install_in(&db, &ids(&["invoices", "downloads-by-type"]), Lang::Ro)
             .await
             .unwrap();

@@ -179,10 +179,13 @@ impl Preset {
                     })
                     .collect(),
                 version: 1,
-                options: if r.options.is_null() {
-                    Value::Object(Default::default())
-                } else {
-                    r.options.clone()
+                options: {
+                    let mut o = match &r.options {
+                        Value::Object(o) => o.clone(),
+                        _ => Default::default(),
+                    };
+                    o.insert("presetId".into(), Value::String(self.id.clone()));
+                    Value::Object(o)
                 },
                 scope: r
                     .scope
@@ -393,6 +396,12 @@ mod tests {
         );
         assert_eq!(ro[0].scope, ["{downloads}"]);
         assert!(ro[0].option_flag("topLevelOnly"));
+        assert_eq!(ro[0].options["presetId"], "downloads-by-type");
+        for p in all() {
+            for r in p.rules_for(Lang::En) {
+                assert_eq!(r.options["presetId"], p.id.as_str(), "{}", r.name);
+            }
+        }
         assert!(is_preset_rule(ro[0].id));
         assert!(!is_preset_rule(Uuid::nil()));
         // Every localized destination is plain text after resolution.
@@ -508,6 +517,8 @@ mod tests {
         assert_eq!(stored[2].id, rule_id("old-installers", "trash"));
         assert_eq!(stored[3].id, rule_id("downloads-by-type", "image"));
         assert!(stored[2..].iter().all(|r| r.version == 1));
+        assert_eq!(stored[2].options["presetId"], "old-installers");
+        assert!(stored[0].options.get("presetId").is_none(), "user rule");
         let before = db.list_rules().await.unwrap();
         install(&db, &ids(&["old-installers"]), Lang::Ro)
             .await
