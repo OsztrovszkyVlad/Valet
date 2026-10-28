@@ -4,7 +4,9 @@ import {
     errorMessage,
     getBatch,
     undoBatch,
+    type NeedsConfirmation,
     type OpRecord,
+    type OpType,
     type UndoReport,
 } from '../api/commands';
 import { opErrorText } from '../i18n/format';
@@ -43,12 +45,15 @@ const UndoPanel: React.FC<UndoPanelProps> = ({
     const { t } = useTranslation();
     const [step, setStep] = useState<Step>({ kind: 'idle' });
     const [error, setError] = useState('');
+    // Operation types of the batch, by op id, from the undo preview.
+    const [opTypes, setOpTypes] = useState<Record<number, OpType>>({});
 
     const loadPreview = async () => {
         setError('');
         setStep({ kind: 'busy' });
         try {
             const detail = await getBatch(batchId);
+            setOpTypes(Object.fromEntries(detail.operations.map((op) => [op.id, op.op_type])));
             setStep({
                 kind: 'preview',
                 ops: detail.operations.filter((op) => op.state === 'done'),
@@ -76,6 +81,20 @@ const UndoPanel: React.FC<UndoPanelProps> = ({
             setError(t('undo.failedToStart', { message: errorMessage(err) }));
             setStep(first === null ? { kind: 'idle' } : { kind: 'confirm', first });
         }
+    };
+
+    /**
+     * A trashed item whose original place is taken is not restored, even with
+     * force (it fails with `RestoreOccupied` and stays in the Recycle Bin);
+     * a moved file gets a new name instead.
+     */
+    const reasonText = (n: NeedsConfirmation, reason: string) => {
+        if (reason === 'SourceOccupied') {
+            const type = opTypes[n.op_id];
+            const trash = type === undefined ? n.dest === null : type === 'trash' || type === 'restore';
+            if (trash) return t('confirmReason.SourceOccupiedTrash');
+        }
+        return t(`confirmReason.${reason}`, { defaultValue: reason });
     };
 
     const close = (complete: boolean) => {
@@ -209,7 +228,7 @@ const UndoPanel: React.FC<UndoPanelProps> = ({
                                 <code>{n.dest ?? n.source}</code>
                                 <ul>
                                     {n.reasons.map((r) => (
-                                        <li key={r}>{t(`confirmReason.${r}`, { defaultValue: r })}</li>
+                                        <li key={r}>{reasonText(n, r)}</li>
                                     ))}
                                 </ul>
                             </li>

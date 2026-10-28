@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import OnboardingView from './OnboardingView';
-import type { DryRunResponse, Preset } from '../api/commands';
+import type { AppSettings, DryRunResponse, Preset } from '../api/commands';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 const invokeMock = vi.mocked(invoke);
@@ -49,15 +49,31 @@ const PREVIEW: DryRunResponse = {
     plan_id: 'p-1',
 };
 
+const SETTINGS: AppSettings = {
+    language: 'ro',
+    notifications_enabled: true,
+    auto_start: false,
+    auto_apply_enabled: false,
+    first_preview_approved: false,
+    onboarding_done: false,
+};
+
 let completeError: string | null;
+let saveError: string | null;
 
 beforeEach(() => {
     completeError = null;
+    saveError = null;
     invokeMock.mockReset();
-    invokeMock.mockImplementation(async (cmd) => {
+    invokeMock.mockImplementation(async (cmd, args) => {
         switch (cmd) {
             case 'list_presets':
                 return PRESETS;
+            case 'get_app_settings':
+                return SETTINGS;
+            case 'save_app_settings':
+                if (saveError) throw saveError;
+                return (args as { settings: AppSettings }).settings;
             case 'complete_onboarding':
                 if (completeError) {
                     const e = completeError;
@@ -103,6 +119,36 @@ describe('OnboardingView', () => {
         fireEvent.click(checkbox('Desktop'));
         expect(screen.getByText('Bifează cel puțin un folder.')).toBeTruthy();
         expect((screen.getByRole('button', { name: 'Continuă' }) as HTMLButtonElement).disabled).toBe(true);
+    });
+
+    it('switches the language on step 1 and saves it before presets are listed', async () => {
+        render(<OnboardingView onFinished={vi.fn()} />);
+        const select = screen.getByTestId('onboarding-language') as HTMLSelectElement;
+        expect(select.value).toBe('ro');
+        expect(screen.getByLabelText('Limba')).toBe(select);
+
+        fireEvent.change(select, { target: { value: 'en' } });
+        expect(await screen.findByText('Which folders should Valet watch?')).toBeTruthy();
+        await waitFor(() =>
+            expect(calls('save_app_settings')).toEqual([
+                ['save_app_settings', { settings: { ...SETTINGS, language: 'en' } }],
+            ]),
+        );
+        await waitFor(() => expect((screen.getByRole('button', { name: 'Continue' }) as HTMLButtonElement).disabled).toBe(false));
+        expect(checkbox('Downloads').checked).toBe(true);
+
+        fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+        expect(await screen.findByText('Step 2 of 3')).toBeTruthy();
+        expect(calls('list_presets')).toHaveLength(1);
+    });
+
+    it('keeps the language when saving it fails', async () => {
+        saveError = 'settings.io';
+        render(<OnboardingView onFinished={vi.fn()} />);
+        fireEvent.change(screen.getByTestId('onboarding-language'), { target: { value: 'en' } });
+        expect(await screen.findByText(/Limba nu a putut fi salvată/)).toBeTruthy();
+        expect((screen.getByTestId('onboarding-language') as HTMLSelectElement).value).toBe('ro');
+        expect(screen.getByText('Ce foldere să urmărească Valet?')).toBeTruthy();
     });
 
     it('runs folders → presets → complete_onboarding → dry_run', async () => {
@@ -173,7 +219,7 @@ describe('OnboardingView', () => {
 
         expect(
             await screen.findByText(
-                'Folderul e exclus implicit (folder de sistem, AppData, Program Files sau ascuns). Alege alt folder. (C:\\Windows)',
+                'Folderul e exclus implicit sau se află într-un folder exclus (Windows, Program Files, ProgramData, AppData, .git, node_modules, target etc.). Alege alt folder. (C:\\Windows)',
             ),
         ).toBeTruthy();
         expect(screen.getByText('Pasul 1 din 3')).toBeTruthy();

@@ -109,7 +109,8 @@
   "confirmReason": {
     "Modified": "Fișierul s-a schimbat după lot",
     "SourceOccupied": "Locul inițial e ocupat; fișierul va primi un nume nou",
-    "OriginalMissing": "Originalul nu mai există; anularea trimite această copie în Coșul de reciclare"
+    "OriginalMissing": "Originalul nu mai există; anularea trimite această copie în Coșul de reciclare",
+    "SourceOccupiedTrash": "Locul inițial e ocupat; elementul nu poate fi restaurat și rămâne în Coșul de reciclare. Mută sau redenumește fișierul de acolo, apoi anulează din nou."
   },
   "failCode": {
     "SourceMissing": "Fișierul nu mai există",
@@ -204,7 +205,7 @@
   "backendError": {
     "config": {
       "driveRoot": "Nu poți urmări un disc întreg. Alege un folder, de exemplu Descărcări.",
-      "excludedFolder": "Folderul e exclus implicit (folder de sistem, AppData, Program Files sau ascuns). Alege alt folder.",
+      "excludedFolder": "Folderul e exclus implicit sau se află într-un folder exclus (Windows, Program Files, ProgramData, AppData, .git, node_modules, target etc.). Alege alt folder.",
       "missing": "Folderul nu există.",
       "noFolders": "Niciun folder urmărit nu există pe disc. Adaugă unul în Setări.",
       "io": "Configurația nu a putut fi citită sau salvată."
@@ -305,7 +306,18 @@
     "savedEdit": "Regula modificată se aplică automat doar după o previzualizare aprobată.",
     "notEditable": "Regula conține valori pe care editorul nu le poate arăta.",
     "scopeAll": "În toate folderele urmărite",
-    "scopeIn": "În: {{folders}}"
+    "scopeIn": "În: {{folders}}",
+    "presetsOpen": "Adaugă presetări",
+    "presetsTitle": "Presetări",
+    "presetsHelp": "Bifează presetările de instalat. Regulile lor se adaugă după regulile tale.",
+    "presetsReinstallHelp": "Reinstalarea unei presetări deja instalate îi readuce regulile la versiunea livrată; modificările tale la acele reguli se pierd. O regulă schimbată astfel se aplică automat doar după o nouă previzualizare aprobată.",
+    "presetInstalled": "instalată",
+    "presetsReinstallList": "Se reinstalează: {{names}}",
+    "presetsInstall": "Instalează ({{count}})",
+    "presetsInstalling": "Se instalează...",
+    "presetsLoadFailed": "Lista de presetări nu a putut fi citită: {{message}}",
+    "presetsEmpty": "Nicio presetare disponibilă.",
+    "presetsDone": "Presetări instalate: {{count}}. Regulile noi sau schimbate se aplică automat doar după o previzualizare aprobată."
   },
   "ruleEditor": {
     "newTitle": "Regulă nouă",
@@ -424,6 +436,8 @@
     "finishing": "Se salvează și se pregătește previzualizarea...",
     "ruleCount_one": "o regulă",
     "ruleCount_few": "{{count}} reguli",
-    "ruleCount_other": "{{count}} de reguli"
+    "ruleCount_other": "{{count}} de reguli",
+    "language": "Limba",
+    "languageSaveFailed": "Limba nu a putut fi salvată: {{message}}"
   }
 }

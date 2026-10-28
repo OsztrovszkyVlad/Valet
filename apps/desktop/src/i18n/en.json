@@ -109,7 +109,8 @@
   "confirmReason": {
     "Modified": "The file changed after the batch",
     "SourceOccupied": "The original location is taken; the file will get a new name",
-    "OriginalMissing": "The original is gone; undo sends this copy to the Recycle Bin"
+    "OriginalMissing": "The original is gone; undo sends this copy to the Recycle Bin",
+    "SourceOccupiedTrash": "The original location is taken; the item cannot be restored and stays in the Recycle Bin. Move or rename the file there, then undo again."
   },
   "failCode": {
     "SourceMissing": "The file no longer exists",
@@ -204,7 +205,7 @@
   "backendError": {
     "config": {
       "driveRoot": "You cannot watch a whole drive. Pick a folder, for example Downloads.",
-      "excludedFolder": "This folder is excluded by default (system folder, AppData, Program Files or hidden). Pick another folder.",
+      "excludedFolder": "This folder is excluded by default or is inside an excluded folder (Windows, Program Files, ProgramData, AppData, .git, node_modules, target and others). Pick another folder.",
       "missing": "The folder does not exist.",
       "noFolders": "No watched folder exists on disk. Add one in Settings.",
       "io": "The configuration could not be read or saved."
@@ -303,7 +304,18 @@
     "savedEdit": "A changed rule runs automatically only after an approved preview.",
     "notEditable": "The rule has values the editor cannot show.",
     "scopeAll": "In all watched folders",
-    "scopeIn": "In: {{folders}}"
+    "scopeIn": "In: {{folders}}",
+    "presetsOpen": "Add presets",
+    "presetsTitle": "Presets",
+    "presetsHelp": "Check the presets to install. Their rules are added after your rules.",
+    "presetsReinstallHelp": "Reinstalling a preset that is already installed resets its rules to the shipped version; your changes to those rules are lost. A rule changed this way runs automatically only after a new approved preview.",
+    "presetInstalled": "installed",
+    "presetsReinstallList": "Will be reinstalled: {{names}}",
+    "presetsInstall": "Install ({{count}})",
+    "presetsInstalling": "Installing...",
+    "presetsLoadFailed": "The preset list could not be read: {{message}}",
+    "presetsEmpty": "No presets available.",
+    "presetsDone": "Presets installed: {{count}}. New or changed rules run automatically only after an approved preview."
   },
   "ruleEditor": {
     "newTitle": "New rule",
@@ -421,6 +433,8 @@
     "skip": "Skip",
     "finishing": "Saving and preparing the preview...",
     "ruleCount_one": "1 rule",
-    "ruleCount_other": "{{count}} rules"
+    "ruleCount_other": "{{count}} rules",
+    "language": "Language",
+    "languageSaveFailed": "The language could not be saved: {{message}}"
   }
 }

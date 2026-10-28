@@ -2,13 +2,36 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import RulesView from './RulesView';
-import type { Rule } from '../api/commands';
+import type { Preset, Rule } from '../api/commands';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 const invokeMock = vi.mocked(invoke);
 
 const NEW_ID = '11111111-1111-4111-8111-111111111111';
 const DOWNLOADS = 'C:\\Users\\ana\\Downloads';
+
+const PRESETS: Preset[] = [
+    {
+        id: 'old-installers',
+        name: 'Instalatoare vechi',
+        description: '.exe, .msi mai vechi de 30 de zile merg în Coș.',
+        displayOrder: 2,
+        defaultChecked: false,
+        defaultScope: ['{downloads}'],
+        ruleCount: 1,
+        actions: ['trash'],
+    },
+    {
+        id: 'invoices',
+        name: 'Facturi',
+        description: 'PDF-uri cu «factura» în nume.',
+        displayOrder: 1,
+        defaultChecked: true,
+        defaultScope: ['{downloads}'],
+        ruleCount: 1,
+        actions: ['moveTo'],
+    },
+];
 
 let rules: Rule[];
 /** Error codes `upsert_rule` throws next, in order. */
@@ -52,6 +75,19 @@ beforeEach(() => {
                     ? rules.map((r) => (r.id === rule.id ? rule : r))
                     : [...rules, rule];
                 return rule;
+            }
+            case 'list_presets':
+                return PRESETS;
+            case 'install_presets': {
+                const ids = a?.presetIds as string[];
+                const installed = ids.map((id) => ({
+                    ...presetRule(),
+                    id: `rule-${id}`,
+                    name: `Regulă ${id}`,
+                    options: { presetId: id },
+                }));
+                rules = [...rules.filter((r) => !ids.includes(r.options?.presetId as string)), ...installed];
+                return installed;
             }
             case 'delete_rule':
                 rules = rules.filter((r) => r.id !== a?.ruleId);
@@ -205,5 +241,63 @@ describe('RulesView', () => {
         expect(await screen.findByText('Regula a fost ștearsă.')).toBeTruthy();
         expect(invokeMock).toHaveBeenCalledWith('delete_rule', { ruleId: presetRule().id });
         expect(screen.getByText('Nicio regulă încă')).toBeTruthy();
+    });
+
+    it('lists presets with installed ones marked and installs or reinstalls the selected ones', async () => {
+        rules = [presetRule()];
+        render(<RulesView />);
+        await screen.findByText('Facturi și chitanțe');
+        expect(screen.queryByTestId('rules-presets')).toBeNull();
+        expect(invokeMock.mock.calls.some(([c]) => c === 'list_presets')).toBe(false);
+
+        fireEvent.click(screen.getByRole('button', { name: 'Adaugă presetări' }));
+        const panel = await screen.findByTestId('rules-presets');
+        const items = await within(panel).findAllByRole('listitem');
+        expect(items.map((li) => within(li).getByRole('checkbox').closest('label')?.textContent)).toEqual([
+            'Facturi',
+            'Instalatoare vechi',
+        ]);
+        expect(within(items[0]).getByText('instalată')).toBeTruthy();
+        expect(within(items[1]).queryByText('instalată')).toBeNull();
+        expect(within(items[1]).getByText('trimite la Coș')).toBeTruthy();
+        expect(within(panel).getByText(/readuce regulile la versiunea livrată/)).toBeTruthy();
+
+        const install = within(panel).getByTestId('rules-presets-install') as HTMLButtonElement;
+        expect(install.disabled).toBe(true);
+        expect(install.textContent).toBe('Instalează (0)');
+
+        fireEvent.click(screen.getByTestId('rules-preset-invoices'));
+        fireEvent.click(screen.getByTestId('rules-preset-old-installers'));
+        expect(within(panel).getByText('Se reinstalează: Facturi')).toBeTruthy();
+        expect(install.textContent).toBe('Instalează (2)');
+        // Nothing is installed before the button is pressed.
+        expect(invokeMock.mock.calls.some(([c]) => c === 'install_presets')).toBe(false);
+
+        fireEvent.click(install);
+        expect(
+            await screen.findByText(
+                'Presetări instalate: 2. Regulile noi sau schimbate se aplică automat doar după o previzualizare aprobată.',
+            ),
+        ).toBeTruthy();
+        expect(invokeMock).toHaveBeenCalledWith('install_presets', { presetIds: ['invoices', 'old-installers'] });
+        expect(screen.queryByTestId('rules-presets')).toBeNull();
+        expect(await screen.findByText('Regulă old-installers')).toBeTruthy();
+        expect(screen.getByText('Regulă invoices')).toBeTruthy();
+        expect(screen.queryByText('Facturi și chitanțe')).toBeNull();
+    });
+
+    it('shows install errors and keeps the panel open', async () => {
+        render(<RulesView />);
+        await screen.findByText('Nicio regulă încă');
+        fireEvent.click(screen.getByRole('button', { name: 'Adaugă presetări' }));
+        fireEvent.click(await screen.findByTestId('rules-preset-old-installers'));
+        const base = invokeMock.getMockImplementation();
+        invokeMock.mockImplementation(async (cmd, args) => {
+            if (cmd === 'install_presets') throw 'preset.storage';
+            return base?.(cmd, args);
+        });
+        fireEvent.click(screen.getByTestId('rules-presets-install'));
+        expect(await screen.findByText('Presetările nu au putut fi instalate.')).toBeTruthy();
+        expect(screen.getByTestId('rules-presets')).toBeTruthy();
     });
 });

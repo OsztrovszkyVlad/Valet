@@ -3,8 +3,11 @@ import { useTranslation } from 'react-i18next';
 import {
     completeOnboarding,
     dryRun,
+    getAppSettings,
     listPresets,
     parseCommandError,
+    saveAppSettings,
+    type Language,
     type Preset,
 } from '../api/commands';
 import { commandErrorMessage, commandErrorText } from '../i18n/format';
@@ -20,6 +23,8 @@ const KNOWN_FOLDERS: { token: string; checked: boolean }[] = [
     { token: '{pictures}', checked: false },
 ];
 
+const LANGUAGES: Language[] = ['ro', 'en'];
+
 interface OnboardingViewProps {
     /** Onboarding is saved; `result` is the first preview (or why it failed). */
     onFinished: (result: InitialPreview) => void;
@@ -31,8 +36,10 @@ interface OnboardingViewProps {
  * saves the choices and runs a preview.
  */
 const OnboardingView: React.FC<OnboardingViewProps> = ({ onFinished }) => {
-    const { t } = useTranslation();
+    const { t, i18n } = useTranslation();
     const uid = useId();
+    const [langSaving, setLangSaving] = useState(false);
+    const [langError, setLangError] = useState('');
     const [step, setStep] = useState<1 | 2>(1);
     const [checked, setChecked] = useState<Record<string, boolean>>(() =>
         Object.fromEntries(KNOWN_FOLDERS.map((f) => [f.token, f.checked])),
@@ -63,6 +70,31 @@ const OnboardingView: React.FC<OnboardingViewProps> = ({ onFinished }) => {
     useEffect(() => {
         if (step === 2 && presets === null) void loadPresets();
     }, [step, presets, loadPresets]);
+
+    const language: Language = i18n.resolvedLanguage === 'en' ? 'en' : 'ro';
+
+    /**
+     * Switches the UI at once and saves `language`, so `list_presets` and the
+     * folder names of installed presets follow it.
+     */
+    const changeLanguage = async (next: Language) => {
+        if (next === language) return;
+        const previous = language;
+        setLangError('');
+        setLangSaving(true);
+        await i18n.changeLanguage(next);
+        try {
+            const settings = await getAppSettings();
+            await saveAppSettings({ ...settings, language: next });
+            // Loaded again, in the new language, on step 2.
+            setPresets(null);
+        } catch (err) {
+            await i18n.changeLanguage(previous);
+            setLangError(t('onboarding.languageSaveFailed', { message: commandErrorMessage(t, err) }));
+        } finally {
+            setLangSaving(false);
+        }
+    };
 
     const addFolder = (e: React.FormEvent) => {
         e.preventDefault();
@@ -122,6 +154,29 @@ const OnboardingView: React.FC<OnboardingViewProps> = ({ onFinished }) => {
 
             {step === 1 && (
                 <section aria-labelledby={`${uid}-folders`}>
+                    <div className="onboarding-language">
+                        <label htmlFor={`${uid}-language`}>{t('onboarding.language')}</label>
+                        <select
+                            id={`${uid}-language`}
+                            className="form-input onboarding-language-select"
+                            data-testid="onboarding-language"
+                            value={language}
+                            disabled={langSaving}
+                            onChange={(e) => void changeLanguage(e.target.value as Language)}
+                        >
+                            {LANGUAGES.map((lng) => (
+                                <option key={lng} value={lng}>
+                                    {lng === 'ro' ? t('settings.languageRo') : t('settings.languageEn')}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                    {langError && (
+                        <div className="error-message" role="alert">
+                            {langError}
+                        </div>
+                    )}
+
                     <h2 id={`${uid}-folders`} className="view-title">
                         {t('onboarding.foldersTitle')}
                     </h2>
@@ -182,7 +237,7 @@ const OnboardingView: React.FC<OnboardingViewProps> = ({ onFinished }) => {
                         <button
                             className="btn-primary"
                             data-testid="onboarding-next"
-                            disabled={folders.length === 0}
+                            disabled={folders.length === 0 || langSaving}
                             onClick={() => {
                                 setFolderError('');
                                 setStep(2);

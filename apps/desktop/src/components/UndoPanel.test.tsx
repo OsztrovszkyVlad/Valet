@@ -156,6 +156,9 @@ describe('UndoPanel', () => {
 
         fireEvent.click(screen.getByTestId('undo-confirm'));
         expect(await screen.findByText('Fișiere care cer confirmare: 2')).toBeTruthy();
+        // A trashed item is never renamed on restore: it stays in the Recycle Bin.
+        expect(screen.getByText(/elementul nu poate fi restaurat și rămâne în Coșul de reciclare/)).toBeTruthy();
+        expect(screen.queryByText(/va primi un nume nou/)).toBeNull();
         fireEvent.click(screen.getByTestId('undo-force'));
 
         expect(await screen.findByText('Rezultatul anulării')).toBeTruthy();
@@ -170,6 +173,26 @@ describe('UndoPanel', () => {
 
         fireEvent.click(screen.getByRole('button', { name: 'Închide' }));
         expect(onClose).toHaveBeenCalledWith(false);
+    });
+
+    it('says a moved file whose original place is taken gets a new name', async () => {
+        invokeMock.mockImplementation(async (cmd) => {
+            if (cmd === 'get_batch') return detail;
+            if (cmd === 'undo_batch') {
+                return report({
+                    undone: [1],
+                    needs_confirmation: [
+                        { op_id: 2, source: 'C:\\in\\b.pdf', dest: 'C:\\out\\b.pdf', reasons: ['SourceOccupied'] },
+                    ],
+                });
+            }
+            throw new Error(`unexpected command ${cmd}`);
+        });
+        render(<UndoPanel batchId="b1" canUndo />);
+
+        await reachConfirmation();
+        expect(screen.getByText('Locul inițial e ocupat; fișierul va primi un nume nou')).toBeTruthy();
+        expect(screen.queryByText(/rămâne în Coșul de reciclare/)).toBeNull();
     });
 
     it('shows no start button when undo is not allowed', () => {
