@@ -1,7 +1,6 @@
-//! App startup: DB init and sample rules, config logging, file watcher, app state, tray,
-//! main window visibility.
+//! App startup: DB init and sample rules, journal recovery, app state, file
+//! watcher with the auto-apply loop, tray, main window visibility.
 
-use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 
 use tauri::{
@@ -32,67 +31,11 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
         }
     });
 
-    // INFO logs carry counts, never paths or config contents.
-    let cfg_path = cfg_dir.join("config.json");
-
     // --- App state (before the watcher, which stores its handle here) ---
-    let watcher_slot = state.watcher.clone();
     app.manage(state);
 
-    // --- Start file watcher ---
-    match std::fs::read_to_string(&cfg_path) {
-        Ok(txt) => {
-            // Parse the config to extract the inbox_paths
-            if let Ok(config_json) = serde_json::from_str::<serde_json::Value>(&txt) {
-                if let Some(inbox_paths) = config_json.get("inbox_paths").and_then(|v| v.as_array())
-                {
-                    let watch_paths: Vec<PathBuf> = inbox_paths
-                        .iter()
-                        .filter_map(|v| v.as_str())
-                        .map(PathBuf::from)
-                        .collect();
-
-                    log::info!(
-                        "config loaded: {} inbox folder(s), starting watcher",
-                        watch_paths.len()
-                    );
-                    log::debug!("watch paths: {:?}", watch_paths);
-
-                    let _watcher_handle = tauri::async_runtime::spawn(async move {
-                        let result =
-                            valet_platform::watch_paths(watch_paths.clone(), move |files| {
-                                log::info!("watcher event: {} file(s)", files.len());
-                                log::debug!("watcher event files: {:?}", files);
-                                // TODO: Process the files here
-                            })
-                            .await;
-
-                        match result {
-                            Ok(handle) => {
-                                *watcher_slot
-                                    .lock()
-                                    .unwrap_or_else(|poisoned| poisoned.into_inner()) =
-                                    Some(handle);
-                                log::info!("✅ Watcher started successfully");
-                            }
-                            Err(e) => {
-                                // The error chain names the folder that failed.
-                                log::error!("Failed to start watcher");
-                                log::debug!("watcher error: {:#}", e);
-                            }
-                        }
-                    });
-                } else {
-                    log::warn!("No inbox_paths found in config");
-                }
-            } else {
-                log::warn!("Failed to parse config JSON");
-            }
-        }
-        Err(e) => {
-            log::warn!("Could not read config for watcher setup: {:?}", e);
-        }
-    }
+    // --- File watcher and auto-apply loop, after recovery ---
+    crate::auto::start(app.handle(), cfg_dir);
 
     // --- Tray ---
     let tray_menu = tray_menu(app.handle())?;

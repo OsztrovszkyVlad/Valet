@@ -1,36 +1,100 @@
 //! Operation commands: dry run, execute, statistics, history.
 
-use std::path::PathBuf;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::Instant;
 
 use tauri::{Emitter, Manager};
 use valet_core::{
     executor::{self, BatchReport, UndoReport},
-    journal::{BatchInfo, OpRecord},
-    planner::{self, OpKind, Plan, PlanContext},
+    journal::{BatchInfo, Journal, OpRecord},
+    planner::{self, OpKind, Plan, PlanContext, PlannedOp},
     platform::Platform,
+    rules::Rule,
     storage::Db,
 };
 
-use crate::commands::platform::{send_notification, NotificationLevel};
-use crate::commands::settings::{get_app_settings, watched_folders};
+use crate::commands::platform::notify_batch_done;
+use crate::commands::settings::{record_preview_approval, watched_folders, RuleVersion};
 use crate::state::{config_dir, AppState};
 
-/// Plans moves and copies for `paths` with the rules stored in `db`.
-pub(crate) async fn plan_for_paths(
-    paths: &[PathBuf],
-    db: &Db,
-    platform: &dyn Platform,
+/// Plans `roots` with `rules` on a blocking thread: the planner walks
+/// directories and may hash files, which must not stall the async runtime.
+pub(crate) async fn plan_blocking(
+    roots: Vec<PathBuf>,
+    rules: Vec<Rule>,
+    platform: Arc<dyn Platform>,
 ) -> Result<Plan, String> {
-    let rules = db
-        .list_rules()
-        .await
-        .map_err(|e| format!("Failed to load rules: {}", e))?;
-    Ok(planner::plan(
-        paths,
-        &rules,
-        platform,
-        &PlanContext::from_system(),
-    ))
+    tokio::task::spawn_blocking(move || {
+        planner::plan(
+            &roots,
+            &rules,
+            platform.as_ref(),
+            &PlanContext::from_system(),
+        )
+    })
+    .await
+    .map_err(|e| format!("Planning stopped: {e}"))
+}
+
+/// Runs `executor::execute` on a blocking thread (file I/O and hashing run
+/// inline in the executor; the journal calls are driven by the runtime
+/// handle).
+pub(crate) async fn execute_blocking(
+    ops: Vec<PlannedOp>,
+    journal: Journal,
+    platform: Arc<dyn Platform>,
+) -> Result<BatchReport, String> {
+    let handle = tokio::runtime::Handle::current();
+    tokio::task::spawn_blocking(move || {
+        handle.block_on(executor::execute(&ops, &journal, platform.as_ref()))
+    })
+    .await
+    .map_err(|e| format!("Execution stopped: {e}"))?
+    .map_err(|e| format!("Operation journal could not be written: {:#}", e))
+}
+
+/// The enabled rules a plan contains, at their current version: rules with
+/// an operation or a report entry (by id), and rules named by a skipped
+/// entry (skips carry only the rule name). Executing the plan approves them.
+pub(crate) fn rules_in_plan(plan: &Plan, rules: &[Rule]) -> Vec<RuleVersion> {
+    let ids: HashSet<uuid::Uuid> = plan
+        .ops
+        .iter()
+        .map(|o| o.rule_id)
+        .chain(plan.reports.iter().map(|r| r.rule_id))
+        .collect();
+    let skip_names: HashSet<&str> = plan
+        .skipped
+        .iter()
+        .filter_map(|s| s.rule_name.as_deref())
+        .collect();
+    rules
+        .iter()
+        .filter(|r| r.enabled && (ids.contains(&r.id) || skip_names.contains(r.name.as_str())))
+        .map(|r| (r.id, r.version))
+        .collect()
+}
+
+/// Writes one statistics row per result (as `execute_operations` always did).
+pub(crate) async fn record_stats(db: &Db, report: &BatchReport) {
+    for r in &report.results {
+        let error = r.error.as_ref().map(|e| e.journal_text());
+        if let Err(e) = db
+            .record_operation(
+                &r.source.to_string_lossy(),
+                &r.dest.to_string_lossy(),
+                op_type(r.kind),
+                &r.rule_name,
+                if error.is_none() { "success" } else { "failed" },
+                error.as_deref(),
+            )
+            .await
+        {
+            log::warn!("Failed to record operation: {}", e);
+        }
+    }
 }
 
 fn op_type(kind: OpKind) -> &'static str {
@@ -62,9 +126,20 @@ pub(crate) async fn dry_run(app: tauri::AppHandle) -> Result<serde_json::Value, 
     // Watched folders that exist; `config.noFolders` when there are none.
     let paths = watched_folders(&config_dir(&app)?)?;
 
-    let plan = plan_for_paths(&paths, &db, state.platform.as_ref())
+    let rules = db
+        .list_rules()
         .await
-        .map_err(|e| format!("Dry run failed: {}", e))?;
+        .map_err(|e| format!("Dry run failed: Failed to load rules: {}", e))?;
+    // Auto-apply waits while the preview is open (from before planning, so
+    // no pass moves files between the plan and the user's decision).
+    state.open_preview(Instant::now());
+    let plan = plan_blocking(paths.clone(), rules.clone(), state.platform.clone())
+        .await
+        .map_err(|e| {
+            state.close_preview();
+            format!("Dry run failed: {}", e)
+        })?;
+    let plan_rules = rules_in_plan(&plan, &rules);
 
     log::info!(
         "Dry-run completed: {} operation(s) proposed, {} skipped, across {} path(s)",
@@ -75,7 +150,7 @@ pub(crate) async fn dry_run(app: tauri::AppHandle) -> Result<serde_json::Value, 
 
     let plan_id = uuid::Uuid::new_v4().to_string();
     let json = dry_run_json(&plan, &plan_id);
-    state.store_preview(plan_id, plan);
+    state.store_preview(plan_id, plan, plan_rules);
     Ok(json)
 }
 
@@ -178,43 +253,33 @@ fn execute_response(report: &BatchReport) -> ExecuteResponse {
 /// The stored plan is consumed: a second call with the same id, a wrong id or
 /// no preview returns `PREVIEW_REQUIRED` and touches nothing.
 /// `before_execute` runs once the plan is taken, before any file operation.
+/// After the batch the rules the preview contained are approved at their
+/// previewed version (`approvals.json` in `cfg_dir`) and
+/// `first_preview_approved` is set; failing to write that is logged only.
 pub(crate) async fn execute_previewed(
     state: &AppState,
     db: &Db,
+    cfg_dir: &Path,
     plan_id: &str,
     before_execute: impl FnOnce(&Plan),
 ) -> Result<BatchReport, String> {
     // One batch at a time.
     let _file_ops = state.file_ops.lock().await;
-    let plan = state.take_preview(plan_id)?;
+    let (plan, plan_rules) = state.take_preview(plan_id)?;
     before_execute(&plan);
 
-    let report = executor::execute(&plan.ops, &db.journal(), state.platform.as_ref())
-        .await
-        .map_err(|e| format!("Operation journal could not be written: {:#}", e))?;
-
-    for r in &report.results {
-        let error = r.error.as_ref().map(|e| e.journal_text());
-        if let Err(e) = db
-            .record_operation(
-                &r.source.to_string_lossy(),
-                &r.dest.to_string_lossy(),
-                op_type(r.kind),
-                &r.rule_name,
-                if error.is_none() { "success" } else { "failed" },
-                error.as_deref(),
-            )
-            .await
-        {
-            log::warn!("Failed to record operation: {}", e);
-        }
+    let report = execute_blocking(plan.ops, db.journal(), state.platform.clone()).await?;
+    record_stats(db, &report).await;
+    // Still under `file_ops`, so an auto-apply pass sees all or none of it.
+    if record_preview_approval(cfg_dir, &plan_rules).is_err() {
+        log::warn!("Rule approvals could not be saved");
     }
     Ok(report)
 }
 
 /// Executes the plan the last `dry_run` returned. `plan_id` is that
 /// response's `plan_id`; without a matching preview the error is
-/// `"preview_required"`.
+/// `"preview_required"`. Closes the preview (auto-apply may run again).
 #[tauri::command]
 pub(crate) async fn execute_operations(
     plan_id: String,
@@ -224,23 +289,13 @@ pub(crate) async fn execute_operations(
 
     let start_time = std::time::Instant::now();
     let state = app.state::<AppState>();
+    state.close_preview();
     let db = Db::connect(&state._db_path)
         .await
         .map_err(|e| format!("Database connection failed: {}", e))?;
 
-    // Load settings for notifications
-    let settings = get_app_settings(app.clone()).await.unwrap_or_default();
-
-    let notify_app = app.clone();
-    let report = execute_previewed(&state, &db, &plan_id, |plan| {
+    let report = execute_previewed(&state, &db, &config_dir(&app)?, &plan_id, |plan| {
         log::info!("Executing {} file operation(s)", plan.ops.len());
-        if settings.notifications_enabled && !plan.ops.is_empty() {
-            let message = format!("Starting organization of {} files", plan.ops.len());
-            tauri::async_runtime::spawn(async move {
-                let _ =
-                    send_notification("Valet File Manager".to_string(), message, notify_app).await;
-            });
-        }
     })
     .await?;
 
@@ -280,35 +335,18 @@ pub(crate) async fn execute_operations(
         let _ = window.emit("operation-complete", &performance_metrics);
     }
 
-    // Send completion notification
-    if settings.notifications_enabled {
-        let (title, message, _level) = if response.success {
-            (
-                "Organization Complete",
-                &format!(
-                    "Successfully organized {} files in {:.1}s",
-                    executed_count,
-                    total_time.as_secs_f32()
-                ),
-                NotificationLevel::Success,
-            )
-        } else {
-            (
-                "Organization Completed with Issues",
-                &format!(
-                    "{} files organized, {} failed in {:.1}s",
-                    executed_count,
-                    failed_count,
-                    total_time.as_secs_f32()
-                ),
-                NotificationLevel::Warning,
-            )
-        };
-
-        let _ = send_notification(title.to_string(), message.to_string(), app.clone()).await;
-    }
+    // Short notification in the UI language; nothing for an empty batch.
+    notify_batch_done(&app, executed_count, failed_count);
 
     Ok(response)
+}
+
+/// The user left the preview without executing it: auto-apply may run
+/// again. The stored plan stays executable.
+#[tauri::command]
+pub(crate) async fn close_preview(app: tauri::AppHandle) -> Result<(), String> {
+    app.state::<AppState>().close_preview();
+    Ok(())
 }
 
 /// Default number of batches returned by `list_batches`.
@@ -452,10 +490,7 @@ pub(crate) async fn clear_operation_history(app: tauri::AppHandle) -> Result<(),
 mod tests {
     use super::*;
 
-    use std::path::Path;
-
     use valet_core::executor::{FailCode, OpError, OpResult};
-    use valet_core::planner::PlannedOp;
 
     use crate::state::PREVIEW_REQUIRED;
 
@@ -477,6 +512,7 @@ mod tests {
         _tmp: tempfile::TempDir,
         inbox: PathBuf,
         out: PathBuf,
+        cfg: PathBuf,
         state: AppState,
         db: Db,
     }
@@ -490,23 +526,25 @@ mod tests {
         let db_path = tmp.path().join("db").join("valet.sqlite3");
         let state = AppState::new(db_path.clone());
         let db = Db::connect(&db_path).await.unwrap();
+        let cfg = tmp.path().join("cfg");
         Fixture {
             _tmp: tmp,
             inbox,
             out,
+            cfg,
             state,
             db,
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn execute_without_matching_preview_touches_nothing() {
         let f = fixture().await;
         let a = f.inbox.join("a.txt");
         std::fs::write(&a, b"a").unwrap();
 
         // No preview stored.
-        let err = execute_previewed(&f.state, &f.db, "missing", |_| panic!("ran"))
+        let err = execute_previewed(&f.state, &f.db, &f.cfg, "missing", |_| panic!("ran"))
             .await
             .unwrap_err();
         assert_eq!(err, PREVIEW_REQUIRED);
@@ -517,8 +555,8 @@ mod tests {
             skipped: vec![],
             reports: vec![],
         };
-        f.state.store_preview("p-1".to_string(), plan);
-        let err = execute_previewed(&f.state, &f.db, "p-2", |_| panic!("ran"))
+        f.state.store_preview("p-1".to_string(), plan, vec![]);
+        let err = execute_previewed(&f.state, &f.db, &f.cfg, "p-2", |_| panic!("ran"))
             .await
             .unwrap_err();
         assert_eq!(err, PREVIEW_REQUIRED);
@@ -529,7 +567,7 @@ mod tests {
         assert!(f.db.get_recent_operations(10).await.unwrap().is_empty());
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn execute_runs_only_the_previewed_ops_and_consumes_the_plan() {
         let f = fixture().await;
         let a = f.inbox.join("a.txt");
@@ -539,14 +577,14 @@ mod tests {
             skipped: vec![],
             reports: vec![],
         };
-        f.state.store_preview("p-1".to_string(), plan);
+        f.state.store_preview("p-1".to_string(), plan, vec![]);
 
         // Appears after the preview; the same rule would match it.
         let late = f.inbox.join("late.txt");
         std::fs::write(&late, b"late").unwrap();
 
         let mut seen = 0;
-        let report = execute_previewed(&f.state, &f.db, "p-1", |p| seen = p.ops.len())
+        let report = execute_previewed(&f.state, &f.db, &f.cfg, "p-1", |p| seen = p.ops.len())
             .await
             .unwrap();
         assert_eq!(seen, 1);
@@ -559,11 +597,108 @@ mod tests {
         assert_eq!(f.db.get_recent_operations(10).await.unwrap().len(), 1);
 
         // The plan is used up.
-        let err = execute_previewed(&f.state, &f.db, "p-1", |_| panic!("ran"))
+        let err = execute_previewed(&f.state, &f.db, &f.cfg, "p-1", |_| panic!("ran"))
             .await
             .unwrap_err();
         assert_eq!(err, PREVIEW_REQUIRED);
         assert_eq!(f.db.journal().list_batches(10).await.unwrap().len(), 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn execute_approves_the_previewed_rules_at_their_version() {
+        use crate::commands::settings::{load_app_settings, load_approvals};
+        let f = fixture().await;
+        let a = f.inbox.join("a.txt");
+        std::fs::write(&a, b"a").unwrap();
+        let mut op = planned_move(&a, &f.out.join("a.txt"));
+        op.rule_id = uuid::Uuid::from_u128(7);
+        let plan = Plan {
+            ops: vec![op],
+            skipped: vec![],
+            reports: vec![],
+        };
+
+        // A refused execute approves nothing.
+        f.state
+            .store_preview("p-1".to_string(), plan, vec![(uuid::Uuid::from_u128(7), 2)]);
+        execute_previewed(&f.state, &f.db, &f.cfg, "p-2", |_| {})
+            .await
+            .unwrap_err();
+        assert!(load_approvals(&f.cfg).0.is_empty());
+        assert!(!load_app_settings(&f.cfg).first_preview_approved);
+
+        execute_previewed(&f.state, &f.db, &f.cfg, "p-1", |_| {})
+            .await
+            .unwrap();
+        let approvals = load_approvals(&f.cfg);
+        assert_eq!(approvals.0.get(&uuid::Uuid::from_u128(7)), Some(&2));
+        assert!(load_app_settings(&f.cfg).first_preview_approved);
+
+        let mut r = rule(7, "r", 2);
+        assert!(approvals.allows(&r));
+        r.version = 3; // edited after the preview
+        assert!(!approvals.allows(&r));
+    }
+
+    fn rule(n: u128, name: &str, version: i32) -> Rule {
+        serde_json::from_value(serde_json::json!({
+            "id": uuid::Uuid::from_u128(n),
+            "name": name,
+            "enabled": true,
+            "conditions": [],
+            "actions": [{ "type": "report" }],
+            "version": version,
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn rules_in_plan_has_rules_with_ops_reports_or_skips() {
+        let op_rule = rule(1, "moves", 3);
+        let report_rule = rule(2, "reports", 1);
+        let skip_rule = rule(3, "skips", 5);
+        let unused = rule(4, "unused", 1);
+        let mut disabled = rule(5, "skips", 1);
+        disabled.enabled = false;
+        let plan = Plan {
+            ops: vec![PlannedOp {
+                source: PathBuf::from("in/a"),
+                dest: PathBuf::from("out/a"),
+                kind: OpKind::Move,
+                rule_id: op_rule.id,
+                rule_name: op_rule.name.clone(),
+                size: 1,
+                mtime: std::time::SystemTime::UNIX_EPOCH,
+            }],
+            skipped: vec![
+                valet_core::planner::Skipped {
+                    path: PathBuf::from("in/b"),
+                    reason: valet_core::planner::SkipReason::Conflict,
+                    rule_name: Some("skips".to_string()),
+                },
+                valet_core::planner::Skipped {
+                    path: PathBuf::from("in/.git"),
+                    reason: valet_core::planner::SkipReason::Excluded,
+                    rule_name: None,
+                },
+            ],
+            reports: vec![valet_core::planner::ReportEntry {
+                path: PathBuf::from("in/c"),
+                rule_id: report_rule.id,
+                rule_name: report_rule.name.clone(),
+                size: 1,
+                group: None,
+            }],
+        };
+        let rules = [op_rule, report_rule, skip_rule, unused, disabled];
+        assert_eq!(
+            rules_in_plan(&plan, &rules),
+            vec![
+                (uuid::Uuid::from_u128(1), 3),
+                (uuid::Uuid::from_u128(2), 1),
+                (uuid::Uuid::from_u128(3), 5),
+            ]
+        );
     }
 
     fn result(name: &str, kind: OpKind, error: Option<OpError>) -> OpResult {

@@ -7,6 +7,7 @@ use tauri_plugin_log::Builder;
 
 use commands::platform::launched_minimized;
 
+mod auto;
 mod commands;
 mod i18n;
 mod setup;
@@ -39,6 +40,7 @@ fn main() {
             commands::rules::delete_rule,
             commands::operations::dry_run,
             commands::operations::execute_operations,
+            commands::operations::close_preview,
             commands::settings::get_config,
             commands::settings::save_config,
             commands::settings::get_app_settings,

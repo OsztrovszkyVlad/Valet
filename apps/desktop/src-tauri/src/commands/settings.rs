@@ -1,19 +1,23 @@
-//! Settings commands: watched-folder config (`config.json`) and app settings
-//! (`app_settings.json`, settings v2).
+//! Settings commands: watched-folder config (`config.json`), app settings
+//! (`app_settings.json`, settings v2) and rule approvals (`approvals.json`).
 //!
-//! Both files are Valet's own; they are the only files Valet overwrites.
+//! These files are Valet's own; they are the only files Valet overwrites.
 //!
 //! Errors are stable codes the UI translates: `config.driveRoot`,
 //! `config.excludedFolder` and `config.missing` (each as `code: <path>`),
 //! `config.noFolders` (from `dry_run`), `settings.io` and `config.io`
 //! (detail in the log).
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Deserializer, Serialize};
+use tauri::Manager;
+use uuid::Uuid;
 use valet_core::planner::is_excluded_dir_name;
+use valet_core::rules::Rule;
 
-use crate::state::config_dir;
+use crate::state::{config_dir, AppState};
 
 pub(crate) const ERR_DRIVE_ROOT: &str = "config.driveRoot";
 pub(crate) const ERR_EXCLUDED_FOLDER: &str = "config.excludedFolder";
@@ -24,6 +28,7 @@ pub(crate) const ERR_SETTINGS_IO: &str = "settings.io";
 
 const CONFIG_FILE: &str = "config.json";
 const SETTINGS_FILE: &str = "app_settings.json";
+const APPROVALS_FILE: &str = "approvals.json";
 
 // ---------------------------------------------------------------- config.json
 
@@ -146,10 +151,16 @@ fn save_config_in(dir: &Path, config: Config) -> Result<Config, String> {
 
 #[tauri::command]
 pub(crate) async fn save_config(config: Config, app: tauri::AppHandle) -> Result<Config, String> {
-    let saved = save_config_in(&config_dir(&app)?, config)?;
+    let dir = config_dir(&app)?;
+    let saved = save_config_in(&dir, config)?;
     log::info!(
         "Config saved: {} watched folder(s)",
         saved.inbox_paths.len()
+    );
+    // Watch the new folders and let auto-apply scan them.
+    crate::auto::restart_watcher(
+        &app.state::<AppState>(),
+        watched_folders(&dir).unwrap_or_default(),
     );
     Ok(saved)
 }
@@ -242,7 +253,74 @@ pub(crate) async fn save_app_settings(
 ) -> Result<AppSettings, String> {
     let saved = save_app_settings_in(&config_dir(&app)?, settings)?;
     log::info!("App settings saved");
+    // The tray menu follows the language setting.
+    if let Err(e) = crate::setup::refresh_tray(&app) {
+        log::warn!("Failed to update the tray menu: {e}");
+    }
     Ok(saved)
+}
+
+// ---------------------------------------------------------------- approvals.json
+
+/// A rule id with the rule version it had.
+pub(crate) type RuleVersion = (Uuid, i32);
+
+/// `approvals.json`: rule id -> the rule version the user approved by
+/// executing a preview that contained the rule. Auto-apply runs a rule only
+/// at its approved version; editing a rule bumps its version, so it needs a
+/// new preview.
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, Eq)]
+#[serde(transparent)]
+pub(crate) struct Approvals(pub(crate) BTreeMap<Uuid, i32>);
+
+impl Approvals {
+    /// `rule` is approved at its current version.
+    pub(crate) fn allows(&self, rule: &Rule) -> bool {
+        self.0.get(&rule.id) == Some(&rule.version)
+    }
+}
+
+/// Stored approvals; none when the file is missing or unreadable (so
+/// nothing is auto-applied).
+pub(crate) fn load_approvals(dir: &Path) -> Approvals {
+    let path = dir.join(APPROVALS_FILE);
+    if !path.exists() {
+        return Approvals::default();
+    }
+    match std::fs::read_to_string(&path)
+        .map_err(|e| e.to_string())
+        .and_then(|t| serde_json::from_str(&t).map_err(|e| e.to_string()))
+    {
+        Ok(a) => a,
+        Err(e) => {
+            log::warn!("approvals.json unreadable, no rule is approved: {e}");
+            Approvals::default()
+        }
+    }
+}
+
+/// Records that the user executed a preview containing `rules`: each is
+/// approved at the given version (replacing an older approval), and
+/// `first_preview_approved` is set in `app_settings.json`.
+pub(crate) fn record_preview_approval(dir: &Path, rules: &[RuleVersion]) -> Result<(), String> {
+    let mut approvals = load_approvals(dir);
+    for (id, version) in rules {
+        approvals.0.insert(*id, *version);
+    }
+    write_json(dir, APPROVALS_FILE, &approvals, ERR_SETTINGS_IO)?;
+    let settings = load_app_settings(dir);
+    if !settings.first_preview_approved {
+        write_json(
+            dir,
+            SETTINGS_FILE,
+            &AppSettings {
+                first_preview_approved: true,
+                ..settings
+            },
+            ERR_SETTINGS_IO,
+        )?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -452,6 +530,44 @@ mod tests {
 
         std::fs::write(tmp.path().join(SETTINGS_FILE), "{ not json").unwrap();
         assert_eq!(load_app_settings(tmp.path()), AppSettings::default());
+    }
+
+    fn rule(n: u128, version: i32) -> Rule {
+        serde_json::from_value(json!({
+            "id": Uuid::from_u128(n),
+            "name": format!("r{n}"),
+            "enabled": true,
+            "conditions": [],
+            "actions": [{ "type": "report" }],
+            "version": version,
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn approval_is_per_version_and_sets_first_preview_approved() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        assert_eq!(load_approvals(dir), Approvals::default());
+        assert!(!load_app_settings(dir).first_preview_approved);
+
+        record_preview_approval(dir, &[(Uuid::from_u128(1), 2)]).unwrap();
+        let a = load_approvals(dir);
+        assert!(a.allows(&rule(1, 2)));
+        assert!(!a.allows(&rule(1, 3)), "an edited rule needs a new preview");
+        assert!(!a.allows(&rule(1, 1)));
+        assert!(!a.allows(&rule(2, 2)), "never previewed");
+        assert!(load_app_settings(dir).first_preview_approved);
+
+        // A later preview approves the new version and keeps other rules.
+        record_preview_approval(dir, &[(Uuid::from_u128(1), 3), (Uuid::from_u128(2), 1)]).unwrap();
+        let a = load_approvals(dir);
+        assert!(a.allows(&rule(1, 3)) && !a.allows(&rule(1, 2)));
+        assert!(a.allows(&rule(2, 1)));
+
+        // An unreadable file approves nothing.
+        std::fs::write(dir.join(APPROVALS_FILE), "{ nope").unwrap();
+        assert_eq!(load_approvals(dir), Approvals::default());
     }
 
     #[test]

@@ -2,11 +2,22 @@
 
 use std::path::PathBuf;
 use std::sync::{atomic::AtomicBool, Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use tauri::{Manager, Runtime};
 use valet_core::planner::Plan;
 use valet_core::platform::Platform;
 use valet_platform::WatchCancel;
+
+use crate::auto::AutoMsg;
+use crate::commands::settings::RuleVersion;
+
+/// Auto-apply stays paused this long after `dry_run` when the UI neither
+/// executes the preview nor calls `close_preview`.
+pub(crate) const PREVIEW_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+
+/// Plan id, plan, and the rules (id, version) the plan contains.
+pub(crate) type StoredPreview = (String, Plan, Vec<RuleVersion>);
 
 #[derive(Clone)]
 pub(crate) struct AppState {
@@ -18,9 +29,15 @@ pub(crate) struct AppState {
     pub(crate) watcher: Arc<Mutex<Option<WatchCancel>>>,
     /// Held while a batch is executed or undone, so batches never overlap.
     pub(crate) file_ops: Arc<tauri::async_runtime::Mutex<()>>,
-    /// The latest plan `dry_run` showed, with its id. `execute_operations`
-    /// runs only this plan, and only when given the same id.
-    pub(crate) preview: Arc<Mutex<Option<(String, Plan)>>>,
+    /// The latest plan `dry_run` showed, with its id and the rules (id,
+    /// version) it contains. `execute_operations` runs only this plan, and
+    /// only when given the same id.
+    pub(crate) preview: Arc<Mutex<Option<StoredPreview>>>,
+    /// When `dry_run` last opened a preview; `None` once it was executed or
+    /// closed. Auto-apply waits while a preview is open (PLAN 4.4).
+    pub(crate) preview_opened: Arc<Mutex<Option<Instant>>>,
+    /// Sender to the auto-apply loop (`auto::start`); `None` before it starts.
+    pub(crate) auto_tx: Arc<Mutex<Option<tokio::sync::mpsc::UnboundedSender<AutoMsg>>>>,
 }
 
 /// Error string `execute_operations` returns when there is no previewed plan
@@ -36,32 +53,61 @@ impl AppState {
             watcher: Arc::new(Mutex::new(None)),
             file_ops: Arc::new(tauri::async_runtime::Mutex::new(())),
             preview: Arc::new(Mutex::new(None)),
+            preview_opened: Arc::new(Mutex::new(None)),
+            auto_tx: Arc::new(Mutex::new(None)),
         }
     }
 
     /// Stores `plan` under `plan_id` as the latest preview, replacing any
-    /// earlier one.
-    pub(crate) fn store_preview(&self, plan_id: String, plan: Plan) {
+    /// earlier one. `rules` are the rules (id, version) the plan contains;
+    /// executing it approves them.
+    pub(crate) fn store_preview(&self, plan_id: String, plan: Plan, rules: Vec<RuleVersion>) {
         *self
             .preview
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some((plan_id, plan));
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some((plan_id, plan, rules));
     }
 
-    /// Removes and returns the stored preview if its id is `plan_id`.
-    /// Otherwise leaves it in place and returns `PREVIEW_REQUIRED`.
-    pub(crate) fn take_preview(&self, plan_id: &str) -> Result<Plan, String> {
+    /// Removes and returns the stored preview (plan and its rules) if its id
+    /// is `plan_id`. Otherwise leaves it in place and returns
+    /// `PREVIEW_REQUIRED`.
+    pub(crate) fn take_preview(&self, plan_id: &str) -> Result<(Plan, Vec<RuleVersion>), String> {
         let mut slot = self
             .preview
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         match slot.take() {
-            Some((id, plan)) if id == plan_id => Ok(plan),
+            Some((id, plan, rules)) if id == plan_id => Ok((plan, rules)),
             other => {
                 *slot = other;
                 Err(PREVIEW_REQUIRED.to_string())
             }
         }
+    }
+
+    /// Marks a preview as open at `now` (`dry_run`).
+    pub(crate) fn open_preview(&self, now: Instant) {
+        *self
+            .preview_opened
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(now);
+    }
+
+    /// Marks the preview as closed (`execute_operations`, `close_preview`).
+    pub(crate) fn close_preview(&self) {
+        *self
+            .preview_opened
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+    }
+
+    /// A preview is open at `now`: opened, not closed, and opened less than
+    /// [`PREVIEW_TIMEOUT`] ago.
+    pub(crate) fn preview_active(&self, now: Instant) -> bool {
+        self.preview_opened
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .is_some_and(|opened| now.saturating_duration_since(opened) < PREVIEW_TIMEOUT)
     }
 
     /// Stops the file watcher if one is running. Safe to call more than once.
@@ -126,15 +172,16 @@ mod tests {
     #[test]
     fn take_preview_with_wrong_id_keeps_the_stored_plan() {
         let state = AppState::new(PathBuf::from("valet.sqlite3"));
-        state.store_preview("p-1".to_string(), Plan::default());
+        let rules = vec![(uuid::Uuid::from_u128(1), 3)];
+        state.store_preview("p-1".to_string(), Plan::default(), rules.clone());
         assert_eq!(state.take_preview("other").unwrap_err(), PREVIEW_REQUIRED);
-        assert_eq!(state.take_preview("p-1").unwrap(), Plan::default());
+        assert_eq!(state.take_preview("p-1").unwrap(), (Plan::default(), rules));
     }
 
     #[test]
     fn take_preview_is_single_use() {
         let state = AppState::new(PathBuf::from("valet.sqlite3"));
-        state.store_preview("p-1".to_string(), Plan::default());
+        state.store_preview("p-1".to_string(), Plan::default(), vec![]);
         state.take_preview("p-1").unwrap();
         assert_eq!(state.take_preview("p-1").unwrap_err(), PREVIEW_REQUIRED);
     }
@@ -142,10 +189,31 @@ mod tests {
     #[test]
     fn newer_preview_replaces_older_one() {
         let state = AppState::new(PathBuf::from("valet.sqlite3"));
-        state.store_preview("old".to_string(), Plan::default());
-        state.store_preview("new".to_string(), Plan::default());
+        state.store_preview("old".to_string(), Plan::default(), vec![]);
+        state.store_preview("new".to_string(), Plan::default(), vec![]);
         assert_eq!(state.take_preview("old").unwrap_err(), PREVIEW_REQUIRED);
         state.take_preview("new").unwrap();
+    }
+
+    #[test]
+    fn preview_pause_ends_on_close_or_after_timeout() {
+        let state = AppState::new(PathBuf::from("valet.sqlite3"));
+        let t0 = Instant::now();
+        assert!(!state.preview_active(t0), "no preview yet");
+
+        state.open_preview(t0);
+        assert!(state.preview_active(t0));
+        assert!(state.preview_active(t0 + PREVIEW_TIMEOUT - Duration::from_secs(1)));
+        assert!(!state.preview_active(t0 + PREVIEW_TIMEOUT), "timed out");
+
+        state.open_preview(t0);
+        state.close_preview();
+        assert!(!state.preview_active(t0));
+
+        // A preview opened after `now` (while a pass waited for the lock)
+        // counts as open.
+        state.open_preview(t0 + Duration::from_secs(5));
+        assert!(state.preview_active(t0));
     }
 
     #[test]
