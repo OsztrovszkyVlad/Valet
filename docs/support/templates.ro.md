@@ -201,3 +201,12 @@ să blocheze programele nesemnate. Nu pot schimba asta de aici.
 
 Vlad
 ```
+
+## 7. Note interne: email pierdut, licență scursă, dispută
+
+Doar pentru Vlad, nu se trimit. Toate comenzile se rulează pe server, cu numărul comenzii primit de la om (niciodată codul licenței):
+
+- Emailul cu licența nu a ajuns: `fly ssh console -C "node /app/resend.mjs --order <număr> --store /data/store.json"`. Trimite aceeași licență pe adresa din contul comerciantului.
+- Codul sau fișierul licenței a ajuns într-o pagină publică: `node /app/reissue.mjs --order <număr> --confirm --store /data/store.json`. Revocă licența veche și trimite una nouă, cu aceeași dată „actualizări până la”. Omul importă fișierul nou și scoate licența veche din Setări → Valet Pro.
+- Chargeback sau dispută: licența e revocată automat și marcată „disputed”. `reset.mjs` nu o mai activează. Dacă disputa se rezolvă în favoarea omului și vrei licența înapoi: `node /app/undispute.mjs --order <număr> --confirm --by vlad --store /data/store.json`.
+- Coduri de ieșire: 0 făcut, 1 eroare la comerciant sau la Resend (se poate repeta), 2 refuzat (nu s-a schimbat nimic).

@@ -201,3 +201,12 @@ to block programs that are not signed. I cannot change that from here.
 
 Vlad
 ```
+
+## 7. Internal notes: lost email, leaked license, dispute
+
+For Vlad only, never sent. All commands run on the server, with the order number the person gave (never the license code):
+
+- The license email didn't arrive: `fly ssh console -C "node /app/resend.mjs --order <number> --store /data/store.json"`. It sends the same license to the address on the merchant account.
+- The license code or file ended up on a public page: `node /app/reissue.mjs --order <number> --confirm --store /data/store.json`. It revokes the old license and sends a new one with the same "updates until" date. The person imports the new file and removes the old license in Settings → Valet Pro.
+- Chargeback or dispute: the license is revoked automatically and marked "disputed". `reset.mjs` won't reactivate it. If the dispute ends in the person's favour and you want the license back: `node /app/undispute.mjs --order <number> --confirm --by vlad --store /data/store.json`.
+- Exit codes: 0 done, 1 merchant or Resend error (can be repeated), 2 refused (nothing changed).
