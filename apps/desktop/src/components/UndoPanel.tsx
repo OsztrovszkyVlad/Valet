@@ -1,7 +1,6 @@
-import React, { useState } from 'react';
+import React, { useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-    errorMessage,
     getBatch,
     undoBatch,
     type NeedsConfirmation,
@@ -9,7 +8,7 @@ import {
     type OpType,
     type UndoReport,
 } from '../api/commands';
-import { opErrorText } from '../i18n/format';
+import { commandErrorMessage, opErrorText } from '../i18n/format';
 import './UndoPanel.css';
 
 interface UndoPanelProps {
@@ -22,6 +21,8 @@ interface UndoPanelProps {
     onClose?: (complete: boolean) => void;
     /** `data-testid` of the start button, for UI automation. */
     startTestId?: string;
+    /** Why undo is not allowed (e.g. the Free plan undoes only the latest batch); the button is disabled. */
+    blockedReason?: string;
 }
 
 type Step =
@@ -41,8 +42,10 @@ const UndoPanel: React.FC<UndoPanelProps> = ({
     onUndoRan,
     onClose,
     startTestId = 'undo-start',
+    blockedReason,
 }) => {
     const { t } = useTranslation();
+    const uid = useId();
     const [step, setStep] = useState<Step>({ kind: 'idle' });
     const [error, setError] = useState('');
     // Operation types of the batch, by op id, from the undo preview.
@@ -59,7 +62,7 @@ const UndoPanel: React.FC<UndoPanelProps> = ({
                 ops: detail.operations.filter((op) => op.state === 'done'),
             });
         } catch (err) {
-            setError(t('undo.failedToStart', { message: errorMessage(err) }));
+            setError(t('undo.failedToStart', { message: commandErrorMessage(t, err) }));
             setStep({ kind: 'idle' });
         }
     };
@@ -78,7 +81,7 @@ const UndoPanel: React.FC<UndoPanelProps> = ({
                 setStep({ kind: 'result', first, forced: report });
             }
         } catch (err) {
-            setError(t('undo.failedToStart', { message: errorMessage(err) }));
+            setError(t('undo.failedToStart', { message: commandErrorMessage(t, err) }));
             setStep(first === null ? { kind: 'idle' } : { kind: 'confirm', first });
         }
     };
@@ -164,10 +167,26 @@ const UndoPanel: React.FC<UndoPanelProps> = ({
         <div className="undo-panel">
             {error && <p className="undo-error">{error}</p>}
 
-            {step.kind === 'idle' && canUndo && (
+            {step.kind === 'idle' && canUndo && !blockedReason && (
                 <button className="btn-undo" data-testid={startTestId} onClick={loadPreview}>
                     {t('undo.button')}
                 </button>
+            )}
+            {step.kind === 'idle' && canUndo && blockedReason && (
+                <>
+                    <button
+                        className="btn-undo"
+                        data-testid={startTestId}
+                        disabled
+                        title={blockedReason}
+                        aria-describedby={`${uid}-blocked`}
+                    >
+                        {t('undo.button')}
+                    </button>
+                    <p id={`${uid}-blocked`} className="form-help undo-blocked">
+                        {blockedReason}
+                    </p>
+                </>
             )}
 
             {step.kind === 'busy' && <p>{t('undo.running')}</p>}

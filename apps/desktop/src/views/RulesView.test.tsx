@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { invoke } from '@tauri-apps/api/core';
 import RulesView from './RulesView';
 import type { Preset, Rule } from '../api/commands';
+import { freePlan, trialPlan } from '../test/plan';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 const invokeMock = vi.mocked(invoke);
@@ -34,8 +35,11 @@ const PRESETS: Preset[] = [
 ];
 
 let rules: Rule[];
-/** Error codes `upsert_rule` throws next, in order. */
-let upsertErrors: string[];
+/** Errors `upsert_rule` throws next, in order (code strings or `{ code, ... }` objects). */
+let upsertErrors: unknown[];
+/** What `import_rules_file` and `export_rules_file` answer. */
+let importAnswer: unknown;
+let exportAnswer: unknown;
 
 function presetRule(): Rule {
     return {
@@ -57,6 +61,8 @@ function presetRule(): Rule {
 beforeEach(() => {
     rules = [];
     upsertErrors = [];
+    importAnswer = null;
+    exportAnswer = null;
     vi.spyOn(crypto, 'randomUUID').mockReturnValue(NEW_ID);
     invokeMock.mockReset();
     invokeMock.mockImplementation(async (cmd, args) => {
@@ -68,7 +74,7 @@ beforeEach(() => {
                 return { inbox_paths: [DOWNLOADS] };
             case 'upsert_rule': {
                 const err = upsertErrors.shift();
-                if (err) throw err;
+                if (err !== undefined) throw err;
                 const rule = { ...(a?.rule as Rule) };
                 rule.version += rules.some((r) => r.id === rule.id) ? 1 : 0;
                 rules = rules.some((r) => r.id === rule.id)
@@ -92,6 +98,13 @@ beforeEach(() => {
             case 'delete_rule':
                 rules = rules.filter((r) => r.id !== a?.ruleId);
                 return undefined;
+            case 'import_rules_file':
+                if (typeof importAnswer === 'string') throw importAnswer;
+                if (Array.isArray(importAnswer)) rules = [...rules, ...(importAnswer as Rule[])];
+                return importAnswer;
+            case 'export_rules_file':
+                if (typeof exportAnswer === 'string' && exportAnswer.startsWith('export.')) throw exportAnswer;
+                return exportAnswer;
             default:
                 throw new Error(`unexpected command ${cmd}`);
         }
@@ -299,5 +312,109 @@ describe('RulesView', () => {
         fireEvent.click(screen.getByTestId('rules-presets-install'));
         expect(await screen.findByText('Presetările nu au putut fi instalate.')).toBeTruthy();
         expect(screen.getByTestId('rules-presets')).toBeTruthy();
+    });
+});
+
+function ownRule(id: string, enabled: boolean, options: Record<string, unknown> | null = null): Rule {
+    return { ...presetRule(), id, name: `Proprie ${id}`, enabled, options };
+}
+
+describe('RulesView plan limits', () => {
+    it('explains a refused toggle on Free and links to the Pro section', async () => {
+        rules = [ownRule('o1', true), ownRule('o2', true), ownRule('o3', true), ownRule('o4', false)];
+        upsertErrors = ['plan.limit: rules 3'];
+        const onOpenPro = vi.fn();
+        render(<RulesView plan={freePlan()} onOpenPro={onOpenPro} />);
+        fireEvent.click(await screen.findByRole('checkbox', { name: 'Regula «Proprie o4» e activă' }));
+        const notice = await screen.findByTestId('plan-limit');
+        expect(notice.textContent).toContain(
+            'Gratuit permite 3 reguli proprii active. Dezactivează una sau treci la Pro.',
+        );
+        fireEvent.click(within(notice).getByRole('button', { name: 'Vezi Valet Pro' }));
+        expect(onOpenPro).toHaveBeenCalledTimes(1);
+        expect((screen.getByRole('checkbox', { name: 'Regula «Proprie o4» e activă' }) as HTMLInputElement).checked).toBe(
+            false,
+        );
+    });
+
+    it('explains a refused save of a new enabled rule (object error)', async () => {
+        render(<RulesView plan={freePlan()} onOpenPro={() => {}} />);
+        fireEvent.click((await screen.findAllByRole('button', { name: 'Adaugă regulă' }))[0]);
+        type('Nume', 'Facturi');
+        fireEvent.change(screen.getByLabelText('Extensie'), { target: { value: 'pdf' } });
+        fireEvent.blur(screen.getByLabelText('Extensie'));
+        type('Folder destinație', 'Facturi');
+        upsertErrors = [{ code: 'plan.limit', kind: 'rules', limit: 3 }];
+        fireEvent.click(screen.getByRole('button', { name: 'Salvează regula' }));
+        expect((await screen.findByTestId('plan-limit')).textContent).toContain(
+            'Gratuit permite 3 reguli proprii active.',
+        );
+        expect(screen.getByRole('button', { name: 'Vezi Valet Pro' })).toBeTruthy();
+    });
+
+    it('labels rules the Free plan turned off', async () => {
+        rules = [ownRule('o1', false, { planDisabled: true }), ownRule('o2', false)];
+        render(<RulesView plan={freePlan()} />);
+        const labels = await screen.findAllByTestId('rule-plan-disabled');
+        expect(labels).toHaveLength(1);
+        expect(labels[0].textContent).toBe('dezactivată de planul Gratuit');
+        expect(labels[0].closest('li')?.textContent).toContain('Proprie o1');
+    });
+
+    it('disables export and import on Free with a Pro label', async () => {
+        render(<RulesView plan={freePlan()} />);
+        await screen.findByText('Nicio regulă încă');
+        const exp = screen.getByTestId('rules-export') as HTMLButtonElement;
+        const imp = screen.getByTestId('rules-import') as HTMLButtonElement;
+        expect(exp.disabled).toBe(true);
+        expect(imp.disabled).toBe(true);
+        expect(exp.textContent).toBe('Exportă regulilePro');
+        expect(screen.getByText('Exportul și importul de reguli sunt incluse în Pro și în probă.')).toBeTruthy();
+    });
+
+    it('hides export and import while the plan is unknown', async () => {
+        render(<RulesView />);
+        await screen.findByText('Nicio regulă încă');
+        expect(screen.queryByTestId('rules-export')).toBeNull();
+    });
+
+    it('imports rules on Trial and says they need a preview', async () => {
+        importAnswer = [ownRule('i1', true), ownRule('i2', true)];
+        render(<RulesView plan={trialPlan(5)} />);
+        await screen.findByText('Nicio regulă încă');
+        const imp = screen.getByTestId('rules-import') as HTMLButtonElement;
+        expect(imp.disabled).toBe(false);
+        expect(imp.textContent).toBe('Importă reguli');
+        fireEvent.click(imp);
+        expect(
+            await screen.findByText(
+                '2 reguli importate. Regulile importate se aplică automat doar după o previzualizare aprobată.',
+            ),
+        ).toBeTruthy();
+        expect(await screen.findByText('Proprie i1')).toBeTruthy();
+    });
+
+    it('shows import errors and the export result', async () => {
+        importAnswer = 'import.unknownFormat';
+        exportAnswer = 'C:\\Users\\ana\\reguli.json';
+        render(<RulesView plan={trialPlan(5)} />);
+        await screen.findByText('Nicio regulă încă');
+        fireEvent.click(screen.getByTestId('rules-import'));
+        expect(
+            await screen.findByText(
+                'Fișierul nu e un export de reguli Valet sau e dintr-o versiune necunoscută.',
+            ),
+        ).toBeTruthy();
+        fireEvent.click(screen.getByTestId('rules-export'));
+        expect(await screen.findByText('Regulile au fost salvate în C:\\Users\\ana\\reguli.json.')).toBeTruthy();
+    });
+
+    it('says nothing when the import dialog is cancelled', async () => {
+        render(<RulesView plan={trialPlan(5)} />);
+        await screen.findByText('Nicio regulă încă');
+        fireEvent.click(screen.getByTestId('rules-import'));
+        await waitFor(() => expect((screen.getByTestId('rules-import') as HTMLButtonElement).disabled).toBe(false));
+        expect(screen.queryByRole('status')).toBeNull();
+        expect(screen.queryByRole('alert')).toBeNull();
     });
 });

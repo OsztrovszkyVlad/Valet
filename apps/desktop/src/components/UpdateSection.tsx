@@ -12,7 +12,7 @@ import {
     type UpdateCheck,
     type UpdateProgress,
 } from '../api/commands';
-import { commandErrorText, formatBytes, formatDateTime } from '../i18n/format';
+import { commandErrorText, formatBytes, formatDateTime, formatUnixDate } from '../i18n/format';
 
 type CheckState =
     | { kind: 'idle' }
@@ -42,6 +42,12 @@ interface UpdateSectionProps {
     onChannelChange: (channel: UpdateChannel) => void;
     /** Version announced by the backend's daily check (`update-available`). */
     announcedVersion?: string | null;
+    /** `auto_update_check`: the backend's daily check runs. */
+    autoCheck?: boolean;
+    /** Shows the automatic check checkbox when set. */
+    onAutoCheckChange?: (on: boolean) => void;
+    /** Pro: the license's `updates_until` (Unix seconds), named when an update is not covered. */
+    licenseUntil?: number | null;
 }
 
 /**
@@ -54,6 +60,9 @@ const UpdateSection: React.FC<UpdateSectionProps> = ({
     saving,
     onChannelChange,
     announcedVersion = null,
+    autoCheck = true,
+    onAutoCheckChange,
+    licenseUntil = null,
 }) => {
     const { t, i18n } = useTranslation();
     const [check, setCheck] = useState<CheckState>({ kind: 'idle' });
@@ -145,6 +154,8 @@ const UpdateSection: React.FC<UpdateSectionProps> = ({
     const availableVersion =
         result?.available === true ? (result.version ?? announced ?? '') : result === null ? announced : null;
     const busy = install !== 'idle' && install !== 'confirm';
+    // Pro and the license's included updates end before the new build.
+    const notCovered = result?.covered_by_license === false;
 
     return (
         <section className="settings-section" aria-labelledby="settings-updates-title">
@@ -174,6 +185,26 @@ const UpdateSection: React.FC<UpdateSectionProps> = ({
                     {t('settings.channelHelp')}
                 </small>
             </div>
+
+            {onAutoCheckChange && (
+                <div className="form-group">
+                    <label className="checkbox-label">
+                        <input
+                            type="checkbox"
+                            className="form-checkbox"
+                            data-testid="settings-auto-update-check"
+                            checked={autoCheck}
+                            disabled={saving}
+                            aria-describedby="settings-auto-update-check-help"
+                            onChange={(e) => onAutoCheckChange(e.target.checked)}
+                        />
+                        <span className="checkbox-text">{t('settings.autoUpdateCheck')}</span>
+                    </label>
+                    <small id="settings-auto-update-check-help" className="form-help">
+                        {t('settings.autoUpdateCheckHelp')}
+                    </small>
+                </div>
+            )}
 
             <div className="settings-update-actions">
                 <button
@@ -221,7 +252,16 @@ const UpdateSection: React.FC<UpdateSectionProps> = ({
                     role="alertdialog"
                     aria-labelledby="settings-update-confirm-text"
                 >
-                    <span id="settings-update-confirm-text">{t('settings.installConfirm')}</span>
+                    <span id="settings-update-confirm-text">
+                        {notCovered && (
+                            <strong className="settings-update-not-covered" data-testid="update-not-covered">
+                                {t('settings.installConfirmNotCovered', {
+                                    date: licenseUntil !== null ? formatUnixDate(licenseUntil, i18n.language) : '',
+                                })}{' '}
+                            </strong>
+                        )}
+                        {t('settings.installConfirm')}
+                    </span>
                     <button className="btn-primary" onClick={() => void runInstall()}>
                         {t('settings.installConfirmButton')}
                     </button>

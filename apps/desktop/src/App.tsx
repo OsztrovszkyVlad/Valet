@@ -7,13 +7,18 @@ import SettingsView from './views/SettingsView'
 import DryRunView, { type InitialPreview } from './views/DryRunView'
 import HistoryView from './views/HistoryView'
 import OnboardingView from './views/OnboardingView'
+import PlanBadge from './components/PlanBadge'
+import PlanChoiceDialog from './components/PlanChoiceDialog'
 import {
   closePreview,
   errorMessage,
   getAppSettings,
+  getPlanStatus,
   listBatches,
   onBatchFinished,
+  onPlanChanged,
   onUpdateAvailable,
+  type PlanView,
 } from './api/commands'
 import './App.css'
 
@@ -36,6 +41,12 @@ function App() {
   // Version announced by the backend's daily update check.
   const [updateVersion, setUpdateVersion] = useState<string | null>(null)
   const [updateNoteDismissed, setUpdateNoteDismissed] = useState(false)
+  // Null until `get_plan_status` answers (or when it failed): no plan limits are mirrored.
+  const [plan, setPlan] = useState<PlanView | null>(null)
+  // "Decide later" in the plan choice dialog; it comes back on the next start or plan change.
+  const [choiceDeferred, setChoiceDeferred] = useState(false)
+  // Bumped to scroll Settings to the Valet Pro section.
+  const [proFocus, setProFocus] = useState(0)
 
   useEffect(() => {
     getAppSettings()
@@ -52,7 +63,7 @@ function App() {
   useEffect(() => {
     // After a restart, offer undo for the newest apply batch that still has done operations.
     listBatches(20)
-      .then((batches) => {
+      .then(({ batches }) => {
         const latest = batches.find((b) => b.kind === 'apply')
         if (latest && latest.finished_at !== null && latest.counts.done > 0) {
           setLastBatch((prev) => prev ?? { id: latest.id, createdAt: latest.created_at })
@@ -76,6 +87,37 @@ function App() {
         else unlisten = fn
       })
       .catch((err) => console.error('Failed to listen for batches:', errorMessage(err)))
+    return () => {
+      stopped = true
+      unlisten?.()
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    getPlanStatus()
+      .then((p) => {
+        if (!cancelled) setPlan(p)
+      })
+      .catch((err) => console.error('Failed to read the plan:', errorMessage(err)))
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    // Trial end, hourly license check, upgrade: the plan changed in the background.
+    let unlisten: (() => void) | null = null
+    let stopped = false
+    onPlanChanged((p) => {
+      setPlan(p)
+      if (p.choice_pending) setChoiceDeferred(false)
+    })
+      .then((fn) => {
+        if (stopped) fn()
+        else unlisten = fn
+      })
+      .catch((err) => console.error('Failed to listen for plan changes:', errorMessage(err)))
     return () => {
       stopped = true
       unlisten?.()
@@ -110,6 +152,11 @@ function App() {
       setInitialPreview(null)
     }
     setActiveView(view)
+  }
+
+  const openPro = () => {
+    changeView('settings')
+    setProFocus((n) => n + 1)
   }
 
   const onPlanChange = useCallback((planId: string | null) => {
@@ -155,11 +202,19 @@ function App() {
           />
         )
       case 'rules':
-        return <RulesView />
+        return <RulesView plan={plan} onOpenPro={openPro} />
       case 'history':
-        return <HistoryView onBatchUndone={clearIfUndone} reloadToken={journalVersion} />
+        return <HistoryView onBatchUndone={clearIfUndone} reloadToken={journalVersion} plan={plan} />
       case 'settings':
-        return <SettingsView onOpenPreview={() => changeView('preview')} announcedVersion={updateVersion} />
+        return (
+          <SettingsView
+            onOpenPreview={() => changeView('preview')}
+            announcedVersion={updateVersion}
+            plan={plan}
+            onPlanChange={setPlan}
+            proFocusToken={proFocus}
+          />
+        )
     }
   }
 
@@ -190,10 +245,30 @@ function App() {
     </>
   )
 
+  const showChoice = plan !== null && plan.choice_pending && !choiceDeferred
+
   return (
-    <Layout activeView={activeView} onViewChange={changeView} banner={banner} updateBadge={updateVersion !== null}>
-      {renderActiveView()}
-    </Layout>
+    <>
+      <Layout
+        activeView={activeView}
+        onViewChange={changeView}
+        banner={banner}
+        updateBadge={updateVersion !== null}
+        planIndicator={plan !== null && <PlanBadge plan={plan} onOpenPro={openPro} />}
+      >
+        {renderActiveView()}
+      </Layout>
+      {showChoice && (
+        <PlanChoiceDialog
+          plan={plan}
+          onDone={(p) => {
+            setPlan(p)
+            setChoiceDeferred(false)
+          }}
+          onLater={() => setChoiceDeferred(true)}
+        />
+      )}
+    </>
   )
 }
 

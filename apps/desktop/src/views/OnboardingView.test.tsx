@@ -58,6 +58,7 @@ const SETTINGS: AppSettings = {
     onboarding_done: false,
     update_channel: 'stable',
     debug_logging: false,
+    auto_update_check: true,
 };
 
 let completeError: string | null;

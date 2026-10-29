@@ -5,7 +5,8 @@ import { listen } from '@tauri-apps/api/event';
 import i18n from '../i18n';
 import SettingsView from './SettingsView';
 import { INSTALL_RETRY_MS } from '../components/UpdateSection';
-import type { AppSettings, Config, InvalidConfigPath, UpdateCheck } from '../api/commands';
+import type { AppSettings, Config, InvalidConfigPath, PlanView, UpdateCheck } from '../api/commands';
+import { freePlan, proPlan } from '../test/plan';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn() }));
@@ -18,6 +19,9 @@ let settings: AppSettings;
 let config: Config;
 let invalidPaths: InvalidConfigPath[];
 let unavailablePaths: string[];
+let inactivePaths: string[];
+/** Thrown by the next `save_config`, if set. */
+let saveConfigError: unknown;
 let osAutoStart: boolean | Error;
 let appVersion: string | Error;
 let updateCheck: UpdateCheck | string;
@@ -43,6 +47,7 @@ function baseSettings(): AppSettings {
         onboarding_done: true,
         update_channel: 'stable',
         debug_logging: false,
+        auto_update_check: true,
     };
 }
 
@@ -51,6 +56,8 @@ beforeEach(() => {
     config = { inbox_paths: [DOWNLOADS], pause_watchers: false };
     invalidPaths = [];
     unavailablePaths = [];
+    inactivePaths = [];
+    saveConfigError = undefined;
     osAutoStart = false;
     appVersion = '0.3.0';
     updateCheck = { available: false };
@@ -73,6 +80,7 @@ beforeEach(() => {
                     ...config,
                     invalid_paths: invalidPaths.filter((p) => config.inbox_paths.includes(p.path)),
                     unavailable_paths: unavailablePaths.filter((p) => config.inbox_paths.includes(p)),
+                    inactive_paths: inactivePaths.filter((p) => config.inbox_paths.includes(p)),
                 };
             case 'save_app_settings': {
                 const next = a?.settings as AppSettings;
@@ -85,6 +93,7 @@ beforeEach(() => {
             }
             case 'save_config': {
                 const next = a?.config as Config;
+                if (saveConfigError !== undefined) throw saveConfigError;
                 if (next.inbox_paths.includes('D:\\')) throw 'config.driveRoot';
                 if (next.inbox_paths.includes('C:\\Windows')) throw 'config.excludedFolder: C:\\Windows';
                 if (next.inbox_paths.includes('X:\\broken')) throw 'Failed to write config file: denied';
@@ -94,6 +103,8 @@ beforeEach(() => {
                 return config;
             }
             case 'configure_auto_start':
+                return undefined;
+            case 'open_external':
                 return undefined;
             case 'get_auto_start':
                 if (osAutoStart instanceof Error) throw osAutoStart.message;
@@ -626,5 +637,103 @@ describe('SettingsView support and about', () => {
         const about = screen.getByTestId('settings-about');
         expect(about.textContent).toBe('Valet 0.3.0 · Licență MIT · github.com/OsztrovszkyVlad/Valet');
         expect(about.querySelector('a')).toBeNull();
+    });
+});
+
+describe('SettingsView and the plan', () => {
+    async function renderWithPlan(plan: PlanView, proFocusToken = 0) {
+        const onPlanChange = vi.fn();
+        const view = render(<SettingsView plan={plan} onPlanChange={onPlanChange} proFocusToken={proFocusToken} />);
+        expect(await screen.findByText(DOWNLOADS)).toBeTruthy();
+        return { onPlanChange, view };
+    }
+
+    it('shows the Valet Pro section when the plan is known', async () => {
+        await renderWithPlan(freePlan());
+        expect(within(screen.getByTestId('pro-section')).getByRole('heading', { name: 'Valet Pro' })).toBeTruthy();
+    });
+
+    it('has no Valet Pro section while the plan is unknown', async () => {
+        await renderLoaded();
+        expect(screen.queryByTestId('pro-section')).toBeNull();
+    });
+
+    it('focuses the Valet Pro section when asked', async () => {
+        await renderWithPlan(freePlan(), 1);
+        await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId('pro-section')));
+    });
+
+    it('binds the automatic update check to auto_update_check', async () => {
+        await renderLoaded();
+        const box = screen.getByLabelText('Verifică automat actualizările') as HTMLInputElement;
+        expect(box.checked).toBe(true);
+        fireEvent.click(box);
+        await screen.findByText('Salvat.');
+        expect(callsTo('save_app_settings').at(-1)?.[1]).toEqual({
+            settings: { ...baseSettings(), auto_update_check: false },
+        });
+        expect(box.checked).toBe(false);
+        // "Check now" still works.
+        expect((screen.getByRole('button', { name: 'Verifică acum' }) as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    it('hides the updater and the auto-start switch in the Store build', async () => {
+        await renderWithPlan(freePlan({ packaged: true }));
+        expect(screen.queryByRole('button', { name: 'Verifică acum' })).toBeNull();
+        expect(screen.queryByLabelText('Verifică automat actualizările')).toBeNull();
+        expect(within(screen.getByTestId('settings-updates-store')).getByText('Actualizările vin din Microsoft Store.')).toBeTruthy();
+        expect(screen.getByTestId('settings-version').textContent).toBe('Versiunea instalată: 0.3.0');
+
+        expect(screen.queryByLabelText('Pornește Valet odată cu Windows')).toBeNull();
+        const store = screen.getByTestId('settings-autostart-store');
+        expect(store.textContent).toContain('pornirea odată cu Windows se setează din setările Windows');
+        fireEvent.click(within(store).getByRole('button', { name: 'Deschide setările Windows' }));
+        await waitFor(() => expect(callsTo('open_external').at(-1)?.[1]).toEqual({ target: 'startup_settings' }));
+    });
+
+    it('warns before installing an update the license does not cover', async () => {
+        updateCheck = { available: true, version: '0.6.0', pub_date: '2027-11-02T00:00:00Z', covered_by_license: false };
+        await renderWithPlan(proPlan());
+        fireEvent.click(screen.getByRole('button', { name: 'Verifică acum' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Instalează și repornește' }));
+        const dialog = screen.getByRole('alertdialog');
+        expect(within(dialog).getByTestId('update-not-covered').textContent).toMatch(
+            /^Licența ta include actualizări până la 29 octombrie 2027\. Versiunea nouă e publicată după această dată și va rula ca Gratuit\./,
+        );
+        // The user can still install it.
+        fireEvent.click(within(dialog).getByRole('button', { name: 'Confirmă instalarea' }));
+        await waitFor(() => expect(callsTo('install_update')).toHaveLength(1));
+    });
+
+    it('does not warn when the license covers the update', async () => {
+        updateCheck = { available: true, version: '0.6.0', covered_by_license: true };
+        await renderWithPlan(proPlan());
+        fireEvent.click(screen.getByRole('button', { name: 'Verifică acum' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Instalează și repornește' }));
+        expect(within(screen.getByRole('alertdialog')).queryByTestId('update-not-covered')).toBeNull();
+    });
+
+    it('explains a third folder refused on Free, with a link to the Pro section', async () => {
+        config = { ...config, inbox_paths: [DOWNLOADS, 'C:\\B'] };
+        saveConfigError = { code: 'plan.limit', kind: 'folders', limit: 2 };
+        await renderWithPlan(freePlan());
+        addFolder('C:\\C');
+        const notice = await screen.findByTestId('plan-limit');
+        expect(notice.textContent).toContain(
+            'Gratuit permite 2 foldere urmărite active. Elimină unul sau treci la Pro.',
+        );
+        expect(screen.queryByText('C:\\C')).toBeNull();
+        fireEvent.click(within(notice).getByRole('button', { name: 'Vezi Valet Pro' }));
+        expect(document.activeElement).toBe(screen.getByTestId('pro-section'));
+    });
+
+    it('marks folders inactive on the Free plan', async () => {
+        config = { ...config, inbox_paths: [DOWNLOADS, 'C:\\B', 'C:\\C'] };
+        inactivePaths = ['C:\\C'];
+        await renderWithPlan(freePlan());
+        const marks = screen.getAllByTestId('folder-inactive');
+        expect(marks).toHaveLength(1);
+        expect(marks[0].textContent).toBe('Inactiv în planul Gratuit. Nu e urmărit și nu se organizează.');
+        expect(marks[0].closest('li')?.textContent).toContain('C:\\C');
     });
 });

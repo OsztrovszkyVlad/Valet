@@ -200,3 +200,28 @@ describe('UndoPanel', () => {
         expect(screen.queryByRole('button', { name: 'Anulează lotul' })).toBeNull();
     });
 });
+
+describe('UndoPanel plan refusal', () => {
+    it('translates plan.undoLatestOnly from the backend', async () => {
+        invokeMock.mockImplementation(async (cmd) => {
+            if (cmd === 'get_batch') return detail;
+            if (cmd === 'undo_batch') throw 'plan.undoLatestOnly';
+            throw new Error(`unexpected command ${cmd}`);
+        });
+        render(<UndoPanel batchId="b1" canUndo />);
+        fireEvent.click(screen.getByTestId('undo-start'));
+        fireEvent.click(await screen.findByTestId('undo-confirm'));
+        expect(
+            await screen.findByText(
+                'Anularea nu a putut porni: Planul Gratuit anulează doar ultimul lot. Anularea loturilor mai vechi e inclusă în Pro.',
+            ),
+        ).toBeTruthy();
+    });
+
+    it('disables the start button with the reason when blocked', () => {
+        render(<UndoPanel batchId="b1" canUndo blockedReason="motiv" />);
+        const button = screen.getByTestId('undo-start') as HTMLButtonElement;
+        expect(button.disabled).toBe(true);
+        expect(screen.getByText('motiv')).toBeTruthy();
+    });
+});

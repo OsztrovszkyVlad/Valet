@@ -15,6 +15,21 @@ export function formatDateTime(iso: string, lng: string): string {
     return d.toLocaleString(lng, { dateStyle: 'medium', timeStyle: 'medium' });
 }
 
+/** A Unix time (seconds) as a date in the UI language, e.g. `29 octombrie 2027`. */
+export function formatUnixDate(seconds: number, lng: string): string {
+    return new Date(seconds * 1000).toLocaleDateString(lng, { dateStyle: 'long' });
+}
+
+/** A Unix time (seconds) as date and time in the UI language. */
+export function formatUnixDateTime(seconds: number, lng: string): string {
+    return new Date(seconds * 1000).toLocaleString(lng, { dateStyle: 'long', timeStyle: 'short' });
+}
+
+/** Whole days left until `endsAt` (Unix seconds), rounded up; 0 once passed. */
+export function daysLeft(endsAt: number, nowMs: number = Date.now()): number {
+    return Math.max(0, Math.ceil((endsAt * 1000 - nowMs) / 86_400_000));
+}
+
 function codeText(t: TFunction, code: string, detail: string | null): string {
     const key = `failCode.${code}`;
     const label = t(key, { defaultValue: '' });
@@ -42,7 +57,7 @@ export function opErrorText(t: TFunction, error: OpError): string {
 export function commandErrorMessage(t: TFunction, err: unknown): string {
     const parsed = parseCommandError(err);
     if (parsed !== null) {
-        const label = t(`backendError.${parsed.code}`, { defaultValue: '' });
+        const label = backendErrorLabel(t, parsed.code);
         if (label !== '') {
             return parsed.detail ? `${label} (${parsed.detail})` : label;
         }
@@ -50,10 +65,24 @@ export function commandErrorMessage(t: TFunction, err: unknown): string {
     return errorMessage(err);
 }
 
+/**
+ * The `backendError` key of a code. Snake_case parts (`license.too_many`) are
+ * stored camelCase (`license.tooMany`): a key ending in `_many` or `_other`
+ * would read as an i18next plural form.
+ */
+export function backendErrorKey(code: string): string {
+    return `backendError.${code.replace(/_([a-z0-9])/g, (_, c: string) => c.toUpperCase())}`;
+}
+
+/** The translated label of a backend error code, or `''` when there is none. */
+export function backendErrorLabel(t: TFunction, code: string): string {
+    return t(backendErrorKey(code), { defaultValue: '' });
+}
+
 /** Like `commandErrorMessage`, with untranslated text prefixed by "Eroare:". */
 export function commandErrorText(t: TFunction, err: unknown): string {
     const parsed = parseCommandError(err);
-    if (parsed !== null && t(`backendError.${parsed.code}`, { defaultValue: '' }) !== '') {
+    if (parsed !== null && backendErrorLabel(t, parsed.code) !== '') {
         return commandErrorMessage(t, err);
     }
     return t('common.error', { message: errorMessage(err) });

@@ -5,7 +5,11 @@
     "preview": "Preview",
     "rules": "Rules",
     "settings": "Settings",
-    "updateBadge": "Update available"
+    "updateBadge": "Update available",
+    "planFree": "Free",
+    "planTrial_one": "Pro trial: {{count}} day",
+    "planTrial_other": "Pro trial: {{count}} days",
+    "planLinkTitle": "Open the Valet Pro section in Settings"
   },
   "common": {
     "cancel": "Cancel",
@@ -105,7 +109,8 @@
     "failed": "Failed: {{count}}",
     "pending": "Left as is (not confirmed): {{count}}",
     "skipped": "Skipped (not done in the batch): {{count}}",
-    "failedToStart": "Undo could not start: {{message}}"
+    "failedToStart": "Undo could not start: {{message}}",
+    "latestOnly": "The Free plan undoes only the most recent batch. Undo of older batches is included in Pro."
   },
   "confirmReason": {
     "Modified": "The file changed after the batch",
@@ -176,7 +181,8 @@
     "summaryUndo": "Undone: {{done}}. Failed: {{failed}}.",
     "summaryInterrupted": "The batch was interrupted and closed at the next start.",
     "summaryRecovery": "At startup, Valet checked the operations left unfinished after an unexpected stop.",
-    "technicalDetails": "Technical details"
+    "technicalDetails": "Technical details",
+    "hiddenOlder": "The Free plan shows the last 7 days. The full history stays saved."
   },
   "app": {
     "title": "Valet"
@@ -235,7 +241,14 @@
     "debugLoggingHelp": "May contain file paths. Stays on your computer.",
     "aboutTitle": "About",
     "aboutLine": "Valet {{version}} · MIT license · github.com/OsztrovszkyVlad/Valet",
-    "aboutLineNoVersion": "Valet · MIT license · github.com/OsztrovszkyVlad/Valet"
+    "aboutLineNoVersion": "Valet · MIT license · github.com/OsztrovszkyVlad/Valet",
+    "autoStartStore": "In the Microsoft Store version, starting with Windows is set in the Windows settings.",
+    "openStartupSettings": "Open Windows settings",
+    "autoUpdateCheck": "Check for updates automatically",
+    "autoUpdateCheckHelp": "At startup, then once every 24 hours. \"Check now\" works either way.",
+    "updatesStore": "Updates come from the Microsoft Store.",
+    "installConfirmNotCovered": "Your license includes updates until {{date}}. The new version was published after that date and will run as Free. You can still install it; the current version stays Pro.",
+    "inactiveReason": "Inactive on the Free plan. Not watched and not organized."
   },
   "backendError": {
     "config": {
@@ -276,7 +289,41 @@
       "network": "The update server could not be reached. Check the internet connection.",
       "busy": "Waiting for the running batch to finish.",
       "noUpdate": "There is no newer version.",
-      "failed": "The update failed. The details are in the log."
+      "failed": "The update failed. The details are in the log.",
+      "packaged": "Updates come from the Microsoft Store."
+    },
+    "plan": {
+      "limit": "The Free plan limit was reached.",
+      "notFree": "The choice is made only on the Free plan.",
+      "proOnly": "This is included in Pro and in the trial.",
+      "undoLatestOnly": "The Free plan undoes only the most recent batch. Undo of older batches is included in Pro."
+    },
+    "license": {
+      "notConfigured": "Licenses are not active in this version yet.",
+      "invalidSignature": "The license is not valid: the signature does not match. Check that you copied the whole text.",
+      "wrongProduct": "The license is not for Valet Pro.",
+      "notCoveringBuild": "The license does not cover this version: its included updates ended before this version was published.",
+      "network": "The license server could not be reached. Check the internet connection and try again.",
+      "unknown": "The license server does not know this license.",
+      "tooMany": "The license is already active on 3 computers. Remove it from one of them in Settings, then try again.",
+      "revoked": "The license was revoked."
+    },
+    "export": {
+      "exists": "The file already exists. Choose another name.",
+      "io": "The file could not be written."
+    },
+    "import": {
+      "tooLarge": "The file is too large for a rule export.",
+      "malformed": "The file is not a valid rule export.",
+      "unknownFormat": "The file is not a Valet rule export or comes from an unknown version.",
+      "tooManyRules": "The file has too many rules.",
+      "invalidRule": "A rule in the file is not valid. No rules were imported."
+    },
+    "open": {
+      "unavailable": "The page cannot be opened right now."
+    },
+    "autostart": {
+      "packaged": "In the Microsoft Store version, starting with Windows is set in the Windows settings."
     }
   },
   "folder": {
@@ -358,7 +405,16 @@
     "presetsInstalling": "Installing...",
     "presetsLoadFailed": "The preset list could not be read: {{message}}",
     "presetsEmpty": "No presets available.",
-    "presetsDone": "Presets installed: {{count}}. New or changed rules run automatically only after an approved preview."
+    "presetsDone": "Presets installed: {{count}}. New or changed rules run automatically only after an approved preview.",
+    "planDisabled": "turned off by the Free plan",
+    "export": "Export rules",
+    "import": "Import rules",
+    "proBadge": "Pro",
+    "exportImportPro": "Rule export and import are included in Pro and in the trial.",
+    "exported": "The rules were saved to {{path}}.",
+    "exportedPlain": "The rules were exported.",
+    "imported_one": "{{count}} rule imported. Imported rules are applied automatically only after an approved preview.",
+    "imported_other": "{{count}} rules imported. Imported rules are applied automatically only after an approved preview."
   },
   "ruleEditor": {
     "newTitle": "New rule",
@@ -483,5 +539,91 @@
   "updateNote": {
     "text": "Version {{version}} is available.",
     "open": "Open Settings"
+  },
+  "pro": {
+    "title": "Valet Pro",
+    "currentFree": "Current plan: Free.",
+    "currentTrial_one": "Current plan: Pro trial, {{count}} day left (until {{date}}).",
+    "currentTrial_other": "Current plan: Pro trial, {{count}} days left (until {{date}}).",
+    "currentPro": "Current plan: Pro, licensed to {{email}}.",
+    "updatesUntil": "Updates included until {{date}}.",
+    "trialHelp": "After the trial, Valet switches to Free. Nothing is deleted: rules and folders over the limit stay saved, turned off.",
+    "notConfigured": "Licenses are not active in this version yet. The Free plan and the trial work normally.",
+    "licenseOf": "License on this computer: {{email}}.",
+    "lastCheck": "Last license check: {{date}}.",
+    "lastCheckNever": "The license has not been checked online yet.",
+    "tableCaption": "What each plan includes",
+    "colFeature": "Feature",
+    "colFree": "Free",
+    "colPro": "Pro and trial",
+    "rowPresets": "Presets (all 8)",
+    "rowRules": "Own rules turned on at once",
+    "rowFolders": "Watched folders active at once",
+    "rowHistory": "History shown",
+    "rowUndo": "Undo",
+    "rowExport": "Rule export and import",
+    "rowTypes": "Condition and action types",
+    "presetsFree": "yes, not counted",
+    "yes": "yes",
+    "no": "no",
+    "unlimited": "unlimited",
+    "historyFree": "batches from the last 7 days",
+    "historyPro": "all",
+    "undoFree": "the most recent batch only",
+    "undoPro": "any batch in history",
+    "all": "all",
+    "price": "€29 (VAT included), one-time payment, 12 months of updates; optional renewal €15/year.",
+    "buy": "Buy Pro",
+    "buyUnavailable": "Buying is not open yet.",
+    "importFile": "I have a license",
+    "importFileHelp": "Choose the .valet-license file you received after buying.",
+    "pasteToggle": "I have the license as text",
+    "pasteLabel": "License text",
+    "pasteHelp": "Paste the whole license, from the first brace to the last.",
+    "pasteSubmit": "Activate license",
+    "importing": "Checking the license...",
+    "imported": "The license is active on this computer.",
+    "checkNow": "Check license now",
+    "checking": "Checking the license...",
+    "checked": "The license was checked.",
+    "remove": "Remove the license from this computer",
+    "removeConfirm": "The license is removed from this computer and frees one of its 3 activations, so you can use it on another computer. The license file is not deleted; you can import it again at any time.",
+    "removeYes": "Remove license",
+    "removing": "Removing the license...",
+    "removed": "The license was removed from this computer."
+  },
+  "license": {
+    "reason": {
+      "license": {
+        "missing": "There is no license on this computer.",
+        "invalid_signature": "The license file is not valid: the signature does not match.",
+        "wrong_product": "The license is not for Valet Pro.",
+        "not_covering_build": "The license covers versions published until {{date}}. This version is newer, so it runs as Free. Versions published until that date still run as Pro.",
+        "not_configured": "Licenses are not active in this version yet."
+      },
+      "activation": {
+        "missing": "The license is not activated on this computer. Press \"Check license now\".",
+        "other_machine": "The saved activation is for another computer. Press \"Check license now\" to activate it on this one.",
+        "expired": "The license has not been checked online for more than 60 days. Connect to the internet and press \"Check license now\"."
+      }
+    }
+  },
+  "planChoice": {
+    "title": "Choose what stays active on the Free plan",
+    "intro": "Nothing is deleted: the rules and folders you don't choose stay saved, turned off, and come back with Pro.",
+    "rulesTitle": "Own rules: {{checked}} of {{limit}} chosen",
+    "foldersTitle": "Watched folders: {{checked}} of {{limit}} chosen",
+    "foldersHelp": "Choose {{limit}} folders.",
+    "noRules": "You have no own rules.",
+    "presetsNote": "Presets are not counted and stay as they are.",
+    "save": "Save choice",
+    "later": "Decide later",
+    "laterHelp": "Until you choose, the first 3 rules and the first 2 folders stay active.",
+    "loadFailed": "The rules or folders could not be read: {{message}}"
+  },
+  "limits": {
+    "rules": "Free allows {{limit}} own rules turned on. Turn one off or switch to Pro.",
+    "folders": "Free allows {{limit}} active watched folders. Remove one or switch to Pro.",
+    "openPro": "See Valet Pro"
   }
 }

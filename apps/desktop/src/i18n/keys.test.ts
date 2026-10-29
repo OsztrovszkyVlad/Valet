@@ -5,9 +5,9 @@ import { describe, expect, it } from 'vitest';
 import i18n from '.';
 import ro from './ro.json';
 import en from './en.json';
-import { ACTION_TYPES, CONDITION_TYPES, TYPE_GROUPS } from '../api/commands';
+import { ACTION_TYPES, CONDITION_TYPES, PLAN_REASONS, TYPE_GROUPS } from '../api/commands';
 import { FOLDER_TOKENS } from '../rules/summary';
-import { commandErrorText } from './format';
+import { backendErrorKey, commandErrorText } from './format';
 
 type Tree = { [k: string]: string | Tree };
 
@@ -137,6 +137,47 @@ describe('run-time i18n keys', () => {
     });
 });
 
+/** Error codes of the licensing contract (docs/LICENSING.md, App commands). */
+const LICENSING_CODES = [
+    'plan.limit',
+    'plan.notFree',
+    'plan.proOnly',
+    'plan.undoLatestOnly',
+    'license.not_configured',
+    'license.invalid_signature',
+    'license.wrong_product',
+    'license.not_covering_build',
+    'license.network',
+    'license.unknown',
+    'license.too_many',
+    'license.revoked',
+    'export.exists',
+    'export.io',
+    'import.tooLarge',
+    'import.malformed',
+    'import.unknownFormat',
+    'import.tooManyRules',
+    'import.invalidRule',
+    'open.unavailable',
+    'autostart.packaged',
+    'update.packaged',
+];
+
+describe('licensing i18n keys', () => {
+    it('translate every error code of the licensing contract', () => {
+        expect(missing(LICENSING_CODES.map(backendErrorKey))).toEqual([]);
+    });
+
+    it('explain every reason for not getting Pro', () => {
+        expect(missing(PLAN_REASONS.map((r) => `license.reason.${r}`))).toEqual([]);
+    });
+
+    it('map snake_case codes to camelCase keys', () => {
+        expect(backendErrorKey('license.too_many')).toBe('backendError.license.tooMany');
+        expect(backendErrorKey('config.driveRoot')).toBe('backendError.config.driveRoot');
+    });
+});
+
 describe('error translation', () => {
     it('translates rule codes in both languages', async () => {
         const t = i18n.t.bind(i18n);
@@ -147,5 +188,8 @@ describe('error translation', () => {
         await i18n.changeLanguage('en');
         expect(commandErrorText(t, 'rule.invalidScope')).toBe('One of the folders is not valid.');
         expect(commandErrorText(t, 'rule.somethingNew')).toBe('Error: rule.somethingNew');
+        expect(commandErrorText(t, 'license.too_many')).toBe(
+            'The license is already active on 3 computers. Remove it from one of them in Settings, then try again.',
+        );
     });
 });

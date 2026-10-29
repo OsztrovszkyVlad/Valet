@@ -1,0 +1,63 @@
+.modal-backdrop {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(17, 24, 39, 0.45);
+    z-index: 100;
+    padding: 1rem;
+}
+
+.modal-dialog {
+    background: white;
+    border-radius: 8px;
+    padding: 1.25rem 1.5rem;
+    max-width: 560px;
+    width: 100%;
+    max-height: calc(100vh - 2rem);
+    overflow-y: auto;
+    color: #1f2937;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+}
+
+.modal-dialog:focus {
+    outline: none;
+}
+
+.modal-title {
+    margin: 0 0 0.5rem;
+    font-size: 1.15rem;
+}
+
+.plan-choice-group {
+    border: 1px solid #e1e5e9;
+    border-radius: 6px;
+    padding: 0.5rem 0.75rem;
+    margin: 0.75rem 0;
+}
+
+.plan-choice-group legend {
+    font-weight: 600;
+    padding: 0 0.25rem;
+}
+
+.plan-choice-list {
+    list-style: none;
+    margin: 0.25rem 0;
+    padding: 0;
+}
+
+.plan-choice-list li {
+    padding: 0.2rem 0;
+}
+
+.plan-choice-list code {
+    word-break: break-all;
+}
+
+.modal-buttons {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+}

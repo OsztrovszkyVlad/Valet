@@ -7,6 +7,7 @@ import {
     type BatchDetail,
     type BatchInfo,
     type OpState,
+    type PlanView,
     type StateCounts,
 } from '../api/commands';
 import PathText from '../components/PathText';
@@ -19,13 +20,17 @@ interface HistoryViewProps {
     onBatchUndone: (batchId: string, complete: boolean) => void;
     /** Changes when the journal changed elsewhere (a batch ran or was undone); triggers a reload. */
     reloadToken?: number;
+    /** The plan; on Free only the most recent batch can be undone. Null or absent: no plan limits shown. */
+    plan?: PlanView | null;
 }
 
 const STATES: OpState[] = ['done', 'failed', 'rolled_back', 'in_progress', 'planned'];
 
-const HistoryView: React.FC<HistoryViewProps> = ({ onBatchUndone, reloadToken }) => {
+const HistoryView: React.FC<HistoryViewProps> = ({ onBatchUndone, reloadToken, plan = null }) => {
     const { t, i18n } = useTranslation();
     const [batches, setBatches] = useState<BatchInfo[]>([]);
+    // The Free plan hid batches older than 7 days.
+    const [hiddenOlder, setHiddenOlder] = useState(false);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -34,7 +39,9 @@ const HistoryView: React.FC<HistoryViewProps> = ({ onBatchUndone, reloadToken })
 
     const loadBatches = useCallback(async () => {
         try {
-            setBatches(await listBatches());
+            const list = await listBatches();
+            setBatches(list.batches);
+            setHiddenOlder(list.hidden_older);
             setError('');
         } catch (err) {
             setError(t('history.loadFailed', { message: errorMessage(err) }));
@@ -55,9 +62,11 @@ const HistoryView: React.FC<HistoryViewProps> = ({ onBatchUndone, reloadToken })
         [t],
     );
 
+    // The plan decides which batches are shown.
+    const planKind = plan?.plan.kind;
     useEffect(() => {
         void loadBatches();
-    }, [loadBatches, reloadToken]);
+    }, [loadBatches, reloadToken, planKind]);
 
     // The open batch, read by the reload below without re-running it on selection.
     const selectedRef = useRef<string | null>(null);
@@ -111,6 +120,9 @@ const HistoryView: React.FC<HistoryViewProps> = ({ onBatchUndone, reloadToken })
         batch.kind === 'apply' &&
         batch.finished_at !== null &&
         batch.counts.done > 0;
+    // Free: the backend undoes only the most recent batch (`plan.undoLatestOnly`).
+    const undoBlocked =
+        batch !== undefined && plan?.limits.undo_latest_only === true && batches[0]?.id !== batch.id;
 
     return (
         <div className="history-view">
@@ -121,6 +133,11 @@ const HistoryView: React.FC<HistoryViewProps> = ({ onBatchUndone, reloadToken })
                 </button>
             </div>
 
+            {hiddenOlder && (
+                <p className="notice-message history-hidden-older" role="note" data-testid="history-hidden-older">
+                    {t('history.hiddenOlder')}
+                </p>
+            )}
             {error && <p className="history-error">{error}</p>}
             {loading && <p>{t('common.loading')}</p>}
             {!loading && !error && batches.length === 0 && (
@@ -188,6 +205,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({ onBatchUndone, reloadToken })
                             key={batch.id}
                             batchId={batch.id}
                             canUndo={canUndo}
+                            blockedReason={undoBlocked ? t('undo.latestOnly') : undefined}
                             onUndoRan={reload}
                             onClose={(complete) => onBatchUndone(batch.id, complete)}
                         />

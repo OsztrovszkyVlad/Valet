@@ -5,13 +5,16 @@ import {
     CONDITION_TYPES,
     TYPE_GROUPS,
     parseCommandError,
+    planLimitOf,
     upsertRule,
     type ActionType,
     type ConditionType,
+    type PlanLimitError,
     type Rule,
     type TypeGroup,
 } from '../api/commands';
 import { commandErrorText } from '../i18n/format';
+import PlanLimitNotice from './PlanLimitNotice';
 import {
     SIZE_UNITS,
     defaultCondition,
@@ -39,6 +42,8 @@ interface RuleEditorProps {
     folders: string[];
     onSaved: (rule: Rule, isNew: boolean) => void;
     onCancel: () => void;
+    /** Opens the Valet Pro section, offered when the Free plan refuses to turn the rule on. */
+    onOpenPro?: () => void;
 }
 
 function defaultAction(type: ActionType, from: ActionDraft): ActionDraft {
@@ -49,12 +54,13 @@ function defaultAction(type: ActionType, from: ActionDraft): ActionDraft {
 }
 
 /** Create or edit one rule. Saving calls `upsert_rule`; no file is touched. */
-const RuleEditor: React.FC<RuleEditorProps> = ({ initial, isNew, folders, onSaved, onCancel }) => {
+const RuleEditor: React.FC<RuleEditorProps> = ({ initial, isNew, folders, onSaved, onCancel, onOpenPro }) => {
     const { t } = useTranslation();
     const uid = useId();
     const [draft, setDraft] = useState<RuleDraft>(initial);
     const [errors, setErrors] = useState<DraftErrors>({ conditions: {} });
     const [saveError, setSaveError] = useState('');
+    const [limitError, setLimitError] = useState<PlanLimitError | null>(null);
     const [regexError, setRegexError] = useState('');
     const [saving, setSaving] = useState(false);
 
@@ -88,6 +94,7 @@ const RuleEditor: React.FC<RuleEditorProps> = ({ initial, isNew, folders, onSave
         e.preventDefault();
         setSaveError('');
         setRegexError('');
+        setLimitError(null);
         const result = draftToRule(draft);
         if (!result.ok) {
             setErrors(result.errors);
@@ -99,7 +106,10 @@ const RuleEditor: React.FC<RuleEditorProps> = ({ initial, isNew, folders, onSave
             const saved = await upsertRule(result.rule);
             onSaved(saved, isNew);
         } catch (err) {
-            if (parseCommandError(err)?.code === REGEX_ERROR) {
+            const limit = planLimitOf(err);
+            if (limit !== null) {
+                setLimitError(limit);
+            } else if (parseCommandError(err)?.code === REGEX_ERROR) {
                 setRegexError(commandErrorText(t, err));
             } else {
                 setSaveError(commandErrorText(t, err));
@@ -458,6 +468,7 @@ const RuleEditor: React.FC<RuleEditorProps> = ({ initial, isNew, folders, onSave
                     {saveError}
                 </div>
             )}
+            {limitError && <PlanLimitNotice limit={limitError} onOpenPro={onOpenPro} />}
             {hasErrors(errors) && (
                 <p className="field-error" role="alert">
                     {t('ruleEditor.fix')}

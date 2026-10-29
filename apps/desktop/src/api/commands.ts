@@ -197,9 +197,29 @@ export function executeOperations(planId: string): Promise<ExecuteResponse> {
     return invoke<ExecuteResponse>('execute_operations', { planId });
 }
 
-/** Newest first. The backend default limit is 50. */
-export function listBatches(limit?: number): Promise<BatchInfo[]> {
-    return invoke<BatchInfo[]>('list_batches', { limit: limit ?? null });
+/** `list_batches` result. `hidden_older`: the Free plan hid batches older than 7 days (they stay in the journal). */
+export interface BatchList {
+    batches: BatchInfo[];
+    hidden_older: boolean;
+}
+
+/**
+ * Newest first. The backend default limit is 50. Accepts the response as a
+ * plain array (no plan limits) or as `{ batches, hidden_older }`.
+ */
+export async function listBatches(limit?: number): Promise<BatchList> {
+    const raw = await invoke<unknown>('list_batches', { limit: limit ?? null });
+    if (Array.isArray(raw)) {
+        return { batches: raw as BatchInfo[], hidden_older: false };
+    }
+    if (typeof raw === 'object' && raw !== null) {
+        const { batches, hidden_older: hiddenOlder } = raw as { batches?: unknown; hidden_older?: unknown };
+        return {
+            batches: Array.isArray(batches) ? (batches as BatchInfo[]) : [],
+            hidden_older: hiddenOlder === true,
+        };
+    }
+    return { batches: [], hidden_older: false };
 }
 
 export function getBatch(batchId: string): Promise<BatchDetail> {
@@ -230,6 +250,8 @@ export interface AppSettings {
     update_channel: UpdateChannel;
     /** DEBUG-level log (may contain paths; stays on this computer). */
     debug_logging: boolean;
+    /** Daily automatic update check (default true). "Check now" works either way. */
+    auto_update_check: boolean;
 }
 
 /** `config.json`. Only `inbox_paths` is edited by the UI; other fields are sent back unchanged. */
@@ -266,6 +288,8 @@ export interface InvalidConfigPath {
 export interface ConfigView extends Config {
     invalid_paths: InvalidConfigPath[];
     unavailable_paths: string[];
+    /** Free plan: folders beyond the first 2, kept in the config but not watched or planned. */
+    inactive_paths?: string[];
 }
 
 export function getConfig(): Promise<ConfigView> {
@@ -443,6 +467,10 @@ export interface UpdateCheck {
     version?: string;
     notes?: string;
     date?: string;
+    /** Publication date from the updater manifest. */
+    pub_date?: string | null;
+    /** Pro only: whether the license's `updates_until` covers the new build. Null when not Pro. */
+    covered_by_license?: boolean | null;
 }
 
 /** Version of the running app. */
@@ -501,4 +529,181 @@ export interface BatchFinished {
 
 export function onBatchFinished(handler: (event: BatchFinished) => void): Promise<UnlistenFn> {
     return listen<BatchFinished>('batch-finished', (e) => handler(e.payload));
+}
+
+// ---------------------------------------------------------------- plan and license (docs/LICENSING.md)
+
+/** The plan in effect. Times are Unix seconds. */
+export type PlanTier =
+    | { kind: 'free' }
+    | { kind: 'trial'; ends_at: number }
+    | { kind: 'pro'; license_id: string; email: string; updates_until: number };
+
+/** What the plan allows. `null` = unlimited. */
+export interface PlanLimits {
+    own_rules: number | null;
+    folders: number | null;
+    history_days: number | null;
+    undo_latest_only: boolean;
+    export_import: boolean;
+}
+
+export interface LicenseInfo {
+    license_id: string;
+    email: string;
+    /** Unix seconds; builds published up to this date run as Pro. */
+    updates_until: number;
+}
+
+/** Reason codes for not getting Pro; each has a sentence under `license.reason.<code>`. */
+export const PLAN_REASONS = [
+    'license.missing',
+    'license.invalid_signature',
+    'license.wrong_product',
+    'license.not_covering_build',
+    'activation.missing',
+    'activation.other_machine',
+    'activation.expired',
+    'license.not_configured',
+] as const;
+
+/** Returned by `get_plan_status` and by every command that changes the plan. */
+export interface PlanView {
+    plan: PlanTier;
+    /** Codes from `PLAN_REASONS`. */
+    reasons: string[];
+    limits: PlanLimits;
+    /** `pubkey.txt` and `api.txt` are set: Pro can be activated. */
+    licensing_configured: boolean;
+    /** `checkout.txt` is set: buying is open. */
+    checkout_available: boolean;
+    /** Show the "pick what stays active" dialog. */
+    choice_pending: boolean;
+    /** The stored license, also when it does not give Pro (to explain why). */
+    license: LicenseInfo | null;
+    trial_ends_at: number | null;
+    /** `checked_at` of the stored activation token. */
+    last_check_at: number | null;
+    /** Microsoft Store (MSIX) build: updates and auto-start are handled by Windows. */
+    packaged: boolean;
+}
+
+/** Resolves the plan and applies a pending downgrade or upgrade. */
+export function getPlanStatus(): Promise<PlanView> {
+    return invoke<PlanView>('get_plan_status');
+}
+
+/** Native open dialog for a `.valet-license` file, then like `importLicenseText`. Null when cancelled. */
+export function importLicenseFile(): Promise<PlanView | null> {
+    return invoke<PlanView | null>('import_license_file');
+}
+
+/**
+ * Verifies the license text, activates it online and stores it. Rejects with
+ * `license.not_configured`, `license.invalid_signature`, `license.wrong_product`,
+ * `license.not_covering_build`, `license.network`, `license.unknown`,
+ * `license.too_many` or `license.revoked`.
+ */
+export function importLicenseText(text: string): Promise<PlanView> {
+    return invoke<PlanView>('import_license_text', { text });
+}
+
+/** Online validation now, even before 30 days. Rejects with `license.network` or the codes above. */
+export function checkLicenseNow(): Promise<PlanView> {
+    return invoke<PlanView>('check_license_now');
+}
+
+/** Deactivates this computer (best effort) and moves the license files aside (never deleted). */
+export function removeLicense(): Promise<PlanView> {
+    return invoke<PlanView>('remove_license');
+}
+
+/**
+ * Free only: these own rules (at most 3) stay enabled, these folders (at most 2)
+ * move to the front of `inbox_paths`. Rejects with `plan.limit` or `plan.notFree`.
+ */
+export function applyPlanChoice(ruleIds: string[], folders: string[]): Promise<PlanView> {
+    return invoke<PlanView>('apply_plan_choice', { ruleIds, folders });
+}
+
+/** Result of `exportRulesFile`: `saved` false when the dialog was cancelled. */
+export interface ExportResult {
+    saved: boolean;
+    /** Where the file was written, when the backend says. */
+    path: string | null;
+}
+
+/**
+ * Pro/Trial: native save dialog, then writes the export. Rejects with
+ * `plan.proOnly`, `export.exists` or `export.io`. A null response is a
+ * cancelled dialog; a string is the written path.
+ */
+export async function exportRulesFile(): Promise<ExportResult> {
+    const raw = await invoke<unknown>('export_rules_file');
+    if (raw === null || raw === undefined) return { saved: false, path: null };
+    if (typeof raw === 'string') return { saved: true, path: raw };
+    if (typeof raw === 'object' && 'path' in raw) {
+        const { path } = raw as { path: unknown };
+        return { saved: true, path: typeof path === 'string' ? path : null };
+    }
+    return { saved: true, path: null };
+}
+
+/**
+ * Pro/Trial: native open dialog, then imports the rules as new rules that
+ * need a preview before auto-apply. Resolves with the number of imported
+ * rules, or null when the dialog was cancelled. Rejects with `plan.proOnly`
+ * or an `import.*` code.
+ */
+export async function importRulesFile(): Promise<number | null> {
+    const raw = await invoke<unknown>('import_rules_file');
+    if (raw === null || raw === undefined) return null;
+    if (Array.isArray(raw)) return raw.length;
+    if (typeof raw === 'number') return raw;
+    if (typeof raw === 'object') {
+        const { imported, count, rules } = raw as { imported?: unknown; count?: unknown; rules?: unknown };
+        if (typeof imported === 'number') return imported;
+        if (typeof count === 'number') return count;
+        if (Array.isArray(rules)) return rules.length;
+    }
+    return 0;
+}
+
+/** What `open_external` can open: the checkout page or the Windows startup apps settings. */
+export type ExternalTarget = 'checkout' | 'startup_settings';
+
+/** Rejects with `open.unavailable`. */
+export function openExternal(target: ExternalTarget): Promise<void> {
+    return invoke<void>('open_external', { target });
+}
+
+/** Payload of `plan-changed`, sent when the plan changes in the background (hourly check, trial end). */
+export function onPlanChanged(handler: (plan: PlanView) => void): Promise<UnlistenFn> {
+    return listen<PlanView>('plan-changed', (e) => handler(e.payload));
+}
+
+/** Error code of a change refused by a Free plan limit. */
+export const PLAN_LIMIT = 'plan.limit';
+
+export interface PlanLimitError {
+    kind: 'rules' | 'folders';
+    limit: number;
+}
+
+/**
+ * The limit behind a `plan.limit` error, sent as `{ code, kind, limit }` or
+ * as `plan.limit: rules 3`. Null for other errors.
+ */
+export function planLimitOf(err: unknown): PlanLimitError | null {
+    if (typeof err === 'object' && err !== null && (err as { code?: unknown }).code === PLAN_LIMIT) {
+        const { kind, limit } = err as { kind?: unknown; limit?: unknown };
+        const k = kind === 'folders' ? 'folders' : 'rules';
+        return { kind: k, limit: typeof limit === 'number' ? limit : k === 'folders' ? 2 : 3 };
+    }
+    const parsed = parseCommandError(err);
+    if (parsed?.code !== PLAN_LIMIT) return null;
+    const m = /^(rules|folders)\s+(\d+)/.exec(parsed.detail ?? '');
+    if (m) return { kind: m[1] as 'rules' | 'folders', limit: Number(m[2]) };
+    const k = parsed.detail?.startsWith('folders') ? 'folders' : 'rules';
+    return { kind: k, limit: k === 'folders' ? 2 : 3 };
 }

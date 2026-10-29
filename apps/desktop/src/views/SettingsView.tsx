@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
     configureAutoStart,
@@ -7,6 +7,8 @@ import {
     getAppVersion,
     getAutoStart,
     getConfig,
+    openExternal,
+    planLimitOf,
     saveAppSettings,
     saveConfig,
     type AppSettings,
@@ -14,8 +16,12 @@ import {
     type ConfigView,
     type InvalidConfigPath,
     type Language,
+    type PlanLimitError,
+    type PlanView,
     type UpdateChannel,
 } from '../api/commands';
+import PlanLimitNotice from '../components/PlanLimitNotice';
+import ProSection from '../components/ProSection';
 import UpdateSection from '../components/UpdateSection';
 import { commandErrorText } from '../i18n/format';
 import './SettingsView.css';
@@ -24,13 +30,24 @@ type Status = 'idle' | 'saving' | 'saved';
 
 const LANGUAGES: Language[] = ['ro', 'en'];
 
-/** The stored config and the entries `get_config` reports as invalid or unavailable. */
-function splitConfigView(c: ConfigView): { config: Config; invalid: InvalidConfigPath[]; unavailable: string[] } {
-    const { invalid_paths: invalidPaths, unavailable_paths: unavailablePaths, ...config } = c;
+/** The stored config and the entries `get_config` reports as invalid, unavailable or inactive. */
+function splitConfigView(c: ConfigView): {
+    config: Config;
+    invalid: InvalidConfigPath[];
+    unavailable: string[];
+    inactive: string[];
+} {
+    const {
+        invalid_paths: invalidPaths,
+        unavailable_paths: unavailablePaths,
+        inactive_paths: inactivePaths,
+        ...config
+    } = c;
     return {
         config,
         invalid: Array.isArray(invalidPaths) ? invalidPaths : [],
         unavailable: Array.isArray(unavailablePaths) ? unavailablePaths : [],
+        inactive: Array.isArray(inactivePaths) ? inactivePaths : [],
     };
 }
 
@@ -39,6 +56,12 @@ interface SettingsViewProps {
     onOpenPreview?: () => void;
     /** Version announced by the backend's daily update check, if any. */
     announcedVersion?: string | null;
+    /** The plan; null or absent while unknown (no Pro section, no plan notes). */
+    plan?: PlanView | null;
+    /** A license command returned a new plan. */
+    onPlanChange?: (plan: PlanView) => void;
+    /** Changes when the Valet Pro section should be scrolled into view. */
+    proFocusToken?: number;
 }
 
 /**
@@ -47,7 +70,13 @@ interface SettingsViewProps {
  * after they are removed, because `save_config` refuses a list that contains one. Unavailable folders
  * (missing right now) are marked too and stay removable one by one.
  */
-const SettingsView: React.FC<SettingsViewProps> = ({ onOpenPreview, announcedVersion = null }) => {
+const SettingsView: React.FC<SettingsViewProps> = ({
+    onOpenPreview,
+    announcedVersion = null,
+    plan = null,
+    onPlanChange,
+    proFocusToken = 0,
+}) => {
     const { t, i18n } = useTranslation();
     const [settings, setSettings] = useState<AppSettings | null>(null);
     const [config, setConfig] = useState<Config | null>(null);
@@ -63,12 +92,18 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onOpenPreview, announcedVer
     const [version, setVersion] = useState<string | null>(null);
     // Shown after a folder is added: it needs an approved preview first.
     const [addedNotice, setAddedNotice] = useState(false);
+    // Free plan: folders beyond the first 2, kept but not watched.
+    const [inactive, setInactive] = useState<string[]>([]);
+    // A folder change refused by the Free plan limit.
+    const [limitError, setLimitError] = useState<PlanLimitError | null>(null);
+    const proRef = useRef<HTMLElement>(null);
 
     const applyConfigView = (c: ConfigView) => {
         const split = splitConfigView(c);
         setConfig(split.config);
         setInvalid(split.invalid);
         setUnavailable(split.unavailable);
+        setInactive(split.inactive);
     };
 
     useEffect(() => {
@@ -84,6 +119,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onOpenPreview, announcedVer
                     setConfig(split.config);
                     setInvalid(split.invalid);
                     setUnavailable(split.unavailable);
+                    setInactive(split.inactive);
                     setVersion(v);
                 }
             })
@@ -96,6 +132,40 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onOpenPreview, announcedVer
             cancelled = true;
         };
     }, [t]);
+
+    // A plan change (choice dialog, license) can reorder or (de)activate folders.
+    const planSeen = useRef(plan);
+    useEffect(() => {
+        if (planSeen.current === plan) return;
+        planSeen.current = plan;
+        let cancelled = false;
+        getConfig()
+            .then((c) => {
+                if (cancelled) return;
+                const split = splitConfigView(c);
+                setConfig(split.config);
+                setInvalid(split.invalid);
+                setUnavailable(split.unavailable);
+                setInactive(split.inactive);
+            })
+            .catch((err: unknown) => console.error('Failed to read config:', errorMessage(err)));
+        return () => {
+            cancelled = true;
+        };
+    }, [plan]);
+
+    const loaded = settings !== null && config !== null;
+    useEffect(() => {
+        if (proFocusToken === 0 || !loaded) return;
+        const el = proRef.current;
+        el?.scrollIntoView?.({ block: 'start' });
+        el?.focus();
+    }, [proFocusToken, loaded]);
+
+    const focusPro = () => {
+        proRef.current?.scrollIntoView?.({ block: 'start' });
+        proRef.current?.focus();
+    };
 
     if (loadError) {
         return (
@@ -155,6 +225,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onOpenPreview, announcedVer
 
     const saveFolders = async (inboxPaths: string[]): Promise<boolean> => {
         setError('');
+        setLimitError(null);
         setStatus('saving');
         try {
             const saved = await saveConfig({ ...config, inbox_paths: inboxPaths });
@@ -166,11 +237,14 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onOpenPreview, announcedVer
                 // save_config accepts only lists without invalid entries.
                 setInvalid([]);
                 setUnavailable((prev) => prev.filter((p) => saved.inbox_paths.includes(p)));
+                setInactive((prev) => prev.filter((p) => saved.inbox_paths.includes(p)));
             }
             setStatus('saved');
             return true;
         } catch (err) {
-            setError(commandErrorText(t, err));
+            const limit = planLimitOf(err);
+            if (limit !== null) setLimitError(limit);
+            else setError(commandErrorText(t, err));
             setStatus('idle');
             return false;
         }
@@ -194,6 +268,17 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onOpenPreview, announcedVer
     const removeFolder = (path: string) => saveFolders(config.inbox_paths.filter((p) => p !== path));
 
     const isUnavailable = (path: string) => unavailable.includes(path);
+    const isInactive = (path: string) => inactive.includes(path);
+    const packaged = plan?.packaged === true;
+
+    const openStartupSettings = async () => {
+        setError('');
+        try {
+            await openExternal('startup_settings');
+        } catch (err) {
+            setError(commandErrorText(t, err));
+        }
+    };
 
     const changeChannel = (update_channel: UpdateChannel) => void updateSettings({ update_channel });
 
@@ -237,6 +322,13 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onOpenPreview, announcedVer
                         </button>
                     </div>
                 )}
+                {limitError && (
+                    <PlanLimitNotice
+                        limit={limitError}
+                        onOpenPro={plan !== null && onPlanChange ? focusPro : undefined}
+                        onClose={() => setLimitError(null)}
+                    />
+                )}
                 {hasInvalid && (
                     <div className="settings-invalid-notice" role="note">
                         <span>{t('settings.invalidHelp')}</span>
@@ -252,11 +344,16 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onOpenPreview, announcedVer
                         {config.inbox_paths.map((path) => {
                             const code = invalidCode(path);
                             const away = !code && isUnavailable(path);
+                            const off = !code && !away && isInactive(path);
                             return (
                                 <li
                                     key={path}
                                     className={
-                                        code ? 'settings-folder-invalid' : away ? 'settings-folder-unavailable' : undefined
+                                        code
+                                            ? 'settings-folder-invalid'
+                                            : away || off
+                                              ? 'settings-folder-unavailable'
+                                              : undefined
                                     }
                                 >
                                     <div className="settings-folder-text">
@@ -271,6 +368,11 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onOpenPreview, announcedVer
                                         {away && (
                                             <small className="settings-folder-reason">
                                                 {t('settings.unavailableReason')}
+                                            </small>
+                                        )}
+                                        {off && (
+                                            <small className="settings-folder-reason" data-testid="folder-inactive">
+                                                {t('settings.inactiveReason')}
                                             </small>
                                         )}
                                     </div>
@@ -342,18 +444,27 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onOpenPreview, announcedVer
                     </label>
                 </div>
 
-                <div className="form-group">
-                    <label className="checkbox-label">
-                        <input
-                            type="checkbox"
-                            className="form-checkbox"
-                            checked={settings.auto_start}
-                            disabled={saving}
-                            onChange={(e) => void changeAutoStart(e.target.checked)}
-                        />
-                        <span className="checkbox-text">{t('settings.autoStart')}</span>
-                    </label>
-                </div>
+                {packaged ? (
+                    <div className="form-group" data-testid="settings-autostart-store">
+                        <p className="form-help">{t('settings.autoStartStore')}</p>
+                        <button className="btn-secondary" onClick={() => void openStartupSettings()}>
+                            {t('settings.openStartupSettings')}
+                        </button>
+                    </div>
+                ) : (
+                    <div className="form-group">
+                        <label className="checkbox-label">
+                            <input
+                                type="checkbox"
+                                className="form-checkbox"
+                                checked={settings.auto_start}
+                                disabled={saving}
+                                onChange={(e) => void changeAutoStart(e.target.checked)}
+                            />
+                            <span className="checkbox-text">{t('settings.autoStart')}</span>
+                        </label>
+                    </div>
+                )}
 
                 <div className="form-group">
                     <label className="checkbox-label">
@@ -374,13 +485,30 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onOpenPreview, announcedVer
                 </div>
             </section>
 
-            <UpdateSection
-                version={version}
-                channel={settings.update_channel}
-                saving={saving}
-                onChannelChange={changeChannel}
-                announcedVersion={announcedVersion}
-            />
+            {plan !== null && onPlanChange && (
+                <ProSection plan={plan} onPlanChange={onPlanChange} sectionRef={proRef} />
+            )}
+
+            {packaged ? (
+                <section className="settings-section" data-testid="settings-updates-store">
+                    <h3>{t('settings.updatesTitle')}</h3>
+                    <p data-testid="settings-version">
+                        {version !== null ? t('settings.currentVersion', { version }) : t('settings.versionUnknown')}
+                    </p>
+                    <p>{t('settings.updatesStore')}</p>
+                </section>
+            ) : (
+                <UpdateSection
+                    version={version}
+                    channel={settings.update_channel}
+                    saving={saving}
+                    onChannelChange={changeChannel}
+                    announcedVersion={announcedVersion}
+                    autoCheck={settings.auto_update_check !== false}
+                    onAutoCheckChange={(on) => void updateSettings({ auto_update_check: on })}
+                    licenseUntil={plan?.plan.kind === 'pro' ? plan.plan.updates_until : null}
+                />
+            )}
 
             <section className="settings-section">
                 <h3>{t('settings.supportTitle')}</h3>

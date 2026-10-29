@@ -1,16 +1,22 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
     deleteRule,
     errorMessage,
+    exportRulesFile,
     getConfig,
     getRules,
+    importRulesFile,
     installPresets,
     listPresets,
+    planLimitOf,
     upsertRule,
+    type PlanLimitError,
+    type PlanView,
     type Preset,
     type Rule,
 } from '../api/commands';
+import PlanLimitNotice from '../components/PlanLimitNotice';
 import RuleEditor from '../components/RuleEditor';
 import { commandErrorMessage, commandErrorText } from '../i18n/format';
 import { newDraft, presetIdOf, ruleToDraft, type RuleDraft } from '../rules/model';
@@ -22,8 +28,20 @@ type Editing = { draft: RuleDraft; isNew: boolean } | null;
 /** The "Add presets" panel: closed, or the shipped presets (null while loading) and the selection. */
 type PresetPanel = { presets: Preset[] | null; error: string; selected: Set<string> } | null;
 
+interface RulesViewProps {
+    /** The plan; null or absent while unknown (no export/import buttons, no plan labels). */
+    plan?: PlanView | null;
+    /** Opens the Valet Pro section (offered with plan limit messages). */
+    onOpenPro?: () => void;
+}
+
+/** Whether the Free plan turned the rule off (`options.planDisabled`), as opposed to the user. */
+function planDisabled(rule: Rule): boolean {
+    return rule.options?.planDisabled === true;
+}
+
 /** List of rules with on/off, summary, edit and delete. Rules never touch files by themselves. */
-const RulesView: React.FC = () => {
+const RulesView: React.FC<RulesViewProps> = ({ plan = null, onOpenPro }) => {
     const { t, i18n } = useTranslation();
     const [rules, setRules] = useState<Rule[]>([]);
     const [folders, setFolders] = useState<string[]>([]);
@@ -36,6 +54,9 @@ const RulesView: React.FC = () => {
     const [busy, setBusy] = useState(false);
     const [presetPanel, setPresetPanel] = useState<PresetPanel>(null);
     const [installing, setInstalling] = useState(false);
+    // Turning on a rule refused by the Free plan limit.
+    const [limitError, setLimitError] = useState<PlanLimitError | null>(null);
+    const [transferBusy, setTransferBusy] = useState(false);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -57,6 +78,51 @@ const RulesView: React.FC = () => {
     useEffect(() => {
         void load();
     }, [load]);
+
+    // A plan change (choice dialog, upgrade, trial end) can turn rules on or off.
+    const planSeen = useRef(plan);
+    useEffect(() => {
+        if (planSeen.current === plan) return;
+        planSeen.current = plan;
+        void load();
+    }, [plan, load]);
+
+    const transferAllowed = plan?.limits.export_import === true;
+
+    const runExport = async () => {
+        setError('');
+        setNotice('');
+        setLimitError(null);
+        setTransferBusy(true);
+        try {
+            const result = await exportRulesFile();
+            if (result.saved) {
+                setNotice(result.path ? t('rules.exported', { path: result.path }) : t('rules.exportedPlain'));
+            }
+        } catch (err) {
+            setError(commandErrorText(t, err));
+        } finally {
+            setTransferBusy(false);
+        }
+    };
+
+    const runImport = async () => {
+        setError('');
+        setNotice('');
+        setLimitError(null);
+        setTransferBusy(true);
+        try {
+            const count = await importRulesFile();
+            if (count !== null) {
+                setNotice(t('rules.imported', { count }));
+                await load();
+            }
+        } catch (err) {
+            setError(commandErrorText(t, err));
+        } finally {
+            setTransferBusy(false);
+        }
+    };
 
     const openPresets = async () => {
         setNotice('');
@@ -124,13 +190,16 @@ const RulesView: React.FC = () => {
     const toggle = async (rule: Rule, enabled: boolean) => {
         setError('');
         setNotice('');
+        setLimitError(null);
         setBusy(true);
         try {
             const saved = await upsertRule({ ...rule, enabled });
             setRules((list) => list.map((r) => (r.id === saved.id ? saved : r)));
             if (enabled) setNotice(t('rules.savedEdit'));
         } catch (err) {
-            setError(commandErrorText(t, err));
+            const limit = planLimitOf(err);
+            if (limit !== null) setLimitError(limit);
+            else setError(commandErrorText(t, err));
         } finally {
             setBusy(false);
         }
@@ -235,6 +304,7 @@ const RulesView: React.FC = () => {
                     folders={folders}
                     onSaved={onSaved}
                     onCancel={() => setEditing(null)}
+                    onOpenPro={onOpenPro}
                 />
             </div>
         );
@@ -248,6 +318,30 @@ const RulesView: React.FC = () => {
                     <p className="view-description">{t('rules.description')}</p>
                 </div>
                 <div className="rules-header-buttons">
+                    {plan !== null && (
+                        <>
+                            <button
+                                className="btn-secondary"
+                                data-testid="rules-export"
+                                disabled={!transferAllowed || transferBusy}
+                                aria-describedby={transferAllowed ? undefined : 'rules-transfer-pro'}
+                                onClick={() => void runExport()}
+                            >
+                                {t('rules.export')}
+                                {!transferAllowed && <span className="badge badge-pro">{t('rules.proBadge')}</span>}
+                            </button>
+                            <button
+                                className="btn-secondary"
+                                data-testid="rules-import"
+                                disabled={!transferAllowed || transferBusy}
+                                aria-describedby={transferAllowed ? undefined : 'rules-transfer-pro'}
+                                onClick={() => void runImport()}
+                            >
+                                {t('rules.import')}
+                                {!transferAllowed && <span className="badge badge-pro">{t('rules.proBadge')}</span>}
+                            </button>
+                        </>
+                    )}
                     <button
                         className="btn-secondary"
                         data-testid="rules-presets-open"
@@ -262,10 +356,19 @@ const RulesView: React.FC = () => {
                 </div>
             </div>
 
+            {plan !== null && !transferAllowed && (
+                <p id="rules-transfer-pro" className="form-help rules-transfer-pro">
+                    {t('rules.exportImportPro')}
+                </p>
+            )}
+
             {loadError && (
                 <div className="error-message" role="alert">
                     {loadError}
                 </div>
+            )}
+            {limitError && (
+                <PlanLimitNotice limit={limitError} onOpenPro={onOpenPro} onClose={() => setLimitError(null)} />
             )}
             {error && (
                 <div className="error-message" role="alert">
@@ -316,6 +419,11 @@ const RulesView: React.FC = () => {
                                 <div className="rule-title">
                                     <span className="rule-name">{rule.name}</span>
                                     {presetIdOf(rule) !== null && <span className="rule-preset">{t('rules.preset')}</span>}
+                                    {planDisabled(rule) && !rule.enabled && (
+                                        <span className="rule-plan-disabled" data-testid="rule-plan-disabled">
+                                            {t('rules.planDisabled')}
+                                        </span>
+                                    )}
                                 </div>
                                 <p className="rule-summary">{ruleSummary(t, rule, i18n.language)}</p>
                                 <p className="rule-scope">

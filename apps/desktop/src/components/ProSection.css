@@ -1,0 +1,72 @@
+.pro-section:focus {
+    outline: 2px solid #4f5bd5;
+    outline-offset: 2px;
+}
+
+.pro-note {
+    margin: 0.5rem 0;
+}
+
+.pro-reasons {
+    margin: 0.5rem 0;
+    padding-left: 1.25rem;
+    color: #92400e;
+}
+
+.pro-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0.75rem 0;
+    font-size: 0.9rem;
+}
+
+.pro-table caption {
+    text-align: left;
+    font-weight: 600;
+    margin-bottom: 0.4rem;
+}
+
+.pro-table th,
+.pro-table td {
+    text-align: left;
+    padding: 0.35rem 0.5rem;
+    border-bottom: 1px solid #f1f3f5;
+}
+
+.pro-table tbody th {
+    font-weight: 400;
+}
+
+.pro-price {
+    font-weight: 600;
+}
+
+.pro-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: 0.5rem 0;
+}
+
+.pro-paste {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    margin: 0.5rem 0;
+}
+
+.pro-paste-text {
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 0.8rem;
+}
+
+.pro-license {
+    margin-top: 0.75rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid #f1f3f5;
+}
+
+.pro-status {
+    min-height: 1.25rem;
+    font-size: 0.9rem;
+}

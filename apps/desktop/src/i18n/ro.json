@@ -5,7 +5,12 @@
     "preview": "Previzualizare",
     "rules": "Reguli",
     "settings": "Setări",
-    "updateBadge": "Actualizare disponibilă"
+    "updateBadge": "Actualizare disponibilă",
+    "planFree": "Gratuit",
+    "planTrial_one": "Probă Pro: {{count}} zi",
+    "planTrial_few": "Probă Pro: {{count}} zile",
+    "planTrial_other": "Probă Pro: {{count}} de zile",
+    "planLinkTitle": "Deschide secțiunea Valet Pro din Setări"
   },
   "common": {
     "cancel": "Renunță",
@@ -105,7 +110,8 @@
     "failed": "Eșuate: {{count}}",
     "pending": "Rămase neanulate (fără confirmare): {{count}}",
     "skipped": "Sărite (nu erau făcute în lot): {{count}}",
-    "failedToStart": "Anularea nu a putut porni: {{message}}"
+    "failedToStart": "Anularea nu a putut porni: {{message}}",
+    "latestOnly": "Planul Gratuit anulează doar ultimul lot. Anularea loturilor mai vechi e inclusă în Pro."
   },
   "confirmReason": {
     "Modified": "Fișierul s-a schimbat după lot",
@@ -176,7 +182,8 @@
     "summaryUndo": "Operații anulate: {{done}}. Eșuate: {{failed}}.",
     "summaryInterrupted": "Lotul a fost întrerupt și încheiat la pornirea următoare.",
     "summaryRecovery": "La pornire, Valet a verificat operațiile rămase neterminate după o oprire neașteptată.",
-    "technicalDetails": "Detalii tehnice"
+    "technicalDetails": "Detalii tehnice",
+    "hiddenOlder": "Planul Gratuit arată ultimele 7 zile. Istoricul complet rămâne salvat."
   },
   "app": {
     "title": "Valet"
@@ -235,7 +242,14 @@
     "debugLoggingHelp": "Poate conține căi de fișiere. Rămâne pe calculatorul tău.",
     "aboutTitle": "Despre",
     "aboutLine": "Valet {{version}} · Licență MIT · github.com/OsztrovszkyVlad/Valet",
-    "aboutLineNoVersion": "Valet · Licență MIT · github.com/OsztrovszkyVlad/Valet"
+    "aboutLineNoVersion": "Valet · Licență MIT · github.com/OsztrovszkyVlad/Valet",
+    "autoStartStore": "În versiunea din Microsoft Store, pornirea odată cu Windows se setează din setările Windows.",
+    "openStartupSettings": "Deschide setările Windows",
+    "autoUpdateCheck": "Verifică automat actualizările",
+    "autoUpdateCheckHelp": "La pornire, apoi o dată la 24 de ore. „Verifică acum” funcționează oricum.",
+    "updatesStore": "Actualizările vin din Microsoft Store.",
+    "installConfirmNotCovered": "Licența ta include actualizări până la {{date}}. Versiunea nouă e publicată după această dată și va rula ca Gratuit. Poți s-o instalezi oricum; versiunea de acum rămâne Pro.",
+    "inactiveReason": "Inactiv în planul Gratuit. Nu e urmărit și nu se organizează."
   },
   "backendError": {
     "config": {
@@ -276,7 +290,41 @@
       "network": "Serverul de actualizări nu a putut fi contactat. Verifică conexiunea la internet.",
       "busy": "Aștept să se termine lotul în curs.",
       "noUpdate": "Nu există o versiune mai nouă.",
-      "failed": "Actualizarea nu a reușit. Detaliile sunt în jurnal."
+      "failed": "Actualizarea nu a reușit. Detaliile sunt în jurnal.",
+      "packaged": "Actualizările vin din Microsoft Store."
+    },
+    "plan": {
+      "limit": "Limita planului Gratuit a fost atinsă.",
+      "notFree": "Alegerea se face doar în planul Gratuit.",
+      "proOnly": "Funcția e inclusă în Pro și în probă.",
+      "undoLatestOnly": "Planul Gratuit anulează doar ultimul lot. Anularea loturilor mai vechi e inclusă în Pro."
+    },
+    "license": {
+      "notConfigured": "Licențele nu sunt încă active în această versiune.",
+      "invalidSignature": "Licența nu e validă: semnătura nu se potrivește. Verifică dacă ai copiat tot textul.",
+      "wrongProduct": "Licența nu e pentru Valet Pro.",
+      "notCoveringBuild": "Licența nu acoperă această versiune: actualizările incluse s-au terminat înainte de publicarea ei.",
+      "network": "Serverul de licențe nu a putut fi contactat. Verifică conexiunea la internet și încearcă din nou.",
+      "unknown": "Serverul de licențe nu cunoaște această licență.",
+      "tooMany": "Licența e deja activă pe 3 calculatoare. Scoate-o de pe unul dintre ele din Setări, apoi încearcă din nou.",
+      "revoked": "Licența a fost revocată."
+    },
+    "export": {
+      "exists": "Fișierul există deja. Alege alt nume.",
+      "io": "Fișierul nu a putut fi scris."
+    },
+    "import": {
+      "tooLarge": "Fișierul e prea mare pentru un export de reguli.",
+      "malformed": "Fișierul nu e un export de reguli valid.",
+      "unknownFormat": "Fișierul nu e un export de reguli Valet sau e dintr-o versiune necunoscută.",
+      "tooManyRules": "Fișierul are prea multe reguli.",
+      "invalidRule": "O regulă din fișier nu e validă. Nicio regulă nu a fost importată."
+    },
+    "open": {
+      "unavailable": "Pagina nu poate fi deschisă acum."
+    },
+    "autostart": {
+      "packaged": "În versiunea din Microsoft Store, pornirea odată cu Windows se setează din setările Windows."
     }
   },
   "folder": {
@@ -360,7 +408,17 @@
     "presetsInstalling": "Se instalează...",
     "presetsLoadFailed": "Lista de presetări nu a putut fi citită: {{message}}",
     "presetsEmpty": "Nicio presetare disponibilă.",
-    "presetsDone": "Presetări instalate: {{count}}. Regulile noi sau schimbate se aplică automat doar după o previzualizare aprobată."
+    "presetsDone": "Presetări instalate: {{count}}. Regulile noi sau schimbate se aplică automat doar după o previzualizare aprobată.",
+    "planDisabled": "dezactivată de planul Gratuit",
+    "export": "Exportă regulile",
+    "import": "Importă reguli",
+    "proBadge": "Pro",
+    "exportImportPro": "Exportul și importul de reguli sunt incluse în Pro și în probă.",
+    "exported": "Regulile au fost salvate în {{path}}.",
+    "exportedPlain": "Regulile au fost exportate.",
+    "imported_one": "{{count}} regulă importată. Regulile importate se aplică automat doar după o previzualizare aprobată.",
+    "imported_few": "{{count}} reguli importate. Regulile importate se aplică automat doar după o previzualizare aprobată.",
+    "imported_other": "{{count}} de reguli importate. Regulile importate se aplică automat doar după o previzualizare aprobată."
   },
   "ruleEditor": {
     "newTitle": "Regulă nouă",
@@ -486,5 +544,92 @@
   "updateNote": {
     "text": "Versiunea {{version}} e disponibilă.",
     "open": "Vezi în Setări"
+  },
+  "pro": {
+    "title": "Valet Pro",
+    "currentFree": "Planul curent: Gratuit.",
+    "currentTrial_one": "Planul curent: Probă Pro, încă {{count}} zi (până la {{date}}).",
+    "currentTrial_few": "Planul curent: Probă Pro, încă {{count}} zile (până la {{date}}).",
+    "currentTrial_other": "Planul curent: Probă Pro, încă {{count}} de zile (până la {{date}}).",
+    "currentPro": "Planul curent: Pro, licență pe {{email}}.",
+    "updatesUntil": "Actualizări incluse până la {{date}}.",
+    "trialHelp": "După probă, Valet trece pe Gratuit. Nimic nu se șterge: regulile și folderele peste limită rămân salvate, dezactivate.",
+    "notConfigured": "Licențele nu sunt încă active în această versiune. Planurile Gratuit și Probă funcționează normal.",
+    "licenseOf": "Licență pe acest calculator: {{email}}.",
+    "lastCheck": "Ultima verificare a licenței: {{date}}.",
+    "lastCheckNever": "Licența nu a fost verificată încă online.",
+    "tableCaption": "Ce include fiecare plan",
+    "colFeature": "Funcție",
+    "colFree": "Gratuit",
+    "colPro": "Pro și Probă",
+    "rowPresets": "Presetări (toate 8)",
+    "rowRules": "Reguli proprii active în același timp",
+    "rowFolders": "Foldere urmărite active în același timp",
+    "rowHistory": "Istoric afișat",
+    "rowUndo": "Anulare",
+    "rowExport": "Export și import de reguli",
+    "rowTypes": "Tipuri de condiții și acțiuni",
+    "presetsFree": "da, nu se numără",
+    "yes": "da",
+    "no": "nu",
+    "unlimited": "nelimitat",
+    "historyFree": "loturile din ultimele 7 zile",
+    "historyPro": "tot",
+    "undoFree": "doar ultimul lot",
+    "undoPro": "orice lot din istoric",
+    "all": "toate",
+    "price": "29 € (TVA inclus), plată unică, actualizări 12 luni; reînnoire opțională 15 €/an.",
+    "buy": "Cumpără Pro",
+    "buyUnavailable": "Cumpărarea nu e deschisă încă.",
+    "importFile": "Am o licență",
+    "importFileHelp": "Alege fișierul .valet-license primit după cumpărare.",
+    "pasteToggle": "Am licența ca text",
+    "pasteLabel": "Textul licenței",
+    "pasteHelp": "Lipește tot conținutul licenței, de la prima acoladă la ultima.",
+    "pasteSubmit": "Activează licența",
+    "importing": "Se verifică licența...",
+    "imported": "Licența e activă pe acest calculator.",
+    "checkNow": "Verifică licența acum",
+    "checking": "Se verifică licența...",
+    "checked": "Licența a fost verificată.",
+    "remove": "Scoate licența de pe acest calculator",
+    "removeConfirm": "Licența se scoate de pe acest calculator și eliberează una dintre cele 3 activări, ca s-o poți folosi pe alt calculator. Fișierul licenței nu se șterge; îl poți importa din nou oricând.",
+    "removeYes": "Scoate licența",
+    "removing": "Se scoate licența...",
+    "removed": "Licența a fost scoasă de pe acest calculator."
+  },
+  "license": {
+    "reason": {
+      "license": {
+        "missing": "Nu există nicio licență pe acest calculator.",
+        "invalid_signature": "Fișierul licenței nu e valid: semnătura nu se potrivește.",
+        "wrong_product": "Licența nu e pentru Valet Pro.",
+        "not_covering_build": "Licența acoperă versiunile publicate până la {{date}}. Această versiune e mai nouă, așa că rulează ca Gratuit. Versiunile publicate până la acea dată rulează în continuare ca Pro.",
+        "not_configured": "Licențele nu sunt încă active în această versiune."
+      },
+      "activation": {
+        "missing": "Licența nu e activată pe acest calculator. Apasă „Verifică licența acum”.",
+        "other_machine": "Activarea salvată e pentru alt calculator. Apasă „Verifică licența acum” ca s-o activezi pe acesta.",
+        "expired": "Licența nu a mai fost verificată online de peste 60 de zile. Conectează-te la internet și apasă „Verifică licența acum”."
+      }
+    }
+  },
+  "planChoice": {
+    "title": "Alege ce rămâne activ în planul Gratuit",
+    "intro": "Nimic nu se șterge: regulile și folderele pe care nu le alegi rămân salvate, dezactivate, și revin cu Pro.",
+    "rulesTitle": "Reguli proprii: {{checked}} din {{limit}} alese",
+    "foldersTitle": "Foldere urmărite: {{checked}} din {{limit}} alese",
+    "foldersHelp": "Alege {{limit}} foldere.",
+    "noRules": "Nu ai reguli proprii.",
+    "presetsNote": "Presetările nu se numără și rămân cum sunt.",
+    "save": "Salvează alegerea",
+    "later": "Decid mai târziu",
+    "laterHelp": "Până alegi, rămân active primele 3 reguli și primele 2 foldere.",
+    "loadFailed": "Regulile sau folderele nu au putut fi citite: {{message}}"
+  },
+  "limits": {
+    "rules": "Gratuit permite {{limit}} reguli proprii active. Dezactivează una sau treci la Pro.",
+    "folders": "Gratuit permite {{limit}} foldere urmărite active. Elimină unul sau treci la Pro.",
+    "openPro": "Vezi Valet Pro"
   }
 }

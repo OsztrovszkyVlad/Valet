@@ -4,6 +4,7 @@ import i18n from '../i18n';
 import { invoke } from '@tauri-apps/api/core';
 import HistoryView from './HistoryView';
 import type { BatchDetail, BatchInfo, OpRecord } from '../api/commands';
+import { freePlan, trialPlan } from '../test/plan';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 const invokeMock = vi.mocked(invoke);
@@ -138,5 +139,54 @@ describe('HistoryView', () => {
         const rows = await screen.findAllByTestId('history-row');
         expect(rows[0].textContent).toContain('2026');
         expect(rows[0].textContent).toMatch(/Oct 1, 2026/);
+    });
+});
+
+describe('HistoryView on the Free plan', () => {
+    function listAs(response: unknown) {
+        invokeMock.mockImplementation(async (cmd, args) => {
+            if (cmd === 'list_batches') return response;
+            if (cmd === 'get_batch') return details[(args as { batchId: string }).batchId];
+            throw new Error(`unexpected command ${cmd}`);
+        });
+    }
+
+    it('says older batches are hidden but kept', async () => {
+        listAs({ batches: [undoBatch, applyBatch], hidden_older: true });
+        render(<HistoryView onBatchUndone={() => {}} plan={freePlan()} />);
+        expect((await screen.findByTestId('history-hidden-older')).textContent).toBe(
+            'Planul Gratuit arată ultimele 7 zile. Istoricul complet rămâne salvat.',
+        );
+        expect(await screen.findAllByTestId('history-row')).toHaveLength(2);
+    });
+
+    it('shows no note when nothing is hidden', async () => {
+        listAs({ batches: [undoBatch, applyBatch], hidden_older: false });
+        render(<HistoryView onBatchUndone={() => {}} plan={freePlan()} />);
+        await screen.findAllByTestId('history-row');
+        expect(screen.queryByTestId('history-hidden-older')).toBeNull();
+    });
+
+    it('disables undo of a batch that is not the most recent, saying why', async () => {
+        render(<HistoryView onBatchUndone={() => {}} plan={freePlan()} />);
+        fireEvent.click(await screen.findByText('Organizare'));
+        const button = (await screen.findByTestId('undo-start')) as HTMLButtonElement;
+        expect(button.disabled).toBe(true);
+        const text = 'Planul Gratuit anulează doar ultimul lot. Anularea loturilor mai vechi e inclusă în Pro.';
+        expect(button.title).toBe(text);
+        expect(document.getElementById(button.getAttribute('aria-describedby') ?? '')?.textContent).toBe(text);
+    });
+
+    it('allows undo of the most recent batch on Free', async () => {
+        listAs({ batches: [applyBatch, recoveryBatch], hidden_older: false });
+        render(<HistoryView onBatchUndone={() => {}} plan={freePlan()} />);
+        fireEvent.click(await screen.findByText('Organizare'));
+        expect(((await screen.findByTestId('undo-start')) as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    it('allows undo of any batch on Trial', async () => {
+        render(<HistoryView onBatchUndone={() => {}} plan={trialPlan(4)} />);
+        fireEvent.click(await screen.findByText('Organizare'));
+        expect(((await screen.findByTestId('undo-start')) as HTMLButtonElement).disabled).toBe(false);
     });
 });

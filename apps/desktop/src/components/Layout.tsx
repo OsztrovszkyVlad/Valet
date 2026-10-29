@@ -15,9 +15,18 @@ interface LayoutProps {
     banner?: ReactNode;
     /** Marks the Settings button: an update is available. */
     updateBadge?: boolean;
+    /** Small plan indicator next to Settings (trial days, Free). */
+    planIndicator?: ReactNode;
 }
 
-const Layout: React.FC<LayoutProps> = ({ children, activeView, onViewChange, banner, updateBadge = false }) => {
+const Layout: React.FC<LayoutProps> = ({
+    children,
+    activeView,
+    onViewChange,
+    banner,
+    updateBadge = false,
+    planIndicator,
+}) => {
     const { t } = useTranslation();
 
     return (
@@ -39,6 +48,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeView, onViewChange, ban
                             </button>
                         ))}
                     </nav>
+                    {planIndicator}
                     <button
                         className={`nav-settings ${activeView === 'settings' ? 'active' : ''}`}
                         aria-pressed={activeView === 'settings'}

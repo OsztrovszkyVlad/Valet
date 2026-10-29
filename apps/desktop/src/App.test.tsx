@@ -3,7 +3,8 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import App from './App';
-import type { AppSettings, BatchFinished, BatchInfo, DryRunResponse, UpdateAvailable } from './api/commands';
+import type { AppSettings, BatchFinished, BatchInfo, DryRunResponse, PlanView, UpdateAvailable } from './api/commands';
+import { freePlan, proPlan, trialPlan } from './test/plan';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn() }));
@@ -14,6 +15,9 @@ let settings: AppSettings;
 let batches: BatchInfo[];
 let batchFinished: ((e: { payload: BatchFinished }) => void) | null;
 let updateAvailable: ((e: { payload: UpdateAvailable }) => void) | null;
+let planChanged: ((e: { payload: PlanView }) => void) | null;
+/** `get_plan_status` answer; a string is thrown (the plan stays unknown). */
+let planStatus: PlanView | string;
 const unlisten = vi.fn();
 
 const PREVIEW: DryRunResponse = {
@@ -35,14 +39,18 @@ beforeEach(() => {
         onboarding_done: false,
         update_channel: 'stable',
         debug_logging: false,
+        auto_update_check: true,
     };
     batches = [];
     batchFinished = null;
     updateAvailable = null;
+    planChanged = null;
+    planStatus = 'not available in this test';
     listenMock.mockReset();
     listenMock.mockImplementation(async (event, handler) => {
         if (event === 'batch-finished') batchFinished = handler as typeof batchFinished;
         if (event === 'update-available') updateAvailable = handler as typeof updateAvailable;
+        if (event === 'plan-changed') planChanged = handler as typeof planChanged;
         return unlisten;
     });
     invokeMock.mockReset();
@@ -71,6 +79,11 @@ beforeEach(() => {
                 return false;
             case 'get_app_version':
                 return '0.3.0';
+            case 'get_plan_status':
+                if (typeof planStatus === 'string') throw planStatus;
+                return planStatus;
+            case 'apply_plan_choice':
+                return freePlan();
             default:
                 throw new Error(`unexpected command ${cmd}`);
         }
@@ -179,5 +192,49 @@ describe('App', () => {
         expect(screen.getByRole('button', { name: 'Instalează și repornește' })).toBeTruthy();
         expect(screen.queryByTestId('update-note')).toBeNull();
         expect(calls('install_update')).toHaveLength(0);
+    });
+
+    it('shows the trial days in the header, nothing on Pro, and a Free link to the Pro section', async () => {
+        settings.onboarding_done = true;
+        planStatus = trialPlan(5);
+        render(<App />);
+        expect((await screen.findByTestId('nav-plan')).textContent).toBe('Probă Pro: 5 zile');
+        expect(screen.queryByRole('dialog')).toBeNull();
+
+        await waitFor(() => expect(planChanged).not.toBeNull());
+        act(() => planChanged?.({ payload: proPlan() }));
+        expect(screen.queryByTestId('nav-plan')).toBeNull();
+
+        act(() => planChanged?.({ payload: freePlan() }));
+        fireEvent.click(screen.getByTestId('nav-plan'));
+        expect(screen.getByTestId('nav-plan').textContent).toBe('Gratuit');
+        expect(await screen.findByTestId('pro-section')).toBeTruthy();
+        await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId('pro-section')));
+    });
+
+    it('asks what stays active when the choice is pending, and again after decide later on a plan change', async () => {
+        settings.onboarding_done = true;
+        planStatus = freePlan({ choice_pending: true });
+        render(<App />);
+        const dialog = await screen.findByRole('dialog', { name: 'Alege ce rămâne activ în planul Gratuit' });
+        fireEvent.keyDown(dialog, { key: 'Escape' });
+        expect(screen.queryByRole('dialog')).toBeNull();
+
+        await waitFor(() => expect(planChanged).not.toBeNull());
+        act(() => planChanged?.({ payload: freePlan({ choice_pending: true }) }));
+        expect(await screen.findByRole('dialog')).toBeTruthy();
+        await screen.findByText('Nu ai reguli proprii.');
+        fireEvent.click(screen.getByTestId('plan-choice-save'));
+        await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+        expect(calls('apply_plan_choice')[0][1]).toEqual({ ruleIds: [], folders: ['C:\\D'] });
+    });
+
+    it('works without a plan when get_plan_status fails', async () => {
+        settings.onboarding_done = true;
+        render(<App />);
+        await screen.findByRole('tab', { name: 'Previzualizare' });
+        await waitFor(() => expect(calls('get_plan_status')).toHaveLength(1));
+        expect(screen.queryByTestId('nav-plan')).toBeNull();
+        expect(screen.queryByRole('dialog')).toBeNull();
     });
 });

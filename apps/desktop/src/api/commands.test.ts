@@ -25,6 +25,17 @@ import {
     saveAppSettings,
     saveConfig,
     undoBatch,
+    applyPlanChoice,
+    checkLicenseNow,
+    exportRulesFile,
+    getPlanStatus,
+    importLicenseFile,
+    importLicenseText,
+    importRulesFile,
+    onPlanChanged,
+    openExternal,
+    planLimitOf,
+    removeLicense,
     type AppSettings,
 } from './commands';
 
@@ -69,6 +80,7 @@ describe('command wrappers', () => {
             onboarding_done: true,
             update_channel: 'stable',
             debug_logging: false,
+            auto_update_check: true,
         };
         invokeMock.mockResolvedValueOnce(settings);
         await expect(saveAppSettings(settings)).resolves.toEqual(settings);
@@ -197,5 +209,75 @@ describe('errorMessage', () => {
         expect(errorMessage(new Error('boom'))).toBe('boom');
         expect(errorMessage({ message: 'm' })).toBe('m');
         expect(errorMessage(3)).toBe('3');
+    });
+});
+
+describe('plan and license wrappers', () => {
+    it('call the contract commands with their arguments', async () => {
+        await getPlanStatus();
+        expect(invokeMock).toHaveBeenLastCalledWith('get_plan_status');
+        await importLicenseFile();
+        expect(invokeMock).toHaveBeenLastCalledWith('import_license_file');
+        await importLicenseText('{"payload":"p"}');
+        expect(invokeMock).toHaveBeenLastCalledWith('import_license_text', { text: '{"payload":"p"}' });
+        await checkLicenseNow();
+        expect(invokeMock).toHaveBeenLastCalledWith('check_license_now');
+        await removeLicense();
+        expect(invokeMock).toHaveBeenLastCalledWith('remove_license');
+        await applyPlanChoice(['r1'], ['C:\\A']);
+        expect(invokeMock).toHaveBeenLastCalledWith('apply_plan_choice', { ruleIds: ['r1'], folders: ['C:\\A'] });
+        await openExternal('checkout');
+        expect(invokeMock).toHaveBeenLastCalledWith('open_external', { target: 'checkout' });
+        await openExternal('startup_settings');
+        expect(invokeMock).toHaveBeenLastCalledWith('open_external', { target: 'startup_settings' });
+    });
+
+    it('read list_batches as an array or as { batches, hidden_older }', async () => {
+        const b = { id: 'b1' };
+        invokeMock.mockResolvedValueOnce([b]);
+        await expect(listBatches()).resolves.toEqual({ batches: [b], hidden_older: false });
+        invokeMock.mockResolvedValueOnce({ batches: [b], hidden_older: true });
+        await expect(listBatches()).resolves.toEqual({ batches: [b], hidden_older: true });
+        invokeMock.mockResolvedValueOnce(null);
+        await expect(listBatches()).resolves.toEqual({ batches: [], hidden_older: false });
+    });
+
+    it('read the rule export and import results, null being a cancelled dialog', async () => {
+        invokeMock.mockResolvedValueOnce(null);
+        await expect(exportRulesFile()).resolves.toEqual({ saved: false, path: null });
+        invokeMock.mockResolvedValueOnce('C:\\r.json');
+        await expect(exportRulesFile()).resolves.toEqual({ saved: true, path: 'C:\\r.json' });
+        expect(invokeMock).toHaveBeenLastCalledWith('export_rules_file');
+
+        invokeMock.mockResolvedValueOnce(null);
+        await expect(importRulesFile()).resolves.toBeNull();
+        invokeMock.mockResolvedValueOnce([{}, {}]);
+        await expect(importRulesFile()).resolves.toBe(2);
+        invokeMock.mockResolvedValueOnce({ imported: 4 });
+        await expect(importRulesFile()).resolves.toBe(4);
+        invokeMock.mockResolvedValueOnce(3);
+        await expect(importRulesFile()).resolves.toBe(3);
+        expect(invokeMock).toHaveBeenLastCalledWith('import_rules_file');
+    });
+
+    it('subscribe to plan-changed with the PlanView payload', async () => {
+        let handler: ((e: { payload: unknown }) => void) | null = null;
+        listenMock.mockImplementationOnce(async (_event, h) => {
+            handler = h as (e: { payload: unknown }) => void;
+            return () => {};
+        });
+        const seen: unknown[] = [];
+        await onPlanChanged((p) => seen.push(p));
+        expect(listenMock).toHaveBeenLastCalledWith('plan-changed', expect.any(Function));
+        (handler as unknown as (e: { payload: unknown }) => void)({ payload: { choice_pending: true } });
+        expect(seen).toEqual([{ choice_pending: true }]);
+    });
+
+    it('read plan.limit errors as objects or strings', () => {
+        expect(planLimitOf({ code: 'plan.limit', kind: 'folders', limit: 2 })).toEqual({ kind: 'folders', limit: 2 });
+        expect(planLimitOf('plan.limit: rules 3')).toEqual({ kind: 'rules', limit: 3 });
+        expect(planLimitOf('plan.limit')).toEqual({ kind: 'rules', limit: 3 });
+        expect(planLimitOf('plan.notFree')).toBeNull();
+        expect(planLimitOf(new Error('x'))).toBeNull();
     });
 });
