@@ -2,9 +2,11 @@
 
 Versiunea în română: [PRIVACY.ro.md](PRIVACY.ro.md)
 
-This page says what Valet sends over the network, what it stores on your computer, what it does not have, and what happens to the data when you uninstall. It was first written against commit `1d910c9` and revised for Phase 4 at commit `fc6acc0`. The license check (section 1, "The license check"), the setting "Check for updates automatically", the license files and the Microsoft Store build were checked against the code at `fc6acc0`, with file and line references. Other statements were checked at `1d910c9` and not repeated, except where a command is named with a result at `fc6acc0`. Where something was read from the code or from a dependency and not observed on a running Windows install, it says so. No license server exists yet, so the license check has never run against a real server; the tests use a local test server.
+This page says what Valet sends over the network, what it stores on your computer, what it does not have, and what happens to the data when you uninstall. It was first written against commit `1d910c9` and revised for Phase 4 at commit `fc6acc0`. The license check (section 1, "The license check"), the setting "Check for updates automatically", the license files and the Microsoft Store build were checked against the code at `fc6acc0`, with file and line references. Other statements were checked at `1d910c9` and not repeated, except where a command is named with a result at `fc6acc0`. Where something was read from the code or from a dependency and not observed on a running Windows install, it says so. No license server exists yet, so the license check has never run against a real server; the tests use a local test server. The subsection "Buying a license" was added on 2026-10-29. It describes what `docs/LICENSING.md` decides for the merchant webhook, Fly.io hosting and the email through Resend; none of that runs yet, so none of it was checked against a running system.
 
 Short version: Valet makes two kinds of network request. One is a check for a new version of itself; you can switch the automatic part off in Settings. The other is a license check, and it happens only if you have imported a Pro license in a build that has a license server configured. No file name, path, rule or file content is part of either. Everything else stays on your computer.
+
+Buying a license happens outside the app and has its own data (the payment and your email); it is described in section 1, "Buying a license". Buying is not open yet.
 
 ## 1. What goes over the network
 
@@ -97,6 +99,17 @@ Uninstalling does not do any of this: the uninstaller makes no network call, so 
 - The installer downloads the Microsoft WebView2 bootstrapper, and WebView2 itself, only if WebView2 is not installed on the computer (`downloadBootstrapper` in `tauri.conf.json`; per `docs/RELEASE.md`, section 6). This is the installer talking to Microsoft, not Valet.
 - WebView2 is a Microsoft component with its own update service. What it contacts is outside Valet's code and is not covered here.
 - No network capture was made while Valet ran, so what Tauri and its plugins do beyond the above is read from code, not observed.
+
+### Buying a license
+
+**State.** Buying is not open. Selling opens only after the webhook of the chosen merchant has passed a sandbox purchase and a sandbox refund end to end (`docs/LICENSING.md`, "License service"). This subsection describes what is decided for that moment. It comes from that contract, not from code that has run: the merchant is not chosen (Paddle or Stripe Managed Payments), the server is not deployed, and no email has been sent through Resend.
+
+- **The merchant** handles the payment, VAT and refunds. The payment happens on the merchant's page, opened in the browser (the app's "Buy Pro" button opens the address in `checkout.txt` and nothing else; the app has no payment form). The merchant receives the payment details and the buyer's email address. What the merchant keeps follows its own policy, which is not covered here.
+- **The license server** runs on Fly.io, in a region chosen by Vlad (not chosen yet; `services/license/fly.toml` does not exist yet). It receives a signed notification (webhook) from the merchant for a purchase and for a refund. The signature is checked on the raw body before anything else. The server keeps: the license id, the merchant's order ids, the hashed machine ids of the activations, and the dates of those activations. It does not keep the buyer's email address (`docs/LICENSING.md`: "The store keeps merchant ids and the license id, never the email").
+- **The email** is used once. The server gets it from the merchant at the time of purchase (with Paddle it reads it with a call to Paddle's customer API), puts it in the signed license file and sends the message with the license attached through Resend. Resend processes the address to deliver the message; what Resend keeps follows its own policy. After that the email exists only in that message and in the license file on the buyer's computer. A failed email is retried when the merchant redelivers the event, without issuing a second license.
+- **Refunds** are made within 14 days of purchase, through the merchant. The merchant's refund event makes the server revoke the license. The app learns about it at its next license check (at most every 30 days, or at once with "Check license now"): the server answers 410, Valet moves the token to `license-removed\` and runs as Trial or Free. The license file stays on the computer.
+- **IP addresses.** The server limits requests per client IP address in the memory of the process; they are not logged or stored by the server. Fly.io, as the host, sees what any host sees.
+- **Unchanged:** the app does not send the email address, file names, paths or contents, and its requests are the ones listed above.
 
 ## 2. What Valet stores on your computer
 

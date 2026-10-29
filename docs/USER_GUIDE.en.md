@@ -688,7 +688,13 @@ Pro includes updates for 12 months from purchase. The date shows as "Updates inc
 
 Uninstalling Valet does not free the place. Remove the license in Settings before uninstalling.
 
-**If the old computer is gone** (broken, formatted) and you cannot remove the license from it, ask support to reset the activations. Support can clear the license's list of active computers on the server (a tool of the license service, `services/license/reset.mjs`); then you import the license on the new computer. The activation history stays on the server. A support channel is not published yet.
+**If the old computer is gone** (broken, formatted) and you cannot remove the license from it, ask support to reset the activations. Support can clear the license's list of active computers on the server (a tool of the license service, `services/license/reset.mjs`); then you import the license on the new computer. The activation history stays on the server. Support is asked for on [GitHub Issues](https://github.com/OsztrovszkyVlad/Valet/issues) (see "Refunds and support" below).
+
+### Refunds and support
+
+- **Refunds:** within 14 days of purchase, through the merchant that processed the payment (the order number is in the confirmation email from it). On refund the license is revoked. Valet learns about it at the next license check (at most once every 30 days; "Check license now" does it at once) and goes back to the 14-day trial, if it has not ended, or to the Free plan. Nothing is lost: your rules, folders, history and settings stay, and whatever goes over the Free plan limits is switched off, not deleted. The license file stays on the computer, so Settings can say why it is no longer active (the message "The license was revoked.").
+- **Buying is not open yet.** It opens only after payment and refund have been tried end to end in the merchant's test mode. Until then there is nothing to refund.
+- **Support:** [GitHub Issues](https://github.com/OsztrovszkyVlad/Valet/issues). For now there is no other way to get in touch, and no email address. The pages are public: do not put your email address, your license file or any of your files in them, and read the log before you paste it. For a license problem, Settings, Valet Pro shows a "License code (for support)"; write the first 8 characters, not the whole code.
 
 ### The Microsoft Store version
 

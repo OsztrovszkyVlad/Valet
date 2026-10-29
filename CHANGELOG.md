@@ -79,6 +79,10 @@ Licenses are not active in this version: no license server is configured, so
 buying and activating a license do not work yet. The trial and the Free plan
 work.
 
+The refund policy is stated on the site and in the user guide: within 14 days
+of purchase, through the merchant, and the license is revoked on refund (Valet
+then runs as Trial or Free at its next license check). Support is GitHub Issues.
+
 ### Changed
 
 - The unused statistics table (`operation_history`) is removed from the
