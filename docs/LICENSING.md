@@ -84,6 +84,8 @@ Base URL and public key come from `crates/valet-core/license/` files committed b
 | `POST {api}/v1/validate` | at startup and every 24 h, when `now - checked_at ≥ 30 days` | same | 200 `{token}`; 404, 409, 410 as above |
 | `POST {api}/v1/deactivate` | the user removes the license from Settings | `{license_id, machine}` | 204 |
 
+- `token` in a 200 answer is the envelope object `{payload, signature}` (not a string). The app stores it as JSON in `activation.valet-token`.
+- Validate for a machine that isn't active behaves like activate: it takes a free slot or answers 409. 404 always means the license id is unknown. Deactivate answers 204 even when the machine wasn't active.
 - Timeouts: 10 s. A network error keeps the current token (grace up to 60 days).
 - 404 and 410 remove the token: Free or Trial applies, and the license file stays so the user sees why. 409 on validate behaves the same.
 - Nothing else is sent: no paths, file names, rule contents or counts.

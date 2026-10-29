@@ -98,6 +98,10 @@ jobs:
       - name: Build
         if: ${{ !cancelled() }}
         run: pnpm build
+      - name: License service tests (node --test, no dependencies)
+        if: ${{ !cancelled() }}
+        working-directory: services/license
+        run: node --test
 
   # UI smoke test (PLAN 2 exit criterion, PLAN 4.6): onboarding -> preview ->
   # organize -> undo -> history through tauri-driver + WebKitWebDriver under
