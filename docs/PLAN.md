@@ -88,7 +88,7 @@ Persoana care are 3.000 de fișiere în Downloads, un Desktop plin și un sentim
 
 **IN:**
 - Reguli: condiții pe extensie, grup de tip (imagine, document, arhivă, instalator, video, audio, cod), nume (regex și „conține”), mărime, cale, vechime (modificat/creat mai vechi de N zile), folder gol, duplicat după hash (doar raport în v1).
-- Acțiuni: mută, copiază, redenumește (șablon), etichetează, trimite la Coșul de reciclare (niciodată ștergere definitivă), raportează fără acțiune.
+- Acțiuni: mută, copiază, trimite la Coșul de reciclare (niciodată ștergere definitivă), raportează fără acțiune. Redenumirea cu șablon e prima funcție după lansare (backlog); etichetarea a ieșit din plan (decizia lui Vlad, 29 octombrie 2026).
 - Previzualizare (dry run) obligatorie la prima rulare și la orice regulă nouă.
 - Jurnal de operații și anulare: ultimul lot, orice lot din istoric, orice fișier individual.
 - Foldere urmărite (watcher) cu aplicare automată, pornit abia după ce utilizatorul a aprobat cel puțin o previzualizare.
@@ -98,7 +98,7 @@ Persoana care are 3.000 de fișiere în Downloads, un Desktop plin și un sentim
 - Interfață în română, cu engleză ca a doua limbă, comutabilă.
 - Instalator per utilizator (fără drepturi de administrator), updater semnat, raportare de erori opt-in.
 
-**OUT (explicit, ca să nu intre „pe furiș”):** partiții, curățare de registru, dezinstalare de aplicații, sincronizare cloud, chat, AI de orice fel, mobile, macOS, funcții de echipă, reclame.
+**OUT (explicit, ca să nu intre „pe furiș”):** etichete (tag), partiții, curățare de registru, dezinstalare de aplicații, sincronizare cloud, chat, AI de orice fel, mobile, macOS, funcții de echipă, reclame.
 
 ### 2.4 Cele 8 presetări
 
@@ -133,7 +133,7 @@ Fiecare presetare se livrează cu un test de integrare pe un folder sintetic și
 5. Valet nu atinge niciodată folderele de sistem, AppData, Program Files, repo-uri git, node_modules sau fișiere ascunse/de sistem, decât dacă utilizatorul le include explicit.
 6. Valet nu atinge fișierele care se scriu încă (descărcări în curs, fișiere blocate) și nici fișierele OneDrive „la cerere” nehidratate.
 7. Valet nu iese pe internet decât pentru verificarea actualizărilor, validarea licenței și rapoartele de eroare opt-in. Nimic din conținutul sau numele fișierelor nu pleacă de pe calculator.
-8. În fundal: sub 1% CPU și sub 150 MB RAM la relanti; indexarea a 100.000 de fișiere sub 60 de secunde; previzualizarea pe 10.000 de fișiere sub 3 secunde; pornire sub 2 secunde.
+8. În fundal: sub 1% CPU și sub 150 MB RAM la relanti (private bytes ale aplicației și ale proceselor WebView2; working set-ul se raportează separat); indexarea a 100.000 de fișiere sub 60 de secunde; previzualizarea pe 10.000 de fișiere sub 3 secunde; pornire sub 2 secunde.
 
 ---
 
@@ -141,17 +141,17 @@ Fiecare presetare se livrează cu un test de integrare pe un folder sintetic și
 
 ### 3.1 Modelul
 
-**Gratuit, pentru totdeauna:** toate cele 8 presetări, previzualizare, undo pe ultimul lot, 2 foldere urmărite, 3 reguli proprii, istoric 7 zile. Suficient ca să fie util și ca să fie recomandat mai departe.
+**Gratuit, pentru totdeauna:** toate cele 8 presetări, toate tipurile de condiții și acțiuni, previzualizare, undo pe ultimul lot, 2 foldere urmărite, 3 reguli proprii, istoric 7 zile. Suficient ca să fie util și ca să fie recomandat mai departe. Niciun tip de condiție nu e Pro.
 
-**Pro, 29 € (sau 34 $) o singură dată, cu actualizări 12 luni:** foldere și reguli nelimitate, istoric nelimitat, undo pe orice lot din istoric, reguli pe vechime și duplicate cu acțiune, export/import de reguli, teme, prioritate la suport. După 12 luni versiunea pe care o ai merge pentru totdeauna; reînnoirea actualizărilor costă 15 €/an, opțional. (Modelul Sublime/JetBrains, adaptat la o utilitate mică.)
+**Pro, 29 € cu TVA inclus (prețul se afișează brut), o singură dată, cu actualizări 12 luni:** reguli și foldere urmărite nelimitate, istoric nelimitat, undo pe orice lot din istoric, export/import de reguli; din Faza 5, acțiunile din modulul de spațiu pe disc. După 12 luni versiunea pe care o ai merge pentru totdeauna; reînnoirea actualizărilor costă 15 €/an, opțional. (Modelul Sublime/JetBrains, adaptat la o utilitate mică.)
 
-**Probă:** 14 zile de Pro complet, fără card, apoi cade pe Gratuit fără să piardă nimic din ce a configurat.
+**Probă:** 14 zile de Pro complet, fără card, apoi cade pe Gratuit fără să piardă nimic din ce a configurat: regulile peste cele 3 gratuite rămân salvate, dar dezactivate, iar utilizatorul alege care 3 rămân active (la fel pentru folderele urmărite peste 2).
 
 **Reclame:** nu. Dovezi: reacția la CCleaner după 2017 (bundling, reclame, telemetrie) a devenit referința negativă în toate discuțiile despre utilitare Windows; recomandările din r/software și r/windows migrează sistematic spre unelte fără reclame (Everything, WizTree, BleachBit). Venitul din reclame pe o utilitate de desktop cu zeci de mii de utilizatori e de ordinul zecilor de euro pe lună; un singur utilizator Pro face cât o lună de reclame.
 
 **Abonament pur:** nu. Pentru utilitare mici, abonamentul e reproșul numărul unu în recenzii. Modelul cu plată unică plus actualizări opționale păstrează venitul recurent fără să stârnească reacția.
 
-Verificare în Faza 2: subagentul researcher confirmă prețurile actuale Hazel, TreeSize, WizTree, Sparkle și ajustează 29 € dacă piața s-a mutat.
+Verificat în Faza 2 (docs/reports/phase-2.md, R1): 29 € e sub Hazel (42 $) și peste organizatoarele mici (15–25 $); prețul rămâne. Decizii Vlad, 29 octombrie 2026: limitele de mai sus, TVA inclus.
 
 ### 3.2 Plăți și licențe pentru un PFA din România
 
