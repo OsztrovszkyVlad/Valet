@@ -22,9 +22,12 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Deserializer, Serialize};
 use tauri::Manager;
 use uuid::Uuid;
+use valet_core::entitlements::{check_folders, Limits};
+use valet_core::license::PlanTier;
 use valet_core::planner::is_excluded_dir_name;
 use valet_core::rules::Rule;
 
+use crate::commands::CmdError;
 use crate::state::{config_dir, AppState};
 
 pub(crate) const ERR_DRIVE_ROOT: &str = "config.driveRoot";
@@ -130,18 +133,28 @@ pub(crate) struct ConfigSplit {
     pub(crate) invalid: Vec<InvalidPath>,
     /// Valid but not existing right now; picked up again once they exist.
     pub(crate) unavailable: Vec<String>,
+    /// Valid but beyond the plan's folder limit (Free: after the first 2 in
+    /// `inbox_paths` order). Not watched or planned; approvals are kept.
+    pub(crate) inactive: Vec<String>,
 }
 
 /// Splits the entries of `config`: [`path_problem`] first (the checks
-/// `save_config` applies, for a hand-edited `config.json`), then `exists`.
-pub(crate) fn split_config(config: &Config, exists: impl Fn(&Path) -> bool) -> ConfigSplit {
+/// `save_config` applies, for a hand-edited `config.json`), then the plan's
+/// `folder_limit` (entries at position `folder_limit` and later are
+/// inactive, as `entitlements::split_active_folders`), then `exists`.
+pub(crate) fn split_config(
+    config: &Config,
+    exists: impl Fn(&Path) -> bool,
+    folder_limit: Option<usize>,
+) -> ConfigSplit {
     let mut split = ConfigSplit::default();
-    for path in &config.inbox_paths {
+    for (i, path) in config.inbox_paths.iter().enumerate() {
         match path_problem(path) {
             Some(code) => split.invalid.push(InvalidPath {
                 path: path.clone(),
                 code,
             }),
+            None if folder_limit.is_some_and(|n| i >= n) => split.inactive.push(path.clone()),
             None if exists(Path::new(path)) => split.available.push(PathBuf::from(path)),
             None => split.unavailable.push(path.clone()),
         }
@@ -149,13 +162,24 @@ pub(crate) fn split_config(config: &Config, exists: impl Fn(&Path) -> bool) -> C
     split
 }
 
-fn read_config(dir: &Path) -> Result<Config, String> {
+/// The folder limit of `plan` (`None` = unlimited).
+pub(crate) fn folder_limit(plan: &PlanTier) -> Option<usize> {
+    Limits::for_plan(plan).folders
+}
+
+pub(crate) fn read_config(dir: &Path) -> Result<Config, String> {
     let path = dir.join(CONFIG_FILE);
     if !path.exists() {
         return Ok(Config::default());
     }
     let text = std::fs::read_to_string(&path).map_err(|e| io_err(ERR_CONFIG_IO, e))?;
     serde_json::from_str(&text).map_err(|e| io_err(ERR_CONFIG_IO, e))
+}
+
+/// Writes `config` as it is (no validation). For a change that keeps the
+/// same entries (reordering by `apply_plan_choice`).
+pub(crate) fn write_config(dir: &Path, config: &Config) -> Result<(), String> {
+    write_json(dir, CONFIG_FILE, config, ERR_CONFIG_IO)
 }
 
 fn write_json<T: Serialize>(dir: &Path, file: &str, value: &T, code: &str) -> Result<(), String> {
@@ -170,16 +194,30 @@ fn io_err(code: &str, e: impl std::fmt::Display) -> String {
 }
 
 /// The available watched folders from `config.json` ([`split_config`] with
-/// the disk as it is now). Invalid and unavailable entries are skipped and
-/// only counted in the log. `config.noFolders` when none is left. Read again
-/// on every call, so a folder that reappears is picked up by the next caller
-/// (manual preview, `save_config`, the auto-apply rescan).
-pub(crate) fn watched_folders(dir: &Path) -> Result<Vec<PathBuf>, String> {
-    watched_folders_in(dir, Path::exists)
+/// the disk as it is now and the plan's `folder_limit`). Invalid,
+/// inactive and unavailable entries are skipped and only counted in the
+/// log. `config.noFolders` when none is left. Read again on every call, so a
+/// folder that reappears is picked up by the next caller (manual preview,
+/// `save_config`, the auto-apply rescan).
+pub(crate) fn watched_folders(
+    dir: &Path,
+    folder_limit: Option<usize>,
+) -> Result<Vec<PathBuf>, String> {
+    watched_folders_in(dir, Path::exists, folder_limit)
 }
 
-fn watched_folders_in(dir: &Path, exists: impl Fn(&Path) -> bool) -> Result<Vec<PathBuf>, String> {
-    let split = split_config(&read_config(dir)?, exists);
+fn watched_folders_in(
+    dir: &Path,
+    exists: impl Fn(&Path) -> bool,
+    folder_limit: Option<usize>,
+) -> Result<Vec<PathBuf>, String> {
+    let split = split_config(&read_config(dir)?, exists, folder_limit);
+    if !split.inactive.is_empty() {
+        log::info!(
+            "{} watched folder(s) inactive on the current plan",
+            split.inactive.len()
+        );
+    }
     if !split.invalid.is_empty() {
         log::info!(
             "{} watched folder entr(ies) in config.json ignored (drive root or excluded folder)",
@@ -202,46 +240,65 @@ fn watched_folders_in(dir: &Path, exists: impl Fn(&Path) -> bool) -> Result<Vec<
 /// What `get_config` returns: the stored config (`inbox_paths`, unchanged,
 /// every entry included) plus `invalid_paths`, the entries Valet refuses,
 /// each `{ path, code }` with code `config.driveRoot` or
-/// `config.excludedFolder`, and `unavailable_paths`, the valid entries that
-/// do not exist right now (not watched or planned until they do).
+/// `config.excludedFolder`, `unavailable_paths`, the valid entries that do
+/// not exist right now (not watched or planned until they do), and
+/// `inactive_paths`, the valid entries beyond the plan's folder limit (Free:
+/// after the first 2; not watched or planned while on Free).
 #[derive(Serialize, Debug, Clone, PartialEq)]
 pub(crate) struct ConfigView {
     #[serde(flatten)]
     pub(crate) config: Config,
     pub(crate) invalid_paths: Vec<InvalidPath>,
     pub(crate) unavailable_paths: Vec<String>,
+    pub(crate) inactive_paths: Vec<String>,
 }
 
-fn config_view(dir: &Path, exists: impl Fn(&Path) -> bool) -> Result<ConfigView, String> {
+fn config_view(
+    dir: &Path,
+    exists: impl Fn(&Path) -> bool,
+    folder_limit: Option<usize>,
+) -> Result<ConfigView, String> {
     let config = read_config(dir)?;
-    let split = split_config(&config, exists);
+    let split = split_config(&config, exists, folder_limit);
     Ok(ConfigView {
         config,
         invalid_paths: split.invalid,
         unavailable_paths: split.unavailable,
+        inactive_paths: split.inactive,
     })
 }
 
 #[tauri::command]
 pub(crate) async fn get_config(app: tauri::AppHandle) -> Result<ConfigView, String> {
-    config_view(&config_dir(&app)?, Path::exists)
+    let plan = crate::licensing::current_plan(&app).await?;
+    config_view(&config_dir(&app)?, Path::exists, folder_limit(&plan))
 }
 
 /// Validates and writes `config`. A folder that does not exist is saved
-/// (unavailable, see [`split_config`]). Before writing, approvals lose the
+/// (unavailable, see [`split_config`]). On Free, adding a folder beyond the
+/// limit is refused with `plan.limit` (removing and reordering are allowed,
+/// see `entitlements::check_folders`). Before writing, approvals lose the
 /// folders `config` no longer has (see [`prune_approval_roots`]), so an
-/// unavailable folder keeps its approvals; if that fails nothing is written.
-fn save_config_in(dir: &Path, config: Config) -> Result<Config, String> {
+/// unavailable or inactive folder keeps its approvals; if that fails nothing
+/// is written.
+pub(crate) fn save_config_in(
+    dir: &Path,
+    config: Config,
+    plan: &PlanTier,
+) -> Result<Config, CmdError> {
     validate_config(&config)?;
+    let stored = read_config(dir).unwrap_or_default();
+    check_folders(&stored.inbox_paths, &config.inbox_paths, plan)?;
     prune_approval_roots(dir, &config.inbox_paths)?;
     write_json(dir, CONFIG_FILE, &config, ERR_CONFIG_IO)?;
     Ok(config)
 }
 
 #[tauri::command]
-pub(crate) async fn save_config(config: Config, app: tauri::AppHandle) -> Result<Config, String> {
+pub(crate) async fn save_config(config: Config, app: tauri::AppHandle) -> Result<Config, CmdError> {
     let dir = config_dir(&app)?;
-    let saved = save_config_in(&dir, config)?;
+    let plan = crate::licensing::current_plan(&app).await?;
+    let saved = save_config_in(&dir, config, &plan)?;
     log::info!(
         "Config saved: {} watched folder(s)",
         saved.inbox_paths.len()
@@ -249,7 +306,7 @@ pub(crate) async fn save_config(config: Config, app: tauri::AppHandle) -> Result
     // Watch the new folders and let auto-apply scan them.
     crate::auto::restart_watcher(
         &app.state::<AppState>(),
-        watched_folders(&dir).unwrap_or_default(),
+        watched_folders(&dir, folder_limit(&plan)).unwrap_or_default(),
     );
     Ok(saved)
 }
@@ -634,6 +691,9 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    /// A plan without folder or rule limits.
+    const FULL: PlanTier = PlanTier::Trial { ends_at: i64::MAX };
+
     #[test]
     fn remove_approval_drops_only_that_rule() {
         let tmp = tempfile::tempdir().unwrap();
@@ -743,10 +803,13 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path().join("cfg");
         let ok = cfg(&[w]);
-        assert_eq!(save_config_in(&dir, ok.clone()).unwrap(), ok);
+        assert_eq!(save_config_in(&dir, ok.clone(), &FULL).unwrap(), ok);
         assert_eq!(read_config(&dir).unwrap(), ok);
 
-        let err = save_config_in(&dir, cfg(&[w, "C:\\"])).unwrap_err();
+        let CmdError::Code(err) = save_config_in(&dir, cfg(&[w, "C:\\"]), &FULL).unwrap_err()
+        else {
+            panic!("not a code");
+        };
         assert!(err.starts_with("config.driveRoot: "), "{err}");
         assert_eq!(read_config(&dir).unwrap(), ok, "unchanged after a refusal");
 
@@ -755,17 +818,77 @@ mod tests {
         let m = missing.to_str().unwrap();
         let with_missing = cfg(&[w, m]);
         assert_eq!(
-            save_config_in(&dir, with_missing.clone()).unwrap(),
+            save_config_in(&dir, with_missing.clone(), &FULL).unwrap(),
             with_missing
         );
         assert_eq!(read_config(&dir).unwrap(), with_missing);
-        let view = config_view(&dir, Path::exists).unwrap();
+        let view = config_view(&dir, Path::exists, None).unwrap();
         assert!(view.invalid_paths.is_empty());
         assert_eq!(view.unavailable_paths, [m]);
-        assert_eq!(watched_folders(&dir).unwrap(), vec![watched.to_path_buf()]);
+        assert_eq!(
+            watched_folders(&dir, None).unwrap(),
+            vec![watched.to_path_buf()]
+        );
         // Only missing folders: saved, nothing to watch or plan.
-        save_config_in(&dir, cfg(&[m])).unwrap();
-        assert_eq!(watched_folders(&dir).unwrap_err(), ERR_NO_FOLDERS);
+        save_config_in(&dir, cfg(&[m]), &FULL).unwrap();
+        assert_eq!(watched_folders(&dir, None).unwrap_err(), ERR_NO_FOLDERS);
+    }
+
+    #[test]
+    fn free_plan_refuses_a_third_folder_but_allows_removing_and_reordering() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        let free = PlanTier::Free;
+        let (a, b, c) = (
+            "C:\\Users\\Ana\\A",
+            "C:\\Users\\Ana\\B",
+            "C:\\Users\\Ana\\C",
+        );
+        save_config_in(dir, cfg(&[a, b]), &free).unwrap();
+        let err = save_config_in(dir, cfg(&[a, b, c]), &free).unwrap_err();
+        assert_eq!(
+            serde_json::to_value(&err).unwrap(),
+            json!({ "code": "plan.limit", "kind": "folders", "limit": 2, "detail": "folders 2" })
+        );
+        assert_eq!(read_config(dir).unwrap(), cfg(&[a, b]), "unchanged");
+        // Replacing one folder by another also adds one: allowed within 2.
+        save_config_in(dir, cfg(&[b, c]), &free).unwrap();
+        // Trial: three folders.
+        save_config_in(dir, cfg(&[a, b, c]), &FULL).unwrap();
+        // Back on Free: reordering and removing are allowed with 3 stored.
+        save_config_in(dir, cfg(&[c, a, b]), &free).unwrap();
+        save_config_in(dir, cfg(&[c, a]), &free).unwrap();
+        assert_eq!(read_config(dir).unwrap(), cfg(&[c, a]));
+    }
+
+    #[test]
+    fn folders_beyond_the_free_limit_are_inactive_and_not_watched() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        let (a, b, c, d) = (
+            "C:\\Users\\Ana\\A",
+            "C:\\Users\\Ana\\B",
+            "C:\\Users\\Ana\\C",
+            "C:\\Users\\Ana\\D",
+        );
+        save_config_in(dir, cfg(&[a, b, c, d]), &FULL).unwrap();
+        let exists = |p: &Path| p != Path::new(b);
+        let limit = folder_limit(&PlanTier::Free);
+        assert_eq!(limit, Some(2));
+        let view = config_view(dir, exists, limit).unwrap();
+        assert_eq!(view.config, cfg(&[a, b, c, d]), "all entries kept");
+        assert_eq!(view.unavailable_paths, [b]);
+        assert_eq!(view.inactive_paths, [c, d]);
+        assert_eq!(
+            watched_folders_in(dir, exists, limit).unwrap(),
+            vec![PathBuf::from(a)]
+        );
+        let json = serde_json::to_value(&view).unwrap();
+        assert_eq!(json["inactive_paths"], json!([c, d]));
+        // Trial or Pro: everything active again.
+        let view = config_view(dir, exists, folder_limit(&FULL)).unwrap();
+        assert!(view.inactive_paths.is_empty());
+        assert_eq!(watched_folders_in(dir, exists, None).unwrap().len(), 3);
     }
 
     #[test]
@@ -800,7 +923,10 @@ mod tests {
     #[test]
     fn watched_folders_without_existing_folders_is_no_folders() {
         let tmp = tempfile::tempdir().unwrap();
-        assert_eq!(watched_folders(tmp.path()).unwrap_err(), ERR_NO_FOLDERS);
+        assert_eq!(
+            watched_folders(tmp.path(), None).unwrap_err(),
+            ERR_NO_FOLDERS
+        );
         let dir = existing_folder();
         let gone = dir.join("valet-test-missing");
         write_json(
@@ -810,7 +936,10 @@ mod tests {
             ERR_CONFIG_IO,
         )
         .unwrap();
-        assert_eq!(watched_folders(tmp.path()).unwrap_err(), ERR_NO_FOLDERS);
+        assert_eq!(
+            watched_folders(tmp.path(), None).unwrap_err(),
+            ERR_NO_FOLDERS
+        );
         write_json(
             tmp.path(),
             CONFIG_FILE,
@@ -818,7 +947,7 @@ mod tests {
             ERR_CONFIG_IO,
         )
         .unwrap();
-        assert_eq!(watched_folders(tmp.path()).unwrap(), vec![dir]);
+        assert_eq!(watched_folders(tmp.path(), None).unwrap(), vec![dir]);
     }
 
     #[test]
@@ -836,7 +965,7 @@ mod tests {
             "C:\\Users\\Ana\\Gone",
             "\\\\nas\\share",
         ]);
-        let split = split_config(&c, exists);
+        let split = split_config(&c, exists, None);
         assert_eq!(
             split.available,
             vec![PathBuf::from("C:\\Users\\Ana\\Downloads")]
@@ -860,7 +989,7 @@ mod tests {
             let one = cfg(&[path]);
             assert_eq!(
                 validate_config(&one).is_ok(),
-                split_config(&one, exists).invalid.is_empty(),
+                split_config(&one, exists, None).invalid.is_empty(),
                 "{path}"
             );
         }
@@ -883,9 +1012,12 @@ mod tests {
         write_json(tmp.path(), CONFIG_FILE, &cfg(&entries), ERR_CONFIG_IO).unwrap();
         let on_disk = std::fs::read(tmp.path().join(CONFIG_FILE)).unwrap();
 
-        assert_eq!(watched_folders(tmp.path()).unwrap(), vec![dir.clone()]);
+        assert_eq!(
+            watched_folders(tmp.path(), None).unwrap(),
+            vec![dir.clone()]
+        );
 
-        let view = config_view(tmp.path(), Path::exists).unwrap();
+        let view = config_view(tmp.path(), Path::exists, None).unwrap();
         assert_eq!(view.config, cfg(&entries), "nothing dropped");
         assert_eq!(
             serde_json::to_value(&view).unwrap(),
@@ -897,6 +1029,7 @@ mod tests {
                     { "path": excluded.to_str().unwrap(), "code": "config.excludedFolder" },
                 ],
                 "unavailable_paths": [gone.to_str().unwrap()],
+                "inactive_paths": [],
             })
         );
         assert_eq!(
@@ -906,14 +1039,18 @@ mod tests {
 
         // Only invalid entries: no folder to watch or plan.
         write_json(tmp.path(), CONFIG_FILE, &cfg(&entries[..4]), ERR_CONFIG_IO).unwrap();
-        assert_eq!(watched_folders(tmp.path()).unwrap_err(), ERR_NO_FOLDERS);
+        assert_eq!(
+            watched_folders(tmp.path(), None).unwrap_err(),
+            ERR_NO_FOLDERS
+        );
         let empty = tmp.path().join("none");
         assert_eq!(
-            config_view(&empty, Path::exists).unwrap(),
+            config_view(&empty, Path::exists, None).unwrap(),
             ConfigView {
                 config: Config::default(),
                 invalid_paths: vec![],
                 unavailable_paths: vec![],
+                inactive_paths: vec![],
             }
         );
     }
@@ -928,20 +1065,20 @@ mod tests {
         let exists = |p: &Path| p == Path::new(home) || (plugged.get() && p == Path::new(usb));
 
         assert_eq!(
-            watched_folders_in(tmp.path(), exists).unwrap(),
+            watched_folders_in(tmp.path(), exists, None).unwrap(),
             vec![PathBuf::from(home)]
         );
-        let view = config_view(tmp.path(), exists).unwrap();
+        let view = config_view(tmp.path(), exists, None).unwrap();
         assert_eq!(view.unavailable_paths, [usb]);
         assert!(view.invalid_paths.is_empty());
 
         plugged.set(true);
         assert_eq!(
-            watched_folders_in(tmp.path(), exists).unwrap(),
+            watched_folders_in(tmp.path(), exists, None).unwrap(),
             vec![PathBuf::from(usb), PathBuf::from(home)],
             "configuration order, no restart or save needed"
         );
-        assert!(config_view(tmp.path(), exists)
+        assert!(config_view(tmp.path(), exists, None)
             .unwrap()
             .unavailable_paths
             .is_empty());
@@ -1280,7 +1417,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path();
         approve(dir, &[(1, 1)], &[w, IN]);
-        save_config_in(dir, cfg(&[w])).unwrap();
+        save_config_in(dir, cfg(&[w]), &FULL).unwrap();
         let a = load_approvals(dir);
         assert!(a.allows(&rule(1, 1), &key(w)));
         assert!(!a.allows(&rule(1, 1), &key(IN)));
@@ -1289,7 +1426,7 @@ mod tests {
         let usb = existing_folder().join("valet-test-missing");
         let u = usb.to_str().unwrap();
         approve(dir, &[(1, 1)], &[u]);
-        save_config_in(dir, cfg(&[w, u])).unwrap();
+        save_config_in(dir, cfg(&[w, u]), &FULL).unwrap();
         let a = load_approvals(dir);
         assert!(a.allows(&rule(1, 1), &key(u)), "kept while unavailable");
         assert!(a.allows(&rule(1, 1), &key(w)));
@@ -1297,7 +1434,7 @@ mod tests {
         // A refused config changes no approval.
         approve(dir, &[(1, 1)], &[IN]);
         let before = load_approvals(dir);
-        save_config_in(dir, cfg(&["C:\\"])).unwrap_err();
+        save_config_in(dir, cfg(&["C:\\"]), &FULL).unwrap_err();
         assert_eq!(load_approvals(dir), before);
     }
 

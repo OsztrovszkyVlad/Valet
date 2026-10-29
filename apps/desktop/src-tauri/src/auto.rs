@@ -2,15 +2,16 @@
 //!
 //! Inputs: batches of changed paths from the file watcher, and a full rescan
 //! of every watched folder every [`RESCAN_INTERVAL`]. Only available watched
-//! folders (existing now, see `settings::split_config`) are watched and
-//! planned; before each full rescan the set is read again, so a folder that
-//! disappears (unplugged drive) is dropped and one that reappears is watched
-//! and planned again without a restart. A pass plans the
-//! watched folders that changed and executes only the operations of rules
-//! approved at their current version under the watched folder of the file
-//! (see `settings::Approvals`). Other operations (rule edited or never
-//! previewed, or a folder added since the last preview) are left for the
-//! next manual preview.
+//! folders (existing now and active on the current plan, see
+//! `settings::split_config`) are watched and planned; before each full
+//! rescan the set is read again, so a folder that disappears (unplugged
+//! drive) is dropped and one that reappears is watched and planned again
+//! without a restart. A plan change restarts the watcher on the new set.
+//! A pass plans the watched folders that changed and executes only the
+//! operations of rules approved at their current version under the watched
+//! folder of the file (see `settings::Approvals`). Other operations (rule
+//! edited or never previewed, or a folder added since the last preview) are
+//! left for the next manual preview.
 //!
 //! A pass runs only when [`pass_allowed`]: `auto_apply_enabled` and
 //! `first_preview_approved` in `app_settings.json`, not paused from the tray,
@@ -396,7 +397,7 @@ pub(crate) fn start<R: Runtime>(app: &AppHandle<R>, cfg_dir: PathBuf) {
         .auto_tx
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(tx);
-    let roots = watched_folders(&cfg_dir).unwrap_or_default();
+    let roots = watched_folders(&cfg_dir, state.folder_limit()).unwrap_or_default();
     restart_watcher(&state, roots.clone());
     let app = app.clone();
     tauri::async_runtime::spawn(run_loop(app, state, cfg_dir, roots, rx));
@@ -528,7 +529,7 @@ async fn run_loop<R: Runtime>(
 /// watcher is restarted on it. An unreadable `config.json` keeps the current
 /// folders.
 fn refresh_watched(state: &AppState, cfg_dir: &Path, sched: &mut Scheduler, now: Instant) {
-    let current = match watched_folders(cfg_dir) {
+    let current = match watched_folders(cfg_dir, state.folder_limit()) {
         Ok(roots) => roots,
         Err(e) if e == ERR_NO_FOLDERS => Vec::new(),
         Err(_) => return,

@@ -39,6 +39,7 @@ use crate::commands::settings::{
     load_app_settings, save_app_settings, save_config, validate_config, AppSettings, Config,
     Language, ERR_MISSING,
 };
+use crate::commands::CmdError;
 use crate::state::config_dir;
 
 pub(crate) const ERR_UNKNOWN_PRESET: &str = "preset.unknown";
@@ -164,7 +165,7 @@ pub(crate) async fn complete_onboarding(
     folders: Vec<String>,
     preset_ids: Vec<String>,
     app: tauri::AppHandle,
-) -> Result<Onboarding, String> {
+) -> Result<Onboarding, CmdError> {
     let dir = config_dir(&app)?;
     // Everything is checked before anything is written.
     let config = onboarding_config(&folders, &PlanContext::from_system().folders)?;

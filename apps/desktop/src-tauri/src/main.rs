@@ -10,6 +10,8 @@ use commands::platform::launched_minimized;
 mod auto;
 mod commands;
 mod i18n;
+mod license_client;
+mod licensing;
 mod logging;
 mod setup;
 mod state;
@@ -73,6 +75,15 @@ fn main() {
             commands::platform::get_auto_start,
             commands::platform::show_in_explorer,
             commands::platform::send_notification,
+            commands::platform::open_external,
+            commands::license::get_plan_status,
+            commands::license::import_license_file,
+            commands::license::import_license_text,
+            commands::license::check_license_now,
+            commands::license::remove_license,
+            commands::license::apply_plan_choice,
+            commands::license::export_rules_file,
+            commands::license::import_rules_file,
             updater::get_app_version,
             updater::check_for_update,
             updater::install_update

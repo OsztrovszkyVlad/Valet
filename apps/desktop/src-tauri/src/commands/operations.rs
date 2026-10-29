@@ -7,8 +7,10 @@ use std::time::Instant;
 
 use tauri::{Emitter, Manager};
 use valet_core::{
+    entitlements::{batch_visible, can_undo, visible_batch_cutoff, Limits},
     executor::{self, BatchReport, UndoReport},
-    journal::{BatchInfo, Journal, OpRecord},
+    journal::{BatchInfo, BatchKind, Journal, OpRecord},
+    license::PlanTier,
     planner::{self, OpKind, Plan, PlanContext, PlannedOp},
     platform::Platform,
     rules::Rule,
@@ -17,7 +19,7 @@ use valet_core::{
 
 use crate::commands::platform::notify_batch_done;
 use crate::commands::settings::{
-    record_preview_approval, watched_folders, PreviewApproval, RuleVersion,
+    folder_limit, record_preview_approval, watched_folders, PreviewApproval, RuleVersion,
 };
 use crate::state::{config_dir, AppState};
 
@@ -105,8 +107,10 @@ pub(crate) async fn dry_run(app: tauri::AppHandle) -> Result<serde_json::Value, 
         .await
         .map_err(|e| format!("Database connection failed: {}", e))?;
 
-    // Watched folders that exist; `config.noFolders` when there are none.
-    let paths = watched_folders(&config_dir(&app)?)?;
+    // Watched folders that exist and are active on the current plan;
+    // `config.noFolders` when there are none.
+    let plan = crate::licensing::sync_plan(&app, &db).await?.status.plan;
+    let paths = watched_folders(&config_dir(&app)?, folder_limit(&plan))?;
 
     let rules = db
         .list_rules()
@@ -339,20 +343,116 @@ pub(crate) async fn close_preview(app: tauri::AppHandle) -> Result<(), String> {
 /// Default number of batches returned by `list_batches`.
 const DEFAULT_BATCH_LIMIT: u32 = 50;
 
-/// Journal batches, newest first, with operation counts per state.
+/// `list_batches` result.
+#[derive(serde::Serialize, Debug)]
+pub(crate) struct BatchList {
+    pub(crate) batches: Vec<BatchInfo>,
+    /// The plan hid batches of the list (Free: older than 7 days). They stay
+    /// in the journal.
+    pub(crate) hidden_older: bool,
+    /// The newest `apply` batch in the whole journal (also when undone or
+    /// hidden). On Free it is the only batch `undo_batch` accepts.
+    pub(crate) latest_apply_batch_id: Option<String>,
+}
+
+/// Batches looked at first to find the latest apply batch; the whole
+/// journal is read only when none of them is one.
+const LATEST_APPLY_WINDOW: u32 = 50;
+
+/// The newest batch of kind `apply` in the journal. Undo and recovery
+/// batches are skipped.
+pub(crate) async fn latest_apply_batch_id(journal: &Journal) -> Result<Option<String>, String> {
+    let find = |batches: Vec<BatchInfo>| {
+        batches
+            .into_iter()
+            .find(|b| b.kind == BatchKind::Apply)
+            .map(|b| b.id)
+    };
+    let recent = journal
+        .list_batches(LATEST_APPLY_WINDOW)
+        .await
+        .map_err(|e| format!("Failed to list batches: {}", e))?;
+    let full_window = recent.len() == LATEST_APPLY_WINDOW as usize;
+    if let Some(id) = find(recent) {
+        return Ok(Some(id));
+    }
+    if !full_window {
+        return Ok(None);
+    }
+    let all = journal
+        .list_batches(u32::MAX)
+        .await
+        .map_err(|e| format!("Failed to list batches: {}", e))?;
+    Ok(find(all))
+}
+
+/// The newest `limit` batches, minus those the plan hides at `now`.
+pub(crate) async fn list_batches_in(
+    journal: &Journal,
+    limit: u32,
+    plan: &PlanTier,
+    now: i64,
+) -> Result<BatchList, String> {
+    let all = journal
+        .list_batches(limit)
+        .await
+        .map_err(|e| format!("Failed to list batches: {}", e))?;
+    let cutoff = visible_batch_cutoff(plan, now);
+    let total = all.len();
+    let batches: Vec<BatchInfo> = all
+        .into_iter()
+        .filter(|b| batch_visible(&b.created_at, cutoff))
+        .collect();
+    Ok(BatchList {
+        hidden_older: batches.len() < total,
+        batches,
+        latest_apply_batch_id: latest_apply_batch_id(journal).await?,
+    })
+}
+
+/// Journal batches, newest first, with operation counts per state:
+/// `{ batches, hidden_older, latest_apply_batch_id }`. On Free, batches
+/// older than 7 days are left out and `hidden_older` is true when the list
+/// had any.
 #[tauri::command]
 pub(crate) async fn list_batches(
     limit: Option<u32>,
     app: tauri::AppHandle,
-) -> Result<Vec<BatchInfo>, String> {
+) -> Result<BatchList, String> {
     let state = app.state::<AppState>();
     let db = Db::connect(&state._db_path)
         .await
         .map_err(|e| format!("Database connection failed: {}", e))?;
-    db.journal()
-        .list_batches(limit.unwrap_or(DEFAULT_BATCH_LIMIT))
-        .await
-        .map_err(|e| format!("Failed to list batches: {}", e))
+    let plan = crate::licensing::sync_plan(&app, &db).await?.status.plan;
+    list_batches_in(
+        &db.journal(),
+        limit.unwrap_or(DEFAULT_BATCH_LIMIT),
+        &plan,
+        crate::licensing::unix_now(),
+    )
+    .await
+}
+
+/// Error of `undo_batch` on Free for any batch but the latest.
+pub(crate) const ERR_UNDO_LATEST_ONLY: &str = "plan.undoLatestOnly";
+
+/// On Free only [`latest_apply_batch_id`] can be undone (undo and recovery
+/// batches do not count as newer; undoing it again with `force` stays
+/// allowed, older batches stay locked).
+pub(crate) async fn check_undo_allowed(
+    journal: &Journal,
+    batch_id: &str,
+    plan: &PlanTier,
+) -> Result<(), String> {
+    if !Limits::for_plan(plan).undo_latest_only {
+        return Ok(());
+    }
+    let latest = latest_apply_batch_id(journal).await?;
+    if can_undo(batch_id, latest.as_deref(), plan) {
+        Ok(())
+    } else {
+        Err(ERR_UNDO_LATEST_ONLY.to_string())
+    }
 }
 
 #[derive(serde::Serialize, Debug)]
@@ -398,6 +498,8 @@ pub(crate) async fn undo_batch(
     let db = Db::connect(&state._db_path)
         .await
         .map_err(|e| format!("Database connection failed: {}", e))?;
+    let plan = crate::licensing::sync_plan(&app, &db).await?.status.plan;
+    check_undo_allowed(&db.journal(), &batch_id, &plan).await?;
     let _file_ops = state.file_ops.lock().await;
     let report = executor::undo_batch(&batch_id, &db.journal(), state.platform.as_ref(), force)
         .await
@@ -416,6 +518,86 @@ pub(crate) async fn undo_batch(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    async fn journal_db() -> (tempfile::TempDir, Db) {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Db::connect(&tmp.path().join("valet.sqlite3"))
+            .await
+            .unwrap();
+        (tmp, db)
+    }
+
+    #[tokio::test]
+    async fn free_undoes_only_the_latest_apply_batch() {
+        let (_tmp, db) = journal_db().await;
+        let j = db.journal();
+        // Oldest first: apply B, apply A, then a recovery batch (newest).
+        let b = j.create_batch(BatchKind::Apply).await.unwrap();
+        let a = j.create_batch(BatchKind::Apply).await.unwrap();
+        let r = j.create_batch(BatchKind::Recovery).await.unwrap();
+        let free = PlanTier::Free;
+        assert_eq!(
+            latest_apply_batch_id(&j).await.unwrap().as_deref(),
+            Some(a.as_str())
+        );
+        check_undo_allowed(&j, &a, &free).await.unwrap();
+        assert_eq!(
+            check_undo_allowed(&j, &b, &free).await.unwrap_err(),
+            ERR_UNDO_LATEST_ONLY
+        );
+        assert!(check_undo_allowed(&j, &r, &free).await.is_err());
+        // An undo batch of A does not unlock B, and A can be retried.
+        j.create_batch(BatchKind::Undo).await.unwrap();
+        check_undo_allowed(&j, &a, &free).await.unwrap();
+        assert!(check_undo_allowed(&j, &b, &free).await.is_err());
+        // Trial and Pro: any batch.
+        let trial = PlanTier::Trial { ends_at: 1 };
+        check_undo_allowed(&j, &b, &trial).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn latest_apply_batch_is_found_beyond_the_first_window() {
+        let (_tmp, db) = journal_db().await;
+        let j = db.journal();
+        assert_eq!(latest_apply_batch_id(&j).await.unwrap(), None);
+        let a = j.create_batch(BatchKind::Apply).await.unwrap();
+        for _ in 0..LATEST_APPLY_WINDOW + 2 {
+            j.create_batch(BatchKind::Undo).await.unwrap();
+        }
+        assert_eq!(latest_apply_batch_id(&j).await.unwrap(), Some(a));
+    }
+
+    #[tokio::test]
+    async fn free_hides_batches_older_than_seven_days() {
+        let (_tmp, db) = journal_db().await;
+        let j = db.journal();
+        let a = j.create_batch(BatchKind::Apply).await.unwrap();
+        j.create_batch(BatchKind::Recovery).await.unwrap();
+        let now = crate::licensing::unix_now();
+        let week_later = now + 8 * 86_400;
+
+        let list = list_batches_in(&j, 50, &PlanTier::Free, now).await.unwrap();
+        assert_eq!(list.batches.len(), 2);
+        assert!(!list.hidden_older);
+
+        let list = list_batches_in(&j, 50, &PlanTier::Free, week_later)
+            .await
+            .unwrap();
+        assert!(list.batches.is_empty());
+        assert!(list.hidden_older);
+        // Computed from the whole journal, not the visible part.
+        assert_eq!(list.latest_apply_batch_id.as_deref(), Some(a.as_str()));
+        let json = serde_json::to_value(&list).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({ "batches": [], "hidden_older": true, "latest_apply_batch_id": a })
+        );
+
+        let trial = PlanTier::Trial { ends_at: 1 };
+        let list = list_batches_in(&j, 50, &trial, week_later).await.unwrap();
+        assert_eq!(list.batches.len(), 2);
+        assert!(!list.hidden_older);
+    }
 
     use valet_core::executor::{FailCode, OpError, OpResult};
 

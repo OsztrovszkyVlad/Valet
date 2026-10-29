@@ -5,12 +5,14 @@ use std::sync::{atomic::AtomicBool, Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use tauri::{Manager, Runtime};
+use valet_core::license::PlanTier;
 use valet_core::planner::Plan;
 use valet_core::platform::Platform;
 use valet_platform::WatchCancel;
 
 use crate::auto::AutoMsg;
-use crate::commands::settings::PreviewApproval;
+use crate::commands::settings::{folder_limit, PreviewApproval};
+use crate::licensing::LicenseEnv;
 
 /// Auto-apply stays paused this long after `dry_run` when the UI neither
 /// executes the preview nor calls `close_preview`.
@@ -40,6 +42,17 @@ pub(crate) struct AppState {
     pub(crate) preview_opened: Arc<Mutex<Option<Instant>>>,
     /// Sender to the auto-apply loop (`auto::start`); `None` before it starts.
     pub(crate) auto_tx: Arc<Mutex<Option<tokio::sync::mpsc::UnboundedSender<AutoMsg>>>>,
+    /// Public key, API base, machine id, build date and packaging the
+    /// licensing code uses (`LicenseEnv::system()` in the app).
+    pub(crate) license: Arc<LicenseEnv>,
+    /// The plan the last `licensing::sync_plan` resolved. The watcher and
+    /// auto-apply read their folder limit from it. Free until the first sync,
+    /// which runs at startup before the watcher.
+    pub(crate) plan: Arc<Mutex<PlanTier>>,
+    /// Held while rules are written by a plan change, `upsert_rule`,
+    /// `apply_plan_choice` or a rule import, so a transition never writes
+    /// back a rule the user just changed.
+    pub(crate) rule_writes: Arc<tauri::async_runtime::Mutex<()>>,
 }
 
 /// Error string `execute_operations` returns when there is no previewed plan
@@ -48,6 +61,12 @@ pub(crate) const PREVIEW_REQUIRED: &str = "preview_required";
 
 impl AppState {
     pub(crate) fn new(db_path: PathBuf) -> Self {
+        Self::with_license(db_path, LicenseEnv::system())
+    }
+
+    /// [`AppState::new`] with the given licensing environment (tests inject
+    /// the TEST key, a machine id and a local license server).
+    pub(crate) fn with_license(db_path: PathBuf, license: LicenseEnv) -> Self {
         Self {
             paused: Arc::new(AtomicBool::new(false)),
             _db_path: db_path,
@@ -57,7 +76,31 @@ impl AppState {
             preview: Arc::new(Mutex::new(None)),
             preview_opened: Arc::new(Mutex::new(None)),
             auto_tx: Arc::new(Mutex::new(None)),
+            license: Arc::new(license),
+            plan: Arc::new(Mutex::new(PlanTier::Free)),
+            rule_writes: Arc::new(tauri::async_runtime::Mutex::new(())),
         }
+    }
+
+    /// The plan of the last sync.
+    pub(crate) fn plan(&self) -> PlanTier {
+        self.plan
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
+    pub(crate) fn set_plan(&self, plan: PlanTier) {
+        *self
+            .plan
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = plan;
+    }
+
+    /// Watched folders active at once on the last synced plan (`None` =
+    /// all).
+    pub(crate) fn folder_limit(&self) -> Option<usize> {
+        folder_limit(&self.plan())
     }
 
     /// Stores `plan` under `plan_id` as the latest preview, replacing any

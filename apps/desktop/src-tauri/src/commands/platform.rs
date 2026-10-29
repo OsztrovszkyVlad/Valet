@@ -1,4 +1,5 @@
-//! Platform commands: notifications, auto-start, Explorer.
+//! Platform commands: notifications, auto-start, Explorer, the two
+//! external pages Valet may open (`open_external`).
 
 use std::path::Path;
 
@@ -6,6 +7,15 @@ use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_notification::NotificationExt;
 
 use crate::i18n;
+use crate::state::AppState;
+
+/// Error of `configure_auto_start` in the Microsoft Store build (Windows
+/// manages its startup entry).
+pub(crate) const ERR_AUTOSTART_PACKAGED: &str = "autostart.packaged";
+/// Error of `open_external` for a target that is not set or not known.
+pub(crate) const ERR_OPEN_UNAVAILABLE: &str = "open.unavailable";
+/// Windows Settings, Apps > Startup.
+pub(crate) const STARTUP_SETTINGS_URI: &str = "ms-settings:startupapps";
 
 /// Argument the auto-start entry passes: start hidden in the tray.
 pub(crate) const MINIMIZED_ARG: &str = valet_platform::AUTOSTART_ARG;
@@ -79,8 +89,13 @@ pub(crate) async fn send_notification(
 /// Adds or removes the per-user auto-start entry for the running exe
 /// (`valet_platform::set_autostart`, HKCU only). The entry starts Valet with
 /// [`MINIMIZED_ARG`], so it opens in the tray.
+///
+/// Error `autostart.packaged` in the Microsoft Store build.
 #[tauri::command]
-pub(crate) async fn configure_auto_start(enabled: bool) -> Result<(), String> {
+pub(crate) async fn configure_auto_start(enabled: bool, app: AppHandle) -> Result<(), String> {
+    if app.state::<AppState>().license.packaged {
+        return Err(ERR_AUTOSTART_PACKAGED.to_string());
+    }
     std::env::current_exe()
         .and_then(|exe| valet_platform::set_autostart(enabled, &exe))
         .map_err(|e| format!("Failed to change auto-start: {e}"))?;
@@ -115,9 +130,74 @@ pub(crate) async fn show_in_explorer(path: String) -> Result<(), String> {
     })
 }
 
+/// The URI for an `open_external` target: `checkout` (the `checkout.txt`
+/// URL, when set) or `startup_settings`. Anything else: `open.unavailable`.
+pub(crate) fn external_uri(target: &str, checkout_url: Option<&str>) -> Result<String, String> {
+    match target {
+        "checkout" => checkout_url
+            .map(str::to_owned)
+            .ok_or_else(|| ERR_OPEN_UNAVAILABLE.to_string()),
+        "startup_settings" => Ok(STARTUP_SETTINGS_URI.to_string()),
+        _ => Err(ERR_OPEN_UNAVAILABLE.to_string()),
+    }
+}
+
+/// Hands a fixed URI to the shell (default browser, Settings app).
+#[cfg(windows)]
+fn open_uri(uri: &str) -> Result<(), String> {
+    std::process::Command::new("explorer.exe")
+        .arg(uri)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| {
+            log::warn!("Failed to open an external page: {e}");
+            ERR_OPEN_UNAVAILABLE.to_string()
+        })
+}
+
+#[cfg(not(windows))]
+fn open_uri(_uri: &str) -> Result<(), String> {
+    Err(ERR_OPEN_UNAVAILABLE.to_string())
+}
+
+/// Opens the checkout page or the Windows startup apps settings. Only these
+/// two; error `open.unavailable` for anything else or when checkout is not
+/// set.
+#[tauri::command]
+pub(crate) async fn open_external(target: String, app: AppHandle) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let uri = external_uri(&target, state.license.checkout_url.as_deref())?;
+    open_uri(&uri)?;
+    log::info!("Opened external page: {target}");
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_checkout_and_startup_settings_can_be_opened() {
+        assert_eq!(
+            external_uri("startup_settings", None).unwrap(),
+            "ms-settings:startupapps"
+        );
+        assert_eq!(
+            external_uri("checkout", Some("https://valet.example/buy")).unwrap(),
+            "https://valet.example/buy"
+        );
+        assert_eq!(
+            external_uri("checkout", None).unwrap_err(),
+            ERR_OPEN_UNAVAILABLE
+        );
+        for t in ["", "https://evil.example", "file:///C:/x", "Checkout"] {
+            assert_eq!(
+                external_uri(t, Some("https://valet.example/buy")).unwrap_err(),
+                ERR_OPEN_UNAVAILABLE,
+                "{t}"
+            );
+        }
+    }
 
     #[test]
     fn minimized_flag_is_detected() {

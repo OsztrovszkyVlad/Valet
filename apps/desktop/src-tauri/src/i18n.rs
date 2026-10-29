@@ -31,6 +31,9 @@ pub(crate) struct Text {
     pub(crate) tray_resume: &'static str,
     pub(crate) tray_quit: &'static str,
     pub(crate) batch_title: &'static str,
+    /// File type names in the open and save dialogs.
+    pub(crate) license_file_filter: &'static str,
+    pub(crate) rules_file_filter: &'static str,
 }
 
 const RO: Text = Text {
@@ -40,6 +43,8 @@ const RO: Text = Text {
     tray_resume: "Reia organizarea automată",
     tray_quit: "Ieșire",
     batch_title: "Valet",
+    license_file_filter: "Licență Valet",
+    rules_file_filter: "Reguli Valet",
 };
 
 const EN: Text = Text {
@@ -49,6 +54,8 @@ const EN: Text = Text {
     tray_resume: "Resume automatic organizing",
     tray_quit: "Quit",
     batch_title: "Valet",
+    license_file_filter: "Valet license",
+    rules_file_filter: "Valet rules",
 };
 
 pub(crate) fn text(lang: Lang) -> &'static Text {

@@ -14,7 +14,7 @@
 //! | `conditions`  | array of `{ "type", "value" }` | all must hold; at least one unless `alwaysApply` |
 //! | `actions`     | array of `{ "type", "params" }` | at least one |
 //! | `version`     | integer             | set by `upsert_rule`: +1 when anything else changed |
-//! | `options`     | object, default `{}` | `includeHidden: bool`, `topLevelOnly: bool`; other keys are kept and ignored |
+//! | `options`     | object, default `{}` | `includeHidden: bool`, `topLevelOnly: bool`; `presetId` and `planDisabled` are set by the backend only (`upsert_rule` keeps the stored values); other keys are kept and ignored |
 //! | `scope`       | array of strings, default `[]` | watched folders the rule applies to; empty = all |
 //!
 //! Conditions (text comparisons ignore case):
@@ -63,12 +63,15 @@
 //!
 //! Commands return a stable code as the error string; the UI translates it.
 //! See the `ERR_*` constants. Storage failures return `rule.storage` (the
-//! detail goes to the log).
+//! detail goes to the log). On Free, `upsert_rule` refuses to turn on a 4th
+//! own rule with the `plan.limit` object (see `commands::CmdError`).
 
 use serde_json::Value;
 use tauri::Manager;
 use uuid::Uuid;
 use valet_core::{
+    entitlements::{check_rule_change, PLAN_DISABLED},
+    license::PlanTier,
     planner::{template_tokens_valid, FOLDER_TOKENS},
     rules::{next_version, Rule},
     storage::Db,
@@ -76,6 +79,7 @@ use valet_core::{
 };
 
 use crate::commands::settings::remove_approval;
+use crate::commands::CmdError;
 use crate::state::{config_dir, AppState};
 
 pub(crate) const ERR_NAME_EMPTY: &str = "rule.nameEmpty";
@@ -302,10 +306,60 @@ pub(crate) async fn save_rule(db: &Db, mut rule: Rule) -> Result<Rule, String> {
     Ok(rule)
 }
 
+/// `options` keys only the backend sets.
+const BACKEND_OPTIONS: [&str; 2] = ["presetId", PLAN_DISABLED];
+
+/// `presetId` and `planDisabled` as stored: the UI cannot add, change or
+/// clear them (a new rule gets neither). Enabling a rule clears
+/// `planDisabled`: the user turned it on (within the plan's limit).
+pub(crate) fn keep_backend_options(rule: &mut Rule, stored: Option<&Rule>) {
+    for key in BACKEND_OPTIONS {
+        match stored.and_then(|s| s.options.get(key)).cloned() {
+            Some(v) => {
+                if !rule.options.is_object() {
+                    rule.options = Value::Object(Default::default());
+                }
+                if let Some(o) = rule.options.as_object_mut() {
+                    o.insert(key.into(), v);
+                }
+            }
+            None => {
+                if let Some(o) = rule.options.as_object_mut() {
+                    o.remove(key);
+                }
+            }
+        }
+    }
+    if rule.enabled {
+        if let Some(o) = rule.options.as_object_mut() {
+            o.remove(PLAN_DISABLED);
+        }
+    }
+}
+
+/// `upsert_rule` without Tauri: backend options kept, validated, then the
+/// plan's own-rule limit (`entitlements::check_rule_change`), then stored
+/// with [`save_rule`].
+pub(crate) async fn upsert_checked(
+    db: &Db,
+    mut rule: Rule,
+    plan: &PlanTier,
+) -> Result<Rule, CmdError> {
+    let stored = db.get_rule(rule.id).await.map_err(storage_err)?;
+    keep_backend_options(&mut rule, stored.as_ref());
+    validate_rule(&rule).map_err(CmdError::from)?;
+    let existing = db.list_rules().await.map_err(storage_err)?;
+    check_rule_change(&existing, &rule, plan)?;
+    Ok(save_rule(db, rule).await?)
+}
+
 #[tauri::command]
-pub(crate) async fn upsert_rule(rule: Rule, app: tauri::AppHandle) -> Result<Rule, String> {
+pub(crate) async fn upsert_rule(rule: Rule, app: tauri::AppHandle) -> Result<Rule, CmdError> {
     let db = connect(&app).await?;
-    let saved = save_rule(&db, rule).await?;
+    let plan = crate::licensing::sync_plan(&app, &db).await?.status.plan;
+    let state = app.state::<AppState>();
+    let _rules = state.rule_writes.lock().await;
+    let saved = upsert_checked(&db, rule, &plan).await?;
     log::info!("Rule saved (version {})", saved.version);
     Ok(saved)
 }
@@ -641,6 +695,79 @@ mod tests {
         let r = rule(json!([]), json!([{ "type": "trash" }]));
         assert_eq!(save_rule(&db, r).await.unwrap_err(), ERR_NO_CONDITIONS);
         assert!(db.list_rules().await.unwrap().is_empty());
+    }
+
+    fn own(n: u128, enabled: bool) -> Rule {
+        let mut r = cond("ext", json!("pdf"));
+        r.id = Uuid::from_u128(n);
+        r.enabled = enabled;
+        r
+    }
+
+    #[tokio::test]
+    async fn free_plan_refuses_a_fourth_enabled_own_rule_but_not_presets() {
+        let (_tmp, db) = db().await;
+        let free = PlanTier::Free;
+        for n in 1..=3 {
+            upsert_checked(&db, own(n, true), &free).await.unwrap();
+        }
+        let err = upsert_checked(&db, own(4, true), &free).await.unwrap_err();
+        assert_eq!(
+            serde_json::to_value(&err).unwrap(),
+            json!({ "code": "plan.limit", "kind": "rules", "limit": 3, "detail": "rules 3" })
+        );
+        assert!(db.get_rule(Uuid::from_u128(4)).await.unwrap().is_none());
+        // Added disabled: fine. Enabling it: refused.
+        upsert_checked(&db, own(4, false), &free).await.unwrap();
+        assert!(upsert_checked(&db, own(4, true), &free).await.is_err());
+        // Editing an enabled one stays allowed.
+        let mut edited = own(1, true);
+        edited.name = "renamed".into();
+        upsert_checked(&db, edited, &free).await.unwrap();
+        // Trial: no limit.
+        upsert_checked(&db, own(4, true), &PlanTier::Trial { ends_at: 1 })
+            .await
+            .unwrap();
+
+        // A stored preset rule is not counted, even when the UI sends its
+        // options without presetId.
+        let mut preset = own(10, false);
+        preset.options = json!({ "presetId": "downloads-by-type" });
+        db.upsert_rule(&preset).await.unwrap();
+        let from_ui = own(10, true);
+        let saved = upsert_checked(&db, from_ui, &free).await.unwrap();
+        assert_eq!(saved.options["presetId"], "downloads-by-type");
+        assert!(saved.enabled);
+    }
+
+    #[tokio::test]
+    async fn the_ui_cannot_set_or_clear_backend_options() {
+        let (_tmp, db) = db().await;
+        let trial = PlanTier::Trial { ends_at: 1 };
+        // New rule: presetId and planDisabled are stripped.
+        let mut r = own(1, false);
+        r.options = json!({ "presetId": "x", "planDisabled": true, "topLevelOnly": true });
+        let saved = upsert_checked(&db, r, &trial).await.unwrap();
+        assert_eq!(saved.options, json!({ "topLevelOnly": true }));
+
+        // Stored plan-disabled rule: the flag is kept while it stays
+        // disabled, whatever the UI sends; null options are fine.
+        let mut stored = own(2, false);
+        stored.options = json!({ "planDisabled": true });
+        db.upsert_rule(&stored).await.unwrap();
+        let mut ui = own(2, false);
+        ui.options = Value::Null;
+        let saved = upsert_checked(&db, ui, &PlanTier::Free).await.unwrap();
+        assert_eq!(saved.options, json!({ "planDisabled": true }));
+        let mut ui = own(2, false);
+        ui.options = json!({ "planDisabled": false, "presetId": "y" });
+        let saved = upsert_checked(&db, ui, &PlanTier::Free).await.unwrap();
+        assert_eq!(saved.options, json!({ "planDisabled": true }));
+        // The user enables it (within the limit): the flag goes.
+        let saved = upsert_checked(&db, own(2, true), &PlanTier::Free)
+            .await
+            .unwrap();
+        assert!(saved.options.get("planDisabled").is_none());
     }
 
     #[tokio::test]

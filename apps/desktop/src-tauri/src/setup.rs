@@ -100,13 +100,23 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
     let cfg_dir = init.cfg_dir.clone();
 
     // --- App state (before the watcher, which stores its handle here) ---
+    let packaged = state.license.packaged;
     app.manage(state);
+
+    // --- Plan (trial start, Free limits), after recovery and before the
+    // watcher, so it watches only the folders active on this plan ---
+    crate::licensing::startup_sync(app.handle());
 
     // --- File watcher and auto-apply loop, after recovery ---
     crate::auto::start(app.handle(), cfg_dir);
 
+    // --- Plan every hour, online license check when due ---
+    crate::licensing::start_scheduler(app.handle());
+
     // --- Update checks, after recovery (30 s delay, then every 24 h) ---
-    if crate::updater::configured(app.config()) {
+    if packaged {
+        log::info!("Microsoft Store build: updates come from the Store");
+    } else if crate::updater::configured(app.config()) {
         crate::updater::start_auto_check(app.handle());
     } else {
         log::info!("Updater not configured in this build");
