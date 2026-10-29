@@ -9,8 +9,8 @@
 //! the one endpoint of the user's channel (`effective_update_channel`).
 //! These checks and the download are the only network calls Valet makes.
 //!
-//! Automatic checks run 30 s after startup and then once every 24 h. They
-//! only tell the UI (event `update-available`) and show a notification;
+//! Automatic checks run 30 s after startup and then once every 24 h, while
+//! `auto_update_check` is on (read again every hour). They only tell the UI (event `update-available`) and show a notification;
 //! installing always needs the user's click (`install_update`).
 
 use std::sync::{Arc, Mutex};
@@ -294,13 +294,30 @@ pub(crate) fn start_auto_check<R: Runtime>(app: &AppHandle<R>) {
         let mut last: Option<SystemTime> = None;
         loop {
             let now = SystemTime::now();
-            if check_due(last, now) {
+            // Read every cycle, so turning the setting on or off needs no
+            // restart.
+            if auto_check_wanted(auto_check_enabled(&app), last, now) {
                 last = Some(now);
                 auto_check(&app).await;
             }
             tokio::time::sleep(TICK).await;
         }
     });
+}
+
+/// `auto_update_check` from the settings file (on when unreadable).
+fn auto_check_enabled<R: Runtime>(app: &AppHandle<R>) -> bool {
+    config_dir(app)
+        .map(|dir| load_app_settings(&dir))
+        .unwrap_or_default()
+        .auto_update_check
+}
+
+/// An automatic check runs when the setting is on and [`check_due`]. While
+/// the setting is off nothing is recorded, so turning it on again checks at
+/// the next tick.
+pub(crate) fn auto_check_wanted(enabled: bool, last: Option<SystemTime>, now: SystemTime) -> bool {
+    enabled && check_due(last, now)
 }
 
 /// True when no check ran yet or the last one is 24 h old (or the clock
@@ -436,6 +453,16 @@ mod tests {
             check_due(Some(t0), t0 - Duration::from_secs(1)),
             "clock went back"
         );
+    }
+
+    #[test]
+    fn automatic_checks_follow_the_setting() {
+        let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+        assert!(auto_check_wanted(true, None, t0));
+        assert!(!auto_check_wanted(false, None, t0));
+        assert!(!auto_check_wanted(false, Some(t0), t0 + CHECK_INTERVAL));
+        assert!(auto_check_wanted(true, Some(t0), t0 + CHECK_INTERVAL));
+        assert!(!auto_check_wanted(true, Some(t0), t0 + TICK));
     }
 
     #[test]

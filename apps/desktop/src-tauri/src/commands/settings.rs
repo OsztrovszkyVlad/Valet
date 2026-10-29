@@ -310,6 +310,10 @@ pub(crate) struct AppSettings {
     pub(crate) update_channel: Option<String>,
     /// Log at DEBUG level (may contain paths). Off by default.
     pub(crate) debug_logging: bool,
+    /// Automatic update checks (30 s after start, then every 24 h). Off:
+    /// only "Check now" (`check_for_update`) asks. Files without the field
+    /// load as on.
+    pub(crate) auto_update_check: bool,
 }
 
 impl Default for AppSettings {
@@ -323,6 +327,7 @@ impl Default for AppSettings {
             onboarding_done: false,
             update_channel: None,
             debug_logging: false,
+            auto_update_check: true,
         }
     }
 }
@@ -955,6 +960,7 @@ mod tests {
                 "first_preview_approved": false,
                 "onboarding_done": false,
                 "debug_logging": false,
+                "auto_update_check": true,
             })
         );
         let tmp = tempfile::tempdir().unwrap();
@@ -1043,6 +1049,29 @@ mod tests {
         // get_app_settings fills in the default.
         let s = with_channel(AppSettings::default(), "0.3.0-rc.1");
         assert_eq!(s.update_channel.as_deref(), Some("beta"));
+    }
+
+    #[test]
+    fn auto_update_check_defaults_to_on_and_is_saved() {
+        let tmp = tempfile::tempdir().unwrap();
+        // A settings file from before the field.
+        std::fs::write(
+            tmp.path().join(SETTINGS_FILE),
+            r#"{"language":"en","onboarding_done":true,"update_channel":"stable"}"#,
+        )
+        .unwrap();
+        assert!(load_app_settings(tmp.path()).auto_update_check);
+        // The UI turns it off.
+        let off = AppSettings {
+            auto_update_check: false,
+            ..load_app_settings(tmp.path())
+        };
+        let saved = save_app_settings_in(tmp.path(), off, "0.3.0").unwrap();
+        assert!(!saved.auto_update_check);
+        assert!(!load_app_settings(tmp.path()).auto_update_check);
+        // A UI that does not send the field keeps the default (on).
+        let from_ui: AppSettings = serde_json::from_value(json!({ "language": "ro" })).unwrap();
+        assert!(from_ui.auto_update_check);
     }
 
     #[test]
