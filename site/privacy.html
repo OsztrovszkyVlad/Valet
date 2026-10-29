@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Confidențialitate – Valet</title>
+<meta name="description" content="Ce trimite Valet prin rețea, ce păstrează pe calculatorul tău, ce nu are și ce se întâmplă cu datele la dezinstalare.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#continut">Sari la conținut</a>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="index.html">Valet</a>
+    <nav class="pages" aria-label="Pagini">
+      <a href="index.html">Pagina principală</a>
+    </nav>
+    <nav class="lang" aria-label="Limba">
+      <a href="en/privacy.html" hreflang="en" lang="en">English</a>
+    </nav>
+  </div>
+</header>
+
+<main id="continut" class="wrap">
+  <h1>Confidențialitate</h1>
+  <p class="lead">Pagina spune ce trimite Valet prin rețea, ce păstrează pe calculatorul tău, ce nu are și ce se întâmplă cu datele la dezinstalare. Este un rezumat. Textul complet, cu fiecare afirmație legată de codul sau testul de unde vine și cu ce nu a fost verificat, e în depozit: <a href="https://github.com/OsztrovszkyVlad/Valet/blob/main/docs/PRIVACY.ro.md">PRIVACY.ro.md</a>.</p>
+
+  <p><strong>Pe scurt.</strong> Valet face două feluri de cerere de rețea: verificarea unei versiuni noi a lui însuși și, doar dacă ai importat o licență Pro, verificarea licenței. Nicio denumire de fișier, cale, regulă sau conținut de fișier nu face parte din vreuna. Restul rămâne pe calculatorul tău.</p>
+
+  <h2>Ce merge prin rețea</h2>
+
+  <h3>Verificarea versiunii noi</h3>
+  <ul>
+    <li>Valet face un GET HTTPS către GitHub pentru un fișier JSON static. Adresa depinde de canalul ales în Setări, Actualizări: Stabil sau Beta.</li>
+    <li>Cererea nu are corp și nici cookie. Versiunea instalată, versiunea de Windows și tipul de procesor nu sunt trimise. Versiunile se compară pe calculatorul tău.</li>
+    <li>GitHub vede ce vede orice server web: adresa ta IP publică, ora și datele conexiunii. Ce păstrează GitHub ține de GitHub.</li>
+    <li>Când: la 30 de secunde după pornire, apoi o dată la 24 de ore cât timp Valet rămâne pornit, și când apeși „Verifică acum”.</li>
+    <li>O verificare automată nu instalează nimic. Instalarea cere un click și o confirmare.</li>
+    <li>Verificarea automată nu se poate opri din Setări; se poate alege doar canalul.</li>
+  </ul>
+
+  <h3>Verificarea licenței</h3>
+  <p>Această parte descrie cum este proiectată verificarea; codul ei se adaugă în această fază.</p>
+  <ul>
+    <li><strong>Când:</strong> doar dacă ai importat o licență Pro. La activare, apoi cel mult o dată la 30 de zile (aplicația se uită la pornire și din 24 în 24 de ore). Proba de 14 zile și planul Gratuit nu fac nicio cerere de licență.</li>
+    <li><strong>Ce se trimite:</strong> identificatorul licenței (un cod aleatoriu din fișierul de licență), un identificator al calculatorului care este un hash într-un singur sens (primele 32 de caractere din hash-ul blake3 al unui text fix și al <code>MachineGuid</code> din Windows) și versiunea aplicației. Serverul vede și adresa IP și ora, ca orice server web, și reține ce calculatoare au activat o licență, ca să numere activările (cel mult 3).</li>
+    <li><strong>Ce nu se trimite niciodată:</strong> nume de fișiere, căi, reguli sau numere de reguli sau de fișiere, <code>MachineGuid</code> în forma brută, numele calculatorului, versiunea de Windows, adresa de email din licență.</li>
+    <li><strong>Unde e licența:</strong> în folderul de date al aplicației, ca <code>license.valet-license</code>, plus <code>activation.valet-token</code>, ultimul răspuns al serverului.</li>
+    <li><strong>Ștergerea licenței</strong> din Setări trimite o cerere de dezactivare, care eliberează activarea acelui calculator. Dezinstalarea nu face asta.</li>
+    <li><strong>Fără conexiune:</strong> Valet păstrează tokenul; licența rămâne Pro până la 60 de zile de la ultima verificare reușită, apoi aplicația merge ca Gratuit, fără să piardă nimic, până la următoarea verificare reușită.</li>
+    <li><strong>Când nu e activă:</strong> într-un build fără server de licențe configurat, aplicația nu face nicio cerere de licență și o licență Pro nu se poate activa.</li>
+  </ul>
+
+  <h3>Alte conexiuni</h3>
+  <ul>
+    <li>Instalatorul descarcă programul Microsoft WebView2 doar dacă lipsește de pe calculator. Aici vorbește instalatorul cu Microsoft, nu Valet.</li>
+    <li>WebView2 are propriul serviciu de actualizare; ce contactează el nu e tratat aici.</li>
+    <li>Nu s-a făcut o captură de trafic cât a rulat Valet, deci ce fac Tauri și pluginurile lui în afară de cele de mai sus e citit din cod, nu observat.</li>
+  </ul>
+
+  <h2>Ce păstrează Valet pe calculatorul tău</h2>
+  <ul>
+    <li>În <code>%APPDATA%\ro.valetapp.desktop</code>: baza de date cu regulile și jurnalul de operații (calea completă a sursei și a destinației fiecărei operații, mărimi, sume de control ale fișierelor mutate, starea operației), folderele urmărite, setările, aprobările și, dacă ai importat o licență, fișierele ei. Jurnalul nu se curăță niciodată din motive de plan.</li>
+    <li>În <code>%LOCALAPPDATA%\ro.valetapp.desktop\logs</code>: fișierul <code>valet.log</code>, cel mult 5 fișiere de câte 2 MB. Liniile normale ale Valet nu conțin căi de fișiere (citit din cod, netestat; unele texte de eroare de sistem nu au fost verificate). „Jurnal detaliat (pentru depanare)” din Setări, oprit din oficiu, poate scrie căi. Valet nu trimite jurnalele nicăieri; dacă trimiți unul cuiva pentru asistență, citește-l mai întâi.</li>
+    <li>Pornirea cu Windows, dacă o activezi, scrie o valoare sub <code>HKCU\Software\Microsoft\Windows\CurrentVersion\Run</code>.</li>
+  </ul>
+
+  <h2>Ce nu are Valet</h2>
+  <ul>
+    <li>Nicio telemetrie: nimic nu numără ce faci și nu există o bibliotecă de analiză în program.</li>
+    <li>Niciun raport de erori. O cădere lasă o linie în jurnalul local și nimic altceva. Dacă rapoartele de erori se adaugă mai târziu, vor fi opt-in și vor arăta exact ce se trimite.</li>
+    <li>Niciun cont, nicio reclamă, nicio copie în cloud a regulilor, jurnalului sau fișierelor tale.</li>
+  </ul>
+  <p>Nimic nu împiedică o versiune viitoare să adauge un apel de rețea și niciun test nu pică dacă se adaugă unul; în acest caz, această pagină și documentul complet se schimbă.</p>
+
+  <h2>Dezinstalarea</h2>
+  <ul>
+    <li>Datele se păstrează din oficiu. Dezinstalatorul are o casetă „Șterge datele aplicației”, nebifată la început; bifată, șterge cele două foldere de mai sus (deci Istoricul, anularea și fișierele de licență dispar).</li>
+    <li>Dezinstalarea nu anulează nimic: fișierele mutate rămân unde sunt, iar cele din Coșul de reciclare rămân în Coș.</li>
+    <li>Dezinstalatorul nu contactează serverul de licențe. Ca să eliberezi activarea, șterge licența din Setări înainte.</li>
+  </ul>
+
+  <h2>Acest site</h2>
+  <p>Site-ul e HTML static și un fișier CSS. Nu are scripturi, cookie-uri, analiză, formulare sau fonturi și imagini de pe alte site-uri. Găzduirea nu a fost aleasă încă; ca orice găzduire, va vedea datele obișnuite ale unui server web.</p>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p><a href="index.html">Valet</a> · licență MIT · <a href="https://github.com/OsztrovszkyVlad/Valet">cod sursă pe GitHub</a> · <a href="en/privacy.html" hreflang="en" lang="en">English</a></p>
+  </div>
+</footer>
+</body>
+</html>

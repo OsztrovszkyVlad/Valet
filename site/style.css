@@ -1,0 +1,238 @@
+/* Valet site. One stylesheet for every page. No external fonts or images. */
+
+:root {
+  --text: #1a1a1a;
+  --muted: #444b55;
+  --bg: #ffffff;
+  --bg-soft: #f2f4f7;
+  --line: #c9ced6;
+  --link: #0b4fb3;
+  --button-bg: #0b4fb3;
+  --button-text: #ffffff;
+  --note-bg: #fff6d6;
+  --note-line: #8a6d00;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 100%;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  color: var(--text);
+  background: var(--bg);
+  font-family: system-ui, "Segoe UI", Roboto, Arial, sans-serif;
+  line-height: 1.55;
+}
+
+.wrap {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 0 1rem;
+}
+
+a {
+  color: var(--link);
+}
+
+a:focus-visible,
+summary:focus-visible {
+  outline: 3px solid #1a1a1a;
+  outline-offset: 2px;
+}
+
+.skip {
+  position: absolute;
+  left: -999px;
+  top: 0;
+  background: var(--bg);
+  padding: 0.5rem 1rem;
+  z-index: 10;
+}
+
+.skip:focus {
+  left: 0;
+}
+
+header.top {
+  border-bottom: 1px solid var(--line);
+  padding: 0.75rem 0;
+}
+
+header.top .wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+}
+
+.brand {
+  font-weight: 700;
+  font-size: 1.25rem;
+}
+
+nav.lang a,
+nav.pages a {
+  margin-left: 0.75rem;
+}
+
+nav.pages {
+  display: inline;
+}
+
+h1 {
+  font-size: 1.75rem;
+  line-height: 1.25;
+  margin: 2rem 0 0.75rem;
+}
+
+h2 {
+  font-size: 1.35rem;
+  line-height: 1.3;
+  margin: 2.25rem 0 0.75rem;
+}
+
+h3 {
+  font-size: 1.1rem;
+  margin: 1.5rem 0 0.5rem;
+}
+
+p,
+ul,
+ol {
+  margin: 0.75rem 0;
+}
+
+li {
+  margin: 0.35rem 0;
+}
+
+.lead {
+  font-size: 1.1rem;
+  color: var(--muted);
+}
+
+.demo {
+  display: block;
+  width: 100%;
+  height: auto;
+  min-height: 6rem;
+  margin: 1rem 0;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  background: var(--bg-soft);
+  color: var(--muted);
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 20rem;
+  margin: 0.75rem 0;
+}
+
+caption {
+  text-align: left;
+  font-weight: 600;
+  padding-bottom: 0.4rem;
+}
+
+th,
+td {
+  border: 1px solid var(--line);
+  padding: 0.5rem 0.6rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+thead th {
+  background: var(--bg-soft);
+}
+
+tbody th {
+  font-weight: 600;
+  background: var(--bg);
+}
+
+.price {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 0.5rem 0;
+}
+
+.button {
+  display: inline-block;
+  padding: 0.65rem 1.1rem;
+  background: var(--button-bg);
+  color: var(--button-text);
+  font-weight: 600;
+  border-radius: 4px;
+  text-decoration: none;
+}
+
+.button:hover {
+  text-decoration: underline;
+}
+
+.note {
+  margin: 1rem 0;
+  padding: 0.75rem 1rem;
+  background: var(--note-bg);
+  border-left: 4px solid var(--note-line);
+}
+
+details {
+  border-top: 1px solid var(--line);
+  padding: 0.6rem 0;
+}
+
+details:last-of-type {
+  border-bottom: 1px solid var(--line);
+}
+
+summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+details > :not(summary) {
+  margin-left: 0;
+}
+
+code {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 0.92em;
+  background: var(--bg-soft);
+  padding: 0.05rem 0.3rem;
+  border-radius: 3px;
+  overflow-wrap: anywhere;
+}
+
+footer {
+  margin-top: 3rem;
+  padding: 1.25rem 0 2rem;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+@media (max-width: 30rem) {
+  h1 {
+    font-size: 1.5rem;
+  }
+
+  th,
+  td {
+    padding: 0.4rem;
+  }
+}

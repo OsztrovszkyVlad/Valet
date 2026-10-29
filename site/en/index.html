@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Valet – rules-based file organizer for Windows (Hazel for Windows alternative)</title>
+<meta name="description" content="Valet is a rules-based file organizer for Windows with preview and undo. A Hazel for Windows alternative. Free; Pro is a one-time 29 EUR with VAT included.">
+<meta property="og:title" content="Valet – rules-based file organizer for Windows">
+<meta property="og:description" content="Valet puts your files in order, on your own computer, by rules you can see and undo.">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="top">
+  <div class="wrap">
+    <span class="brand">Valet</span>
+    <nav class="pages" aria-label="Pages">
+      <a href="#what">What it does</a>
+      <a href="#pricing">Pricing</a>
+      <a href="#download">Download</a>
+      <a href="#faq">FAQ</a>
+      <a href="privacy.html">Privacy</a>
+    </nav>
+    <nav class="lang" aria-label="Language">
+      <a href="../index.html" hreflang="ro" lang="ro">Română</a>
+    </nav>
+  </div>
+</header>
+
+<main id="content" class="wrap">
+
+<section id="what">
+  <h1>Valet puts your files in order, on your own computer, by rules you can see and undo.</h1>
+  <p class="lead">Valet is a Windows program that watches the folders you choose, for example Downloads and Desktop, and applies your rules to the files in them. No chat, no cloud, no guessing: each file goes where a rule you read says it goes.</p>
+
+  <ul>
+    <li><strong>Moves files by rules.</strong> A rule has conditions (extension, file type, part of the name, size, age, duplicate) and an action (move, copy, send to the Recycle Bin, or only report). There are 8 ready-made rules, for example "Downloads by type" and "Screenshots".</li>
+    <li><strong>Preview before anything moves.</strong> Valet lists what it would do: file, from, to, which rule. Nothing moves until you approve. Automatic organizing starts only after you have approved a preview.</li>
+    <li><strong>Undo.</strong> A batch of operations can be undone as long as the moved files have not been changed by you. If they have, Valet asks first.</li>
+    <li><strong>Recycle Bin only.</strong> Valet never deletes anything permanently and never overwrites an existing file: a taken name becomes <code>name (2).ext</code>.</li>
+  </ul>
+
+  <!--
+    TODO (Vlad): record the 20-second demo GIF and save it as site/media/demo.gif.
+    Until the file exists, browsers show the alt text below in a box.
+    Suggested content: Downloads folder with mixed files -> Preview screen -> Organize -> Undo.
+    Use test folders only (no real names or paths). Keep it under about 3 MB.
+    Screenshots: none are used yet; docs/screenshots/ does not exist.
+    The images in docs/images/ show Linux test paths (/tmp/valet-e2e-...), so they are not used here.
+  -->
+  <img class="demo" src="../media/demo.gif" alt="20-second demo: Valet shows a preview of files in the Downloads folder, moves them by rules, then undoes the batch.">
+
+  <p>Valet is in beta. Do not point it at folders whose contents you cannot lose, and use the preview.</p>
+</section>
+
+<section id="pricing">
+  <h2>Free and Pro</h2>
+
+  <div class="table-wrap">
+    <table>
+      <caption>What each plan includes</caption>
+      <thead>
+        <tr>
+          <th scope="col">&nbsp;</th>
+          <th scope="col">Free</th>
+          <th scope="col">Pro (and the 14-day trial)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><th scope="row">The 8 ready-made rules</th><td>yes, not counted against the limit</td><td>yes</td></tr>
+        <tr><th scope="row">Own rules enabled at once</th><td>3</td><td>unlimited</td></tr>
+        <tr><th scope="row">Watched folders active at once</th><td>2</td><td>unlimited</td></tr>
+        <tr><th scope="row">History shown</th><td>batches from the last 7 days</td><td>all</td></tr>
+        <tr><th scope="row">Undo</th><td>the most recent batch only</td><td>any batch in history</td></tr>
+        <tr><th scope="row">Export and import of rules</th><td>no</td><td>yes</td></tr>
+        <tr><th scope="row">Condition and action types</th><td>all</td><td>all</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>An own rule is a rule you write; the ready-made rules are not counted. No condition and no action is reserved for Pro. Of what comes later, the actions of the disk-space module will be in Pro; that module is planned and does not exist yet.</p>
+
+  <h3>Price</h3>
+  <p class="price">€29 (VAT included)</p>
+  <ul>
+    <li>One-time payment, not a subscription.</li>
+    <li>Includes updates for 12 months from purchase. Versions released in that period stay Pro for good.</li>
+    <li>Renewing updates is optional: €15 per year. A version released after the 12 months works as Free until you renew; the version you already have keeps working.</li>
+    <li>One license can be activated on at most 3 computers.</li>
+  </ul>
+  <p>Buying is not open yet. The 14-day trial of full Pro needs no card and uses no network: it starts the first time the app opens. After the trial, if you have no license, Valet falls back to Free and deletes nothing (see the questions below).</p>
+</section>
+
+<section id="download">
+  <h2>Download</h2>
+  <p><a class="button" href="https://github.com/OsztrovszkyVlad/Valet/releases/latest">Download from GitHub Releases</a></p>
+  <p>The file is <code>Valet_&lt;version&gt;_x64-setup.exe</code>. It installs for the current user only, with no administrator rights. The app has Romanian and English interfaces; Romanian is the default.</p>
+  <div class="note">
+    <p><strong>SmartScreen warning.</strong> The installer is not code-signed yet. Windows SmartScreen will show "Windows protected your PC". To go on, select <strong>More info</strong>, then <strong>Run anyway</strong>. Windows shows this for programs that are unsigned and not widely downloaded; it is not the result of an analysis of Valet. A signing certificate has not been obtained yet. If you want to check the downloaded file, compare its SHA-256 (<code>Get-FileHash</code> in PowerShell) with the one listed by the "Release" run in GitHub Actions.</p>
+  </div>
+  <p>A Microsoft Store package is being prepared and is not available yet.</p>
+</section>
+
+<section id="faq">
+  <h2>Frequently asked questions</h2>
+
+  <details>
+    <summary>What does Valet send over the network?</summary>
+    <p>Two things, and neither contains file names, paths or file contents.</p>
+    <ul>
+      <li><strong>The check for a new version.</strong> Valet asks GitHub for a static JSON file (the address of your channel, Stable or Beta), 30 seconds after it starts and then once every 24 hours. The request has no body and does not send the installed version; GitHub sees what any web server sees, for example your IP address. Valet installs a new version only after you press a button and confirm. This check cannot be switched off in Settings.</li>
+      <li><strong>The license check.</strong> Only if you have imported a Pro license: at activation, then at most once every 30 days. What is sent is the license id (a random code), a machine identifier that is a one-way hash, and the app version. The computer name, your email address, paths, file names, rules and rule counts are not sent. The 14-day trial and the Free plan make no license request.</li>
+    </ul>
+    <p>No telemetry, no crash reports (there are none yet), no account, no ads. Details: the <a href="privacy.html">privacy page</a>.</p>
+  </details>
+
+  <details>
+    <summary>Does Valet delete files?</summary>
+    <p>Not permanently. When a rule removes something, the file goes to the Windows Recycle Bin. On a drive without a Recycle Bin (some USB drives, network shares) Valet refuses the action and leaves the file where it is. If you empty the Recycle Bin, Valet can no longer bring that file back when you undo.</p>
+    <p>Valet does not overwrite files: if the name at the destination is taken, the file gets a new name, for example <code>report (2).pdf</code>. Each operation is written to a journal before it runs, and after a crash of the program or the computer, Valet checks the unfinished operations at the next start. What is tested and what is not is described in the <a href="https://github.com/OsztrovszkyVlad/Valet/blob/main/docs/SAFETY.md">safety document</a>.</p>
+  </details>
+
+  <details>
+    <summary>What happens after the 14-day trial?</summary>
+    <p>If you have no Pro license, Valet falls back to Free. Nothing is deleted. Own rules beyond the 3 allowed stay saved but disabled, and you choose which 3 stay active. Watched folders beyond 2 stay in the configuration but are not watched while you are on Free; the first 2 in the list stay active. History is not deleted; on Free it shows the batches from the last 7 days. If you move to Pro later, the rules that the limit disabled are enabled again.</p>
+  </details>
+
+  <details>
+    <summary>Which Windows versions are supported?</summary>
+    <p>Windows 10 22H2 and Windows 11, 64-bit. Valet uses Microsoft WebView2: Windows 11 has it installed, and the installer downloads it on Windows 10 if it is missing (the only case where the installer needs the internet). The beta has not been tried on every Windows setup yet.</p>
+  </details>
+
+  <details>
+    <summary>Is it open source?</summary>
+    <p>Yes. The code is public on GitHub under the MIT license (the <code>LICENSE</code> file in the repository). The Pro features are in the same program and are unlocked with a signed license file; the program itself enforces the limits of the Free plan.</p>
+  </details>
+
+  <details>
+    <summary>Is this like Hazel?</summary>
+    <p>The idea is the same: you watch folders, write rules, and the program applies actions to files. Hazel is a Mac program made by Noodlesoft; Valet is a separate program, not connected to them, and runs on Windows only. Valet cannot rename or tag files yet; it can move, copy, send to the Recycle Bin and report.</p>
+  </details>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>Valet · MIT license · <a href="https://github.com/OsztrovszkyVlad/Valet">source code on GitHub</a> · <a href="privacy.html">Privacy</a> · <a href="../index.html" hreflang="ro" lang="ro">Română</a></p>
+    <p>This page loads nothing from other sites and uses no cookies.</p>
+  </div>
+</footer>
+</body>
+</html>

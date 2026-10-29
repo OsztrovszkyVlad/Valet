@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy – Valet</title>
+<meta name="description" content="What Valet sends over the network, what it stores on your computer, what it does not have, and what happens to the data when you uninstall.">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="index.html">Valet</a>
+    <nav class="pages" aria-label="Pages">
+      <a href="index.html">Home</a>
+    </nav>
+    <nav class="lang" aria-label="Language">
+      <a href="../privacy.html" hreflang="ro" lang="ro">Română</a>
+    </nav>
+  </div>
+</header>
+
+<main id="content" class="wrap">
+  <h1>Privacy</h1>
+  <p class="lead">This page says what Valet sends over the network, what it stores on your computer, what it does not have, and what happens to the data when you uninstall. It is a summary. The full text, with each statement tied to the code or test it comes from and with what was not checked, is in the repository: <a href="https://github.com/OsztrovszkyVlad/Valet/blob/main/docs/PRIVACY.md">PRIVACY.md</a>.</p>
+
+  <p><strong>Short version.</strong> Valet makes two kinds of network request: a check for a new version of itself and, only if you have imported a Pro license, a license check. No file name, path, rule or file content is part of either. Everything else stays on your computer.</p>
+
+  <h2>What goes over the network</h2>
+
+  <h3>The check for a new version</h3>
+  <ul>
+    <li>Valet makes an HTTPS GET to GitHub for a static JSON file. The address depends on the channel you choose in Settings, Updates: Stable or Beta.</li>
+    <li>The request has no body and no cookie. The installed version, the Windows version and the processor type are not sent. Versions are compared on your computer.</li>
+    <li>GitHub sees what any web server sees: your public IP address, the time and the connection data. What GitHub keeps is GitHub's.</li>
+    <li>When: 30 seconds after Valet starts, then once every 24 hours while Valet keeps running, and when you press "Check now".</li>
+    <li>An automatic check installs nothing. Installing needs a click and a confirmation.</li>
+    <li>The automatic check cannot be switched off in Settings; you can only choose the channel.</li>
+  </ul>
+
+  <h3>The license check</h3>
+  <p>This part describes how the check is designed; its code is being added in this phase.</p>
+  <ul>
+    <li><strong>When:</strong> only if you have imported a Pro license. At activation, then at most once every 30 days (the app looks at startup and every 24 hours). The 14-day trial and the Free plan make no license request.</li>
+    <li><strong>What is sent:</strong> the license id (a random code from the license file), a machine identifier that is a one-way hash (the first 32 characters of the blake3 hash of a fixed text and the Windows <code>MachineGuid</code>), and the app version. The server also sees your IP address and the time, like any web server, and remembers which machines activated a license so that it can count activations (3 at most).</li>
+    <li><strong>What is never sent:</strong> file names, paths, rules or counts of rules or files, the raw <code>MachineGuid</code>, the computer name, the Windows version, the email address in the license.</li>
+    <li><strong>Where the license is:</strong> in the app data folder, as <code>license.valet-license</code>, plus <code>activation.valet-token</code>, the server's last answer.</li>
+    <li><strong>Removing the license</strong> in Settings sends a deactivate request, which frees that computer's activation. Uninstalling does not.</li>
+    <li><strong>Offline:</strong> Valet keeps the token; the license stays Pro for up to 60 days after the last successful check, then the app works as Free, losing nothing, until the next successful check.</li>
+    <li><strong>When it is not active:</strong> in a build without a configured license server, the app makes no license request and a Pro license cannot be activated.</li>
+  </ul>
+
+  <h3>Other connections</h3>
+  <ul>
+    <li>The installer downloads Microsoft WebView2 only if it is missing from the computer. That is the installer talking to Microsoft, not Valet.</li>
+    <li>WebView2 has its own update service; what it contacts is not covered here.</li>
+    <li>No network capture was made while Valet ran, so what Tauri and its plugins do beyond the above is read from code, not observed.</li>
+  </ul>
+
+  <h2>What Valet stores on your computer</h2>
+  <ul>
+    <li>In <code>%APPDATA%\ro.valetapp.desktop</code>: the database with the rules and the operation journal (the full source and destination path of every operation, sizes, content hashes of the files moved, the state of each operation), the watched folders, settings, approvals and, if you imported a license, its files. The journal is never trimmed for plan reasons.</li>
+    <li>In <code>%LOCALAPPDATA%\ro.valetapp.desktop\logs</code>: the file <code>valet.log</code>, at most 5 files of 2 MB. The normal log lines of Valet carry no file paths (read from the code, not tested; some operating system error texts were not checked). "Detailed log (for troubleshooting)" in Settings, off by default, can write paths. Valet never sends the logs anywhere; if you send one to someone for support, read it first.</li>
+    <li>Start with Windows, if you turn it on, writes a value under <code>HKCU\Software\Microsoft\Windows\CurrentVersion\Run</code>.</li>
+  </ul>
+
+  <h2>What Valet does not have</h2>
+  <ul>
+    <li>No telemetry: nothing counts what you do, and there is no analytics library in the program.</li>
+    <li>No crash reports. A crash leaves a line in the local log and nothing else. If crash reports are added later, they will be opt-in and will show exactly what is sent.</li>
+    <li>No account, no advertising, no cloud copy of your rules, journal or files.</li>
+  </ul>
+  <p>Nothing prevents a future version from adding a network call, and no test fails when one is added; if that happens, this page and the full document change.</p>
+
+  <h2>Uninstalling</h2>
+  <ul>
+    <li>Your data is kept by default. The uninstaller has a checkbox "Delete the application data", unticked at the start; ticked, it removes the two folders above (so History, undo and the license files are gone).</li>
+    <li>Uninstalling undoes nothing: moved files stay where they are, and files in the Recycle Bin stay in the Bin.</li>
+    <li>The uninstaller does not contact the license server. To free the activation, remove the license in Settings first.</li>
+  </ul>
+
+  <h2>This site</h2>
+  <p>The site is static HTML and one CSS file. It has no scripts, cookies, analytics, forms, or fonts and images from other sites. Hosting has not been chosen yet; like any host, it will see the ordinary data of a web server.</p>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p><a href="index.html">Valet</a> · MIT license · <a href="https://github.com/OsztrovszkyVlad/Valet">source code on GitHub</a> · <a href="../privacy.html" hreflang="ro" lang="ro">Română</a></p>
+  </div>
+</footer>
+</body>
+</html>
