@@ -27,7 +27,7 @@ This is the contract between `valet-core` (verification and limits), the desktop
 ### Falling back to Free (trial ended, license gone or not valid for this build)
 
 - Own rules: if more than 3 are enabled, the first 3 in evaluation order stay enabled. The rest are disabled with `options.planDisabled = true`. `meta` key `plan_choice_pending = 1` asks the UI to let the user pick which 3 stay active.
-- Watched folders: the first 2 in `inbox_paths` order stay active. The rest stay in the config and are reported as `inactive_paths`. The watcher and planning skip them, as for unavailable folders. Approvals are kept.
+- Watched folders: the first 2 in `inbox_paths` order stay active. The rest stay in the config and are reported as `inactive_paths`. The watcher and planning skip them, as for unavailable folders. Approvals are kept. The user picks which 2 stay active (PLAN 3.1) in the same chooser as the rules. The choice is saved by reordering `inbox_paths`, so the picked folders come first; no extra state.
 - Back to Pro or Trial: rules with `planDisabled = true` are enabled again and the flag is removed. Rules the user disabled stay disabled. All folders become active again.
 - Enabling an own rule, adding one enabled, or adding a folder over the limit on Free fails with error code `plan.limit` (`{ kind: "rules" | "folders", limit }`). It is not silently disabled.
 
@@ -46,6 +46,7 @@ A UTF-8 JSON file, extension `.valet-license`:
 - `signature` is a minisign signature file, prehashed (`ED`, BLAKE2b-512). The app verifies it with `minisign-verify` and `allow_legacy = false`.
 - `license_id`: UUID v4, the only identifier sent over the network.
 - `updates_until` = `issued_at` + 365 days, or later after a renewal. A build is covered when its build date (`VALET_BUILD_DATE`, Unix seconds, set at compile time; it falls back to the compile time) is ≤ `updates_until`. A license that doesn't cover this build gives Free plus a message naming the date. Older builds keep working.
+- Before installing an update, the app compares the update's `pub_date` (from the updater manifest) with `updates_until`. If Pro is active and the new build isn't covered, the confirmation says the new version will run as Free and names the date. The user can still install it.
 - `email` stays on the machine. It is shown in Settings so the user knows whose license it is.
 - The file is stored in the app data folder as `license.valet-license` after a successful import.
 
@@ -92,5 +93,6 @@ Base URL and public key come from `crates/valet-core/license/` files committed b
 - Node ≥ 20, built-in modules only (`node:http`, `node:crypto`, `node:test`). It signs with Ed25519 through `crypto.sign(null, blake2b512(data), key)` in minisign's prehashed format.
 - Activation storage: one small interface (`get`, `put`). The repo ships a JSON-file implementation for tests and local runs. The hosting decision (Vlad) adds the real one.
 - `node services/license/issue.mjs --email a@b.c [--days 365]` issues a license file by hand (for test purchases and support).
+- `node services/license/reset.mjs --license <id>` clears the active machines of a license (support: the old PC is gone and can't deactivate). History is kept.
 - The merchant webhook (Paddle, Polar or Stripe, Vlad's decision) is not part of this contract yet.
 - The secret key is read from the `VALET_LICENSE_SECRET_KEY` environment variable on the server. It is never committed. Tests use a key generated at test time. Committed fixtures are signed with a key labelled TEST whose public half is never shipped.
