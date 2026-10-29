@@ -2,21 +2,22 @@
 # finds as GitHub annotations, because the job logs are not always at hand:
 #   A. app.exe standalone: alive after 15 s, top-level window, WebView2
 #      browser process and its command line, app output.
-#   B. app.exe with WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port:
-#      does the WebView2 runtime open the DevTools port.
 #   C. msedgedriver alone (verbose log) with the capabilities tauri-driver
 #      sends: session result, processes during the launch, driver log lines.
-#   D. msedgedriver attaching to an app started by B (debuggerAddress).
-#   E. app.exe with the WebView2 policy
-#      HKCU\Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments
-#      (value app.exe): does that reach the browser process.
-# -Cases picks which ones run (default A,B,C,D,E).
+# -Cases picks which ones run (default A,C).
+# Findings that shaped the e2e build (CI runs of 9968bac and 1350d62):
+#   - WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS (how msedgedriver passes
+#     --remote-debugging-port=0) does not reach msedgewebview2.exe, because
+#     wry sets AdditionalBrowserArguments; WEBVIEW2_USER_DATA_FOLDER does.
+#   - The policy value HKCU\Software\Policies\Microsoft\Edge\WebView2\
+#     AdditionalBrowserArguments\app.exe does not reach it either.
+#   - additionalBrowserArgs in the build's window config does.
 # Moves the app's config and WebView2 data dirs into RUNNER_TEMP after each
 # case, so the smoke test that follows starts from a first run.
 param(
     [Parameter(Mandatory = $true)][string]$AppPath,
     [Parameter(Mandatory = $true)][string]$EdgeDriver,
-    [string[]]$Cases = @('A', 'B', 'C', 'D', 'E')
+    [string[]]$Cases = @('A', 'C')
 )
 $ErrorActionPreference = 'Continue'
 $ProgressPreference = 'SilentlyContinue'
@@ -82,96 +83,48 @@ function StartApp([string]$tag, [hashtable]$envVars) {
     return $p
 }
 
-function PostJson([string]$url, $body, [int]$timeoutSec = 90) {
-    try {
-        $r = Invoke-WebRequest -Uri $url -Method Post -ContentType 'application/json' -Body ($body | ConvertTo-Json -Depth 10 -Compress) -TimeoutSec $timeoutSec -SkipHttpErrorCheck
-        return "HTTP $($r.StatusCode): $($r.Content)"
-    } catch {
-        return "request failed: $($_.Exception.Message)"
-    }
-}
-
 Note notice 'diag versions' ("app: $app ($((Get-Item $app).Length) bytes)`nmsedgedriver: $((& $EdgeDriver --version | Out-String).Trim())`nuser: $env:USERNAME, session: $([System.Diagnostics.Process]::GetCurrentProcess().SessionId)`nAPPDATA=$env:APPDATA`nLOCALAPPDATA=$env:LOCALAPPDATA`nWEBVIEW2_* env: $((Get-ChildItem env: | Where-Object Name -like 'WEBVIEW2*' | ForEach-Object { "$($_.Name)=$($_.Value)" }) -join '; ')")
 
 # ---- A: standalone ----
 if ($Cases -contains 'A') {
-StopApp $null
-$p = StartApp 'A' @{}
-Start-Sleep -Seconds 15
-$a = "$(AppState $p)`n$(WebViewProcs)`n--- app stdout tail ---`n$(Tail "$tmp\A.out.txt")`n--- app stderr tail ---`n$(Tail "$tmp\A.err.txt")"
-Note notice 'diag A app standalone' $a
-StopApp $p
-
-}
-
-# ---- B: standalone with a DevTools port through the WebView2 env var ----
-if ($Cases -contains 'B' -or $Cases -contains 'D') {
-$p = StartApp 'B' @{ WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=9222' }
-Start-Sleep -Seconds 15
-try { $v = (Invoke-WebRequest -Uri 'http://127.0.0.1:9222/json/version' -TimeoutSec 5).Content } catch { $v = "no answer: $($_.Exception.Message)" }
-try { $l = (Invoke-WebRequest -Uri 'http://127.0.0.1:9222/json/list' -TimeoutSec 5).Content } catch { $l = "no answer: $($_.Exception.Message)" }
-Note notice 'diag B env remote-debugging-port' "$(AppState $p)`n/json/version: $v`n/json/list: $l`n$(WebViewProcs)"
-
-# ---- D: msedgedriver attaches to the app from B ----
-if ($Cases -contains 'D') {
-$dlog = "$tmp\msedgedriver-D.log"
-$drv = Start-Process -FilePath $EdgeDriver -ArgumentList '--port=9516', '--verbose', "--log-path=$dlog" -PassThru -WindowStyle Hidden
-Start-Sleep -Seconds 2
-$caps = @{ capabilities = @{ alwaysMatch = @{ browserName = 'webview2'; 'ms:edgeOptions' = @{ debuggerAddress = '127.0.0.1:9222' } } } }
-$res = PostJson 'http://127.0.0.1:9516/session' $caps 60
-$title = ''
-if ($res -match '"sessionId":"([^"]+)"') {
-    $sid = $Matches[1]
-    $title = PostJson "http://127.0.0.1:9516/session/$sid/execute/sync" @{ script = 'return document.title + " | " + location.href + " | " + document.body.innerText.slice(0, 200)'; args = @() } 20
-}
-Note notice 'diag D attach via debuggerAddress' "session: $($res.Substring(0, [Math]::Min(1500, $res.Length)))`nexecute: $title`n--- driver log tail ---`n$(Tail $dlog 15)"
-Stop-Process -Id $drv.Id -Force -ErrorAction SilentlyContinue
-}
-StopApp $p
+    StopApp $null
+    $p = StartApp 'A' @{}
+    Start-Sleep -Seconds 15
+    $a = "$(AppState $p)`n$(WebViewProcs)`n--- app stdout tail ---`n$(Tail "$tmp\A.out.txt")`n--- app stderr tail ---`n$(Tail "$tmp\A.err.txt")"
+    Note notice 'diag A app standalone' $a
+    StopApp $p
 }
 
 # ---- C: msedgedriver launches the app like tauri-driver does ----
 if ($Cases -contains 'C') {
-$clog = "$tmp\msedgedriver-C.log"
-$env:TAURI_WEBVIEW_AUTOMATION = 'true'
-$env:TAURI_AUTOMATION = 'true'
-$drv = Start-Process -FilePath $EdgeDriver -ArgumentList '--port=9515', '--verbose', "--log-path=$clog" -PassThru -WindowStyle Hidden
-Remove-Item env:TAURI_WEBVIEW_AUTOMATION, env:TAURI_AUTOMATION
-Start-Sleep -Seconds 2
-$caps = @{ capabilities = @{ alwaysMatch = @{ 'ms:edgeChromium' = $true; browserName = 'webview2'; 'ms:edgeOptions' = @{ binary = $app; args = @() } } } }
-$job = Start-Job -ScriptBlock {
-    param($b)
-    try {
-        $r = Invoke-WebRequest -Uri 'http://127.0.0.1:9515/session' -Method Post -ContentType 'application/json' -Body $b -TimeoutSec 90 -SkipHttpErrorCheck
-        "HTTP $($r.StatusCode): $($r.Content)"
-    } catch { "request failed: $($_.Exception.Message)" }
-} -ArgumentList ($caps | ConvertTo-Json -Depth 10 -Compress)
-Start-Sleep -Seconds 12
-$apps = Get-CimInstance Win32_Process -Filter "Name='app.exe'" | ForEach-Object { "app.exe pid $($_.ProcessId) parent $($_.ParentProcessId): $($_.CommandLine)" }
-$during = "app processes at 12 s:`n$($apps -join "`n")`n$(WebViewProcs)"
-foreach ($ap in (Get-Process app -ErrorAction SilentlyContinue)) { $during += "`nwindow: handle=$($ap.MainWindowHandle) title='$($ap.MainWindowTitle)'" }
-$res = [string](Receive-Job -Job $job -Wait -AutoRemoveJob)
-Note notice 'diag C msedgedriver launch (during)' $during
-Note notice 'diag C msedgedriver launch (result)' "session: $($res.Substring(0, [Math]::Min(1500, [string]$res.Length)))"
-if (Test-Path $clog) {
-    $interesting = Select-String -Path $clog -Pattern 'Launching|command line|DevToolsActivePort|WEBVIEW2|user-data-dir|remote-debugging|ERROR|SEVERE|exited|crash|webview' | Select-Object -First 40 | ForEach-Object { $_.Line.Substring(0, [Math]::Min(600, $_.Line.Length)) }
-    Note notice 'diag C msedgedriver log (matches)' ($interesting -join "`n")
-    Note notice 'diag C msedgedriver log (tail)' (Tail $clog 20)
+    $clog = "$tmp\msedgedriver-C.log"
+    $env:TAURI_WEBVIEW_AUTOMATION = 'true'
+    $env:TAURI_AUTOMATION = 'true'
+    $drv = Start-Process -FilePath $EdgeDriver -ArgumentList '--port=9515', '--verbose', "--log-path=$clog" -PassThru -WindowStyle Hidden
+    Remove-Item env:TAURI_WEBVIEW_AUTOMATION, env:TAURI_AUTOMATION
+    Start-Sleep -Seconds 2
+    $caps = @{ capabilities = @{ alwaysMatch = @{ 'ms:edgeChromium' = $true; browserName = 'webview2'; 'ms:edgeOptions' = @{ binary = $app; args = @() } } } }
+    $job = Start-Job -ScriptBlock {
+        param($b)
+        try {
+            $r = Invoke-WebRequest -Uri 'http://127.0.0.1:9515/session' -Method Post -ContentType 'application/json' -Body $b -TimeoutSec 90 -SkipHttpErrorCheck
+            "HTTP $($r.StatusCode): $($r.Content)"
+        } catch { "request failed: $($_.Exception.Message)" }
+    } -ArgumentList ($caps | ConvertTo-Json -Depth 10 -Compress)
+    Start-Sleep -Seconds 12
+    $apps = Get-CimInstance Win32_Process -Filter "Name='app.exe'" | ForEach-Object { "app.exe pid $($_.ProcessId) parent $($_.ParentProcessId): $($_.CommandLine)" }
+    $during = "app processes at 12 s:`n$($apps -join "`n")`n$(WebViewProcs)"
+    foreach ($ap in (Get-Process app -ErrorAction SilentlyContinue)) { $during += "`nwindow: handle=$($ap.MainWindowHandle) title='$($ap.MainWindowTitle)'" }
+    $res = [string](Receive-Job -Job $job -Wait -AutoRemoveJob)
+    Note notice 'diag C msedgedriver launch (during)' $during
+    Note notice 'diag C msedgedriver launch (result)' "session: $($res.Substring(0, [Math]::Min(1500, [string]$res.Length)))"
+    if (Test-Path $clog) {
+        $interesting = Select-String -Path $clog -Pattern 'Launching|command line|DevToolsActivePort|WEBVIEW2|user-data-dir|remote-debugging|ERROR|SEVERE|exited|crash|webview' | Select-Object -First 40 | ForEach-Object { $_.Line.Substring(0, [Math]::Min(600, $_.Line.Length)) }
+        Note notice 'diag C msedgedriver log (matches)' ($interesting -join "`n")
+        Note notice 'diag C msedgedriver log (tail)' (Tail $clog 20)
 }
 Stop-Process -Id $drv.Id -Force -ErrorAction SilentlyContinue
 StopApp $null
 }
 
-# ---- E: WebView2 policy AdditionalBrowserArguments for app.exe ----
-if ($Cases -contains 'E') {
-    $key = 'HKCU:\Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments'
-    New-Item -Path $key -Force | Out-Null
-    New-ItemProperty -Path $key -Name 'app.exe' -Value '--remote-debugging-port=9223' -PropertyType String -Force | Out-Null
-    $p = StartApp 'E' @{}
-    Start-Sleep -Seconds 15
-    try { $v = (Invoke-WebRequest -Uri 'http://127.0.0.1:9223/json/version' -TimeoutSec 5).Content } catch { $v = "no answer: $($_.Exception.Message)" }
-    Note notice 'diag E WebView2 policy AdditionalBrowserArguments' "$(AppState $p)`n/json/version: $v`n$(WebViewProcs)"
-    StopApp $p
-    Remove-ItemProperty -Path $key -Name 'app.exe' -ErrorAction SilentlyContinue
-}
 exit 0

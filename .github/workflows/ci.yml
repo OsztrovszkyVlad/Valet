@@ -175,6 +175,13 @@ jobs:
   # job downloads the msedgedriver matching the WebView2 runtime version (the
   # preinstalled one follows the Edge browser). The app uses the runner's
   # real Downloads and %APPDATA% (ephemeral VM).
+  # msedgedriver hands WebView2 --remote-debugging-port=0 through
+  # WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS, which WebView2 ignores when the app
+  # sets AdditionalBrowserArguments (wry always does), and then fails with
+  # "DevToolsActivePort file doesn't exist". So the e2e build adds the flag to
+  # the window's additionalBrowserArgs through TAURI_CONFIG (merged into
+  # tauri.conf.json at build time; scripts/e2e-tauri-config.mjs). Release
+  # builds do not get it.
   e2e-windows:
     name: e2e smoke (Windows, report only)
     runs-on: windows-latest
@@ -201,8 +208,12 @@ jobs:
       - name: Build frontend
         working-directory: apps/desktop
         run: pnpm install --frozen-lockfile; if ($?) { pnpm build }
-      - name: Build app (embedded dist/)
-        run: cargo build -p app --features tauri/custom-protocol
+      - name: Build app (embedded dist/, DevTools port for msedgedriver)
+        shell: pwsh
+        run: |
+          $env:TAURI_CONFIG = node scripts/e2e-tauri-config.mjs 0
+          Write-Output "::notice title=e2e-windows::TAURI_CONFIG $env:TAURI_CONFIG"
+          cargo build -p app --features tauri/custom-protocol
       - name: Install tauri-driver
         shell: bash
         run: cargo install tauri-driver --locked --version "$TAURI_DRIVER_VERSION"
@@ -268,67 +279,28 @@ jobs:
           }
           Write-Output "::notice title=e2e-windows::msedgedriver used: $((& $driver --version | Out-String).Trim()) ($driver)"
           "path=$driver" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-      # msedgedriver passes --remote-debugging-port=0 to WebView2 through
-      # WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS, and WebView2 ignores that
-      # variable when the app sets AdditionalBrowserArguments (wry always
-      # does). CI run of commit 9968bac, "diag" annotations: the browser process starts
-      # without the flag, so DevToolsActivePort never appears.
-      # Annotation "diag E": does the WebView2 policy key reach the browser.
-      - name: Diagnostics (WebView2 policy)
-        continue-on-error: true
-        timeout-minutes: 3
-        shell: pwsh
-        run: ./scripts/e2e-windows-diag.ps1 -AppPath target/debug/app.exe -EdgeDriver "${{ steps.edgedriver.outputs.path }}" -Cases E
-      # Option 1: the same binary, the port flag through the WebView2 policy.
-      - name: Smoke test (tauri-driver, WebView2 policy)
-        id: smoke_policy
-        continue-on-error: true
-        timeout-minutes: 8
-        shell: pwsh
-        env:
-          EDGE_DRIVER: ${{ steps.edgedriver.outputs.path }}
-        run: |
-          $key = 'HKCU:\Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments'
-          New-Item -Path $key -Force | Out-Null
-          New-ItemProperty -Path $key -Name 'app.exe' -Value '--remote-debugging-port=0' -PropertyType String -Force | Out-Null
-          try {
-            node tests/e2e/smoke.mjs --app target/debug/app.exe --native-driver $env:EDGE_DRIVER --screenshots e2e-screenshots-policy
-            $code = $LASTEXITCODE
-          } finally {
-            Remove-ItemProperty -Path $key -Name 'app.exe' -ErrorAction SilentlyContinue
-          }
-          if ($code -eq 0) { Write-Output "::notice title=e2e-windows::smoke passed with the WebView2 policy" }
-          exit $code
-      # Option 2: a test build whose window config adds the port flag to the
-      # WebView2 arguments (TAURI_CONFIG is merged into tauri.conf.json at
-      # build time; product code and tauri.conf.json stay unchanged).
-      - name: Build app for e2e (additionalBrowserArgs with --remote-debugging-port=0)
-        if: ${{ steps.smoke_policy.outcome == 'failure' }}
-        shell: pwsh
-        run: |
-          ./scripts/e2e-windows-reset.ps1 -Tag policy
-          $env:TAURI_CONFIG = node scripts/e2e-tauri-config.mjs 0
-          Write-Output "::notice title=e2e-windows::TAURI_CONFIG $env:TAURI_CONFIG"
-          cargo build -p app --features tauri/custom-protocol
-      - name: Smoke test (tauri-driver, additionalBrowserArgs build)
-        if: ${{ steps.smoke_policy.outcome == 'failure' }}
-        timeout-minutes: 8
+      - name: Smoke test
+        id: smoke
         shell: pwsh
         env:
           EDGE_DRIVER: ${{ steps.edgedriver.outputs.path }}
         run: |
           node tests/e2e/smoke.mjs --app target/debug/app.exe --native-driver $env:EDGE_DRIVER --screenshots e2e-screenshots
-          $code = $LASTEXITCODE
-          if ($code -eq 0) { Write-Output "::notice title=e2e-windows::smoke passed with the additionalBrowserArgs build" }
-          exit $code
+          exit $LASTEXITCODE
+      # On failure only: annotations "diag A" (the app alone: window, WebView2
+      # browser command line, app output) and "diag C" (msedgedriver launching
+      # the app, with its verbose log).
+      - name: Diagnostics after a failed smoke test
+        if: ${{ failure() && steps.smoke.outcome == 'failure' }}
+        timeout-minutes: 5
+        shell: pwsh
+        run: ./scripts/e2e-windows-diag.ps1 -AppPath target/debug/app.exe -EdgeDriver "${{ steps.edgedriver.outputs.path }}" -Cases A,C
       - name: Upload screenshots
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: e2e-windows-screenshots
-          path: |
-            e2e-screenshots
-            e2e-screenshots-policy
+          path: e2e-screenshots
           if-no-files-found: ignore
 
   windows:
