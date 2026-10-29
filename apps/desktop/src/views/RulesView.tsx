@@ -95,10 +95,8 @@ const RulesView: React.FC<RulesViewProps> = ({ plan = null, onOpenPro }) => {
         setLimitError(null);
         setTransferBusy(true);
         try {
-            const result = await exportRulesFile();
-            if (result.saved) {
-                setNotice(result.path ? t('rules.exported', { path: result.path }) : t('rules.exportedPlain'));
-            }
+            const path = await exportRulesFile();
+            if (path !== null) setNotice(t('rules.exported', { path }));
         } catch (err) {
             setError(commandErrorText(t, err));
         } finally {
@@ -112,9 +110,9 @@ const RulesView: React.FC<RulesViewProps> = ({ plan = null, onOpenPro }) => {
         setLimitError(null);
         setTransferBusy(true);
         try {
-            const count = await importRulesFile();
-            if (count !== null) {
-                setNotice(t('rules.imported', { count }));
+            const imported = await importRulesFile();
+            if (imported !== null) {
+                setNotice(t('rules.imported', { count: imported.length }));
                 await load();
             }
         } catch (err) {

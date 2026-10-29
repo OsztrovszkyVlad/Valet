@@ -31,6 +31,8 @@ const HistoryView: React.FC<HistoryViewProps> = ({ onBatchUndone, reloadToken, p
     const [batches, setBatches] = useState<BatchInfo[]>([]);
     // The Free plan hid batches older than 7 days.
     const [hiddenOlder, setHiddenOlder] = useState(false);
+    // The only batch the Free plan can undo.
+    const [latestApplyId, setLatestApplyId] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -42,6 +44,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({ onBatchUndone, reloadToken, p
             const list = await listBatches();
             setBatches(list.batches);
             setHiddenOlder(list.hidden_older);
+            setLatestApplyId(list.latest_apply_batch_id);
             setError('');
         } catch (err) {
             setError(t('history.loadFailed', { message: errorMessage(err) }));
@@ -120,9 +123,8 @@ const HistoryView: React.FC<HistoryViewProps> = ({ onBatchUndone, reloadToken, p
         batch.kind === 'apply' &&
         batch.finished_at !== null &&
         batch.counts.done > 0;
-    // Free: the backend undoes only the most recent batch (`plan.undoLatestOnly`).
-    const undoBlocked =
-        batch !== undefined && plan?.limits.undo_latest_only === true && batches[0]?.id !== batch.id;
+    // Free: the backend undoes only the newest apply batch (`plan.undoLatestOnly`).
+    const undoBlocked = batch !== undefined && plan?.limits.undo_latest_only === true && latestApplyId !== batch.id;
 
     return (
         <div className="history-view">

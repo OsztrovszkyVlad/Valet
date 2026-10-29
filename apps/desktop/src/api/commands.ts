@@ -197,29 +197,47 @@ export function executeOperations(planId: string): Promise<ExecuteResponse> {
     return invoke<ExecuteResponse>('execute_operations', { planId });
 }
 
-/** `list_batches` result. `hidden_older`: the Free plan hid batches older than 7 days (they stay in the journal). */
+/** `list_batches` result (docs/LICENSING.md). */
 export interface BatchList {
     batches: BatchInfo[];
+    /** The Free plan hid batches older than 7 days (they stay in the journal). */
     hidden_older: boolean;
+    /**
+     * Newest batch of kind `apply` in the whole journal, even if already
+     * undone; the only batch the Free plan can undo. Null when there is none.
+     */
+    latest_apply_batch_id: string | null;
+}
+
+function firstApplyId(batches: BatchInfo[]): string | null {
+    return batches.find((b) => b.kind === 'apply')?.id ?? null;
 }
 
 /**
- * Newest first. The backend default limit is 50. Accepts the response as a
- * plain array (no plan limits) or as `{ batches, hidden_older }`.
+ * Newest first. The backend default limit is 50. A plain array (backends
+ * before the licensing contract) is read as a list with no plan limits.
  */
 export async function listBatches(limit?: number): Promise<BatchList> {
     const raw = await invoke<unknown>('list_batches', { limit: limit ?? null });
     if (Array.isArray(raw)) {
-        return { batches: raw as BatchInfo[], hidden_older: false };
+        const batches = raw as BatchInfo[];
+        return { batches, hidden_older: false, latest_apply_batch_id: firstApplyId(batches) };
     }
     if (typeof raw === 'object' && raw !== null) {
-        const { batches, hidden_older: hiddenOlder } = raw as { batches?: unknown; hidden_older?: unknown };
+        const r = raw as { batches?: unknown; hidden_older?: unknown; latest_apply_batch_id?: unknown };
+        const batches = Array.isArray(r.batches) ? (r.batches as BatchInfo[]) : [];
         return {
-            batches: Array.isArray(batches) ? (batches as BatchInfo[]) : [],
-            hidden_older: hiddenOlder === true,
+            batches,
+            hidden_older: r.hidden_older === true,
+            latest_apply_batch_id:
+                typeof r.latest_apply_batch_id === 'string'
+                    ? r.latest_apply_batch_id
+                    : r.latest_apply_batch_id === null
+                      ? null
+                      : firstApplyId(batches),
         };
     }
-    return { batches: [], hidden_older: false };
+    return { batches: [], hidden_older: false, latest_apply_batch_id: null };
 }
 
 export function getBatch(batchId: string): Promise<BatchDetail> {
@@ -626,47 +644,23 @@ export function applyPlanChoice(ruleIds: string[], folders: string[]): Promise<P
     return invoke<PlanView>('apply_plan_choice', { ruleIds, folders });
 }
 
-/** Result of `exportRulesFile`: `saved` false when the dialog was cancelled. */
-export interface ExportResult {
-    saved: boolean;
-    /** Where the file was written, when the backend says. */
-    path: string | null;
+/**
+ * Pro/Trial: native save dialog, then writes the export. Resolves with the
+ * written path, or null when the dialog was cancelled. Rejects with
+ * `plan.proOnly`, `export.exists` or `export.io`.
+ */
+export async function exportRulesFile(): Promise<string | null> {
+    return (await invoke<string | null>('export_rules_file')) ?? null;
 }
 
 /**
- * Pro/Trial: native save dialog, then writes the export. Rejects with
- * `plan.proOnly`, `export.exists` or `export.io`. A null response is a
- * cancelled dialog; a string is the written path.
+ * Pro/Trial: native open dialog, then imports the rules as new rules
+ * (auto-apply waits for a preview). Resolves with the imported rules, or
+ * null when the dialog was cancelled. Rejects with `plan.proOnly` or an
+ * `import.*` code.
  */
-export async function exportRulesFile(): Promise<ExportResult> {
-    const raw = await invoke<unknown>('export_rules_file');
-    if (raw === null || raw === undefined) return { saved: false, path: null };
-    if (typeof raw === 'string') return { saved: true, path: raw };
-    if (typeof raw === 'object' && 'path' in raw) {
-        const { path } = raw as { path: unknown };
-        return { saved: true, path: typeof path === 'string' ? path : null };
-    }
-    return { saved: true, path: null };
-}
-
-/**
- * Pro/Trial: native open dialog, then imports the rules as new rules that
- * need a preview before auto-apply. Resolves with the number of imported
- * rules, or null when the dialog was cancelled. Rejects with `plan.proOnly`
- * or an `import.*` code.
- */
-export async function importRulesFile(): Promise<number | null> {
-    const raw = await invoke<unknown>('import_rules_file');
-    if (raw === null || raw === undefined) return null;
-    if (Array.isArray(raw)) return raw.length;
-    if (typeof raw === 'number') return raw;
-    if (typeof raw === 'object') {
-        const { imported, count, rules } = raw as { imported?: unknown; count?: unknown; rules?: unknown };
-        if (typeof imported === 'number') return imported;
-        if (typeof count === 'number') return count;
-        if (Array.isArray(rules)) return rules.length;
-    }
-    return 0;
+export async function importRulesFile(): Promise<Rule[] | null> {
+    return (await invoke<Rule[] | null>('import_rules_file')) ?? null;
 }
 
 /** What `open_external` can open: the checkout page or the Windows startup apps settings. */

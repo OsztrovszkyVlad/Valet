@@ -232,31 +232,37 @@ describe('plan and license wrappers', () => {
         expect(invokeMock).toHaveBeenLastCalledWith('open_external', { target: 'startup_settings' });
     });
 
-    it('read list_batches as an array or as { batches, hidden_older }', async () => {
-        const b = { id: 'b1' };
-        invokeMock.mockResolvedValueOnce([b]);
-        await expect(listBatches()).resolves.toEqual({ batches: [b], hidden_older: false });
-        invokeMock.mockResolvedValueOnce({ batches: [b], hidden_older: true });
-        await expect(listBatches()).resolves.toEqual({ batches: [b], hidden_older: true });
-        invokeMock.mockResolvedValueOnce(null);
-        await expect(listBatches()).resolves.toEqual({ batches: [], hidden_older: false });
+    it('read list_batches with hidden_older and latest_apply_batch_id', async () => {
+        const recovery = { id: 'r', kind: 'recovery' };
+        const apply = { id: 'a', kind: 'apply' };
+        invokeMock.mockResolvedValueOnce({ batches: [recovery, apply], hidden_older: true, latest_apply_batch_id: 'x' });
+        await expect(listBatches()).resolves.toEqual({
+            batches: [recovery, apply],
+            hidden_older: true,
+            latest_apply_batch_id: 'x',
+        });
+        invokeMock.mockResolvedValueOnce({ batches: [], hidden_older: false, latest_apply_batch_id: null });
+        await expect(listBatches()).resolves.toEqual({ batches: [], hidden_older: false, latest_apply_batch_id: null });
+        // A plain array (older backend): no plan limits, the newest apply batch.
+        invokeMock.mockResolvedValueOnce([recovery, apply]);
+        await expect(listBatches()).resolves.toEqual({
+            batches: [recovery, apply],
+            hidden_older: false,
+            latest_apply_batch_id: 'a',
+        });
     });
 
-    it('read the rule export and import results, null being a cancelled dialog', async () => {
+    it('read the rule export path and the imported rules, null being a cancelled dialog', async () => {
         invokeMock.mockResolvedValueOnce(null);
-        await expect(exportRulesFile()).resolves.toEqual({ saved: false, path: null });
+        await expect(exportRulesFile()).resolves.toBeNull();
         invokeMock.mockResolvedValueOnce('C:\\r.json');
-        await expect(exportRulesFile()).resolves.toEqual({ saved: true, path: 'C:\\r.json' });
+        await expect(exportRulesFile()).resolves.toBe('C:\\r.json');
         expect(invokeMock).toHaveBeenLastCalledWith('export_rules_file');
 
         invokeMock.mockResolvedValueOnce(null);
         await expect(importRulesFile()).resolves.toBeNull();
-        invokeMock.mockResolvedValueOnce([{}, {}]);
-        await expect(importRulesFile()).resolves.toBe(2);
-        invokeMock.mockResolvedValueOnce({ imported: 4 });
-        await expect(importRulesFile()).resolves.toBe(4);
-        invokeMock.mockResolvedValueOnce(3);
-        await expect(importRulesFile()).resolves.toBe(3);
+        invokeMock.mockResolvedValueOnce([{ id: '1' }, { id: '2' }]);
+        await expect(importRulesFile()).resolves.toEqual([{ id: '1' }, { id: '2' }]);
         expect(invokeMock).toHaveBeenLastCalledWith('import_rules_file');
     });
 

@@ -59,7 +59,11 @@ beforeEach(() => {
             case 'get_app_settings':
                 return settings;
             case 'list_batches':
-                return batches;
+                return {
+                    batches,
+                    hidden_older: false,
+                    latest_apply_batch_id: batches.find((b) => b.kind === 'apply')?.id ?? null,
+                };
             case 'list_presets':
                 return [];
             case 'complete_onboarding':

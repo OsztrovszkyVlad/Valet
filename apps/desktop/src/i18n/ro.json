@@ -415,7 +415,6 @@
     "proBadge": "Pro",
     "exportImportPro": "Exportul și importul de reguli sunt incluse în Pro și în probă.",
     "exported": "Regulile au fost salvate în {{path}}.",
-    "exportedPlain": "Regulile au fost exportate.",
     "imported_one": "{{count}} regulă importată. Regulile importate se aplică automat doar după o previzualizare aprobată.",
     "imported_few": "{{count}} reguli importate. Regulile importate se aplică automat doar după o previzualizare aprobată.",
     "imported_other": "{{count}} de reguli importate. Regulile importate se aplică automat doar după o previzualizare aprobată."

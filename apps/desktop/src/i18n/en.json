@@ -412,7 +412,6 @@
     "proBadge": "Pro",
     "exportImportPro": "Rule export and import are included in Pro and in the trial.",
     "exported": "The rules were saved to {{path}}.",
-    "exportedPlain": "The rules were exported.",
     "imported_one": "{{count}} rule imported. Imported rules are applied automatically only after an approved preview.",
     "imported_other": "{{count}} rules imported. Imported rules are applied automatically only after an approved preview."
   },
