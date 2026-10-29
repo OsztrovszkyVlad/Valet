@@ -64,7 +64,7 @@ describe('ProSection', () => {
         expect(screen.getByText(/^Actualizări incluse până la 29 octombrie 2027\.$/)).toBeTruthy();
         expect(screen.getByText(/^Ultima verificare a licenței: 20 octombrie 2026/)).toBeTruthy();
         expect(screen.getByTestId('pro-license-id').textContent).toBe(
-            `Cod licență (pentru asistență): ${LICENSE.license_id}`,
+            `Cod licență: ${LICENSE.license_id}. Nu-l publica: oricine îl are poate ocupa una dintre cele 3 activări. Pentru asistență, folosește numărul comenzii din emailul de la comerciant.`,
         );
         expect(screen.queryByTestId('pro-buy')).toBeNull();
         expect(screen.getByTestId('pro-check')).toBeTruthy();
