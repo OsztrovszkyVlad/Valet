@@ -10,7 +10,9 @@
     "planTrial_one": "Probă Pro: {{count}} zi",
     "planTrial_few": "Probă Pro: {{count}} zile",
     "planTrial_other": "Probă Pro: {{count}} de zile",
-    "planLinkTitle": "Deschide secțiunea Valet Pro din Setări"
+    "planLinkTitle": "Deschide secțiunea Valet Pro din Setări",
+    "planTrialEnding": "Ce se schimbă la sfârșitul probei: regulile proprii peste 3 și folderele urmărite peste 2 devin inactive, nu se șterg. Alegi tu care rămân active, iar cu Pro revin toate.",
+    "planTrialEndingShort": "Proba se termină curând"
   },
   "common": {
     "cancel": "Renunță",

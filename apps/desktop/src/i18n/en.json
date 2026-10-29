@@ -9,7 +9,9 @@
     "planFree": "Free",
     "planTrial_one": "Pro trial: {{count}} day",
     "planTrial_other": "Pro trial: {{count}} days",
-    "planLinkTitle": "Open the Valet Pro section in Settings"
+    "planLinkTitle": "Open the Valet Pro section in Settings",
+    "planTrialEnding": "What changes when the trial ends: own rules over 3 and watched folders over 2 become inactive; nothing is deleted. You pick which stay active, and Pro brings them all back.",
+    "planTrialEndingShort": "Trial ends soon"
   },
   "common": {
     "cancel": "Cancel",
