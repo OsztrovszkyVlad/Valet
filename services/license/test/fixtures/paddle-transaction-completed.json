@@ -1,0 +1,63 @@
+{
+  "event_id": "evt_01jbx3g5m2c8v6t0f4r9k7n1qa",
+  "event_type": "transaction.completed",
+  "occurred_at": "2026-10-29T10:15:42.181237Z",
+  "notification_id": "ntf_01jbx3g5qz4w8e2t6y0u3i5o7p",
+  "data": {
+    "id": "txn_01jbx3dq8w5h2k9m4n7p0r3t6v",
+    "status": "completed",
+    "customer_id": "ctm_01jbx3cz1a4s7d0f3g6h9j2k5l",
+    "address_id": "add_01jbx3cz6q9w2e5r8t1y4u7i0o",
+    "business_id": null,
+    "custom_data": null,
+    "origin": "web",
+    "collection_mode": "automatic",
+    "subscription_id": null,
+    "invoice_id": "inv_01jbx3g4z7x0c3v6b9n2m5l8k1",
+    "invoice_number": "325-10001",
+    "billing_details": null,
+    "billing_period": null,
+    "currency_code": "EUR",
+    "discount_id": null,
+    "created_at": "2026-10-29T10:14:01.112233Z",
+    "updated_at": "2026-10-29T10:15:41.998877Z",
+    "billed_at": "2026-10-29T10:15:40.123456Z",
+    "items": [
+      {
+        "price_id": "pri_01jbx2valetpro0000000000a",
+        "price": {
+          "id": "pri_01jbx2valetpro0000000000a",
+          "product_id": "pro_01jbx2valetpro0000000000b",
+          "description": "Valet Pro, one-time",
+          "type": "standard",
+          "name": "Valet Pro",
+          "billing_cycle": null,
+          "trial_period": null,
+          "tax_mode": "account_setting",
+          "unit_price": { "amount": "2900", "currency_code": "EUR" },
+          "quantity": { "minimum": 1, "maximum": 1 },
+          "status": "active"
+        },
+        "quantity": 1,
+        "proration": null
+      }
+    ],
+    "details": {
+      "totals": { "subtotal": "2397", "tax": "503", "discount": "0", "total": "2900", "grand_total": "2900", "currency_code": "EUR" },
+      "line_items": [
+        {
+          "id": "txnitm_01jbx3dqa1s2d3f4g5h6j7k8l9",
+          "price_id": "pri_01jbx2valetpro0000000000a",
+          "quantity": 1,
+          "tax_rate": "0.21",
+          "totals": { "subtotal": "2397", "tax": "503", "discount": "0", "total": "2900" },
+          "product": { "id": "pro_01jbx2valetpro0000000000b", "name": "Valet Pro" }
+        }
+      ]
+    },
+    "payments": [
+      { "payment_attempt_id": "5f2c1e0a-1b2c-4d3e-8f90-a1b2c3d4e5f6", "status": "captured", "amount": "2900", "method_details": { "type": "card" } }
+    ],
+    "checkout": { "url": "https://valetapp.ro/buy?_ptxn=txn_01jbx3dq8w5h2k9m4n7p0r3t6v" }
+  }
+}

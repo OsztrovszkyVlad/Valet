@@ -1,0 +1,48 @@
+# Fly.io app for the Valet license service. Deploy from services/license: `fly deploy`.
+#
+# One machine, one volume. The JSON store on the volume is not shared between
+# machines: never run `fly scale count 2` and never add a second volume.
+#
+# Region fra (Frankfurt): an EU region with large capacity for volumes and machine
+# replacement. Activation calls run at most once per 30 days per PC and webhooks come
+# from Paddle's or Stripe's servers, so the few milliseconds saved by otp (Bucharest)
+# don't matter here.
+
+app = "valet-license"
+primary_region = "fra"
+kill_signal = "SIGTERM"
+kill_timeout = "10s"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  # Read the client address for rate limiting from Fly-Client-IP (set by Fly's proxy).
+  VALET_TRUST_FLY = "1"
+
+[mounts]
+  source = "license_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 50
+    hard_limit = 100
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/healthz"
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

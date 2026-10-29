@@ -1,0 +1,10 @@
+# Only what the Dockerfile copies is needed; keep everything else out of the build context.
+*
+!package.json
+!server.mjs
+!issue.mjs
+!reset.mjs
+!revoke.mjs
+!lookup.mjs
+!lib/
+!lib/*.mjs

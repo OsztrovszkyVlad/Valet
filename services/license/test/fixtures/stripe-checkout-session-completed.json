@@ -1,0 +1,39 @@
+{
+  "id": "evt_1QBx7nE5valet00000000001",
+  "object": "event",
+  "api_version": "2025-09-30.clover",
+  "created": 1793268942,
+  "livemode": false,
+  "pending_webhooks": 1,
+  "request": { "id": null, "idempotency_key": null },
+  "type": "checkout.session.completed",
+  "data": {
+    "object": {
+      "id": "cs_test_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8s9T0u1V2w3X4y5Z6",
+      "object": "checkout.session",
+      "amount_subtotal": 2900,
+      "amount_total": 2900,
+      "currency": "eur",
+      "customer": null,
+      "customer_creation": "if_required",
+      "customer_details": {
+        "address": { "city": "Cluj-Napoca", "country": "RO", "line1": null, "line2": null, "postal_code": null, "state": null },
+        "email": "buyer@example.com",
+        "name": "Ion Popescu",
+        "phone": null,
+        "tax_exempt": "none",
+        "tax_ids": []
+      },
+      "customer_email": null,
+      "livemode": false,
+      "metadata": { "product": "valet-pro" },
+      "mode": "payment",
+      "payment_intent": "pi_3QBx7mE5valet0000000001",
+      "payment_link": "plink_1QBx5aE5valet00000000001",
+      "payment_status": "paid",
+      "status": "complete",
+      "success_url": "https://valetapp.ro/multumim",
+      "url": null
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "id": "evt_3QBx7mE5valet00000000002",
+  "object": "event",
+  "api_version": "2025-09-30.clover",
+  "created": 1793600000,
+  "livemode": false,
+  "pending_webhooks": 1,
+  "request": { "id": "req_valet00000001", "idempotency_key": "6a1b2c3d-0000-4000-8000-000000000001" },
+  "type": "charge.refunded",
+  "data": {
+    "object": {
+      "id": "ch_3QBx7mE5valet0000000001",
+      "object": "charge",
+      "amount": 2900,
+      "amount_captured": 2900,
+      "amount_refunded": 2900,
+      "captured": true,
+      "currency": "eur",
+      "customer": null,
+      "billing_details": { "email": "buyer@example.com", "name": "Ion Popescu" },
+      "livemode": false,
+      "metadata": {},
+      "paid": true,
+      "payment_intent": "pi_3QBx7mE5valet0000000001",
+      "refunded": true,
+      "status": "succeeded"
+    },
+    "previous_attributes": { "amount_refunded": 0, "refunded": false }
+  }
+}

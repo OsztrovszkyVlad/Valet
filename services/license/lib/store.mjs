@@ -1,8 +1,10 @@
 // Activation storage.
 //
-// Interface (both methods return promises, so a hosted database can implement it):
+// Interface (all methods return promises, so a hosted database can implement it):
 //   get(licenseId) -> record | null
 //   put(licenseId, record) -> void      (insert or replace the record for that id)
+//   getOrder(orderKey) -> order | null   (merchant order map, used by the webhook)
+//   putOrder(orderKey, order) -> void
 //
 // There is no delete. Revocation is `revoked: true`; deactivation sets `active: false`
 // on the machine entry and keeps its history.
@@ -12,13 +14,22 @@
 //     license_id, max_activations, issued_at, updates_until,
 //     revoked: false, revoked_at?,
 //     resets?: [{ at, cleared }],
-//     machines: { "<32 hex>": { first_seen, last_seen, active, deactivated_at } }
+//     machines: { "<32 hex>": { first_seen, last_seen, active, deactivated_at } },
+//     emailed_at?: number,              (set by the webhook once Resend accepted the email)
+//     revoked_reason?: "refund"
 //   }
 // The email is not stored here; the license file and the merchant hold it.
+//
+// Order keys are "<merchant>:<merchant id>" (paddle:txn_…, stripe:cs_…, stripe:pi_…).
+// Order: { license_id, created_at } once a license was issued for it, or
+// { license_id: null, refunded_at } when a refund arrived before the purchase.
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
+
+const LOCK_WAIT_MS = 10_000;
+const LOCK_STALE_MS = 30_000;
 
 /** Builds the store record for a freshly issued license payload. */
 export function newLicenseRecord(payload) {
@@ -67,6 +78,7 @@ export function resetActiveMachines(record, now) {
 /** In-memory store, for tests. */
 export function createMemoryStore() {
   const map = new Map();
+  const orders = new Map();
   return {
     async get(id) {
       return map.has(id) ? structuredClone(map.get(id)) : null;
@@ -74,15 +86,26 @@ export function createMemoryStore() {
     async put(id, record) {
       map.set(id, structuredClone(record));
     },
+    async getOrder(key) {
+      return orders.has(key) ? structuredClone(orders.get(key)) : null;
+    },
+    async putOrder(key, order) {
+      orders.set(key, structuredClone(order));
+    },
   };
 }
 
 /**
- * JSON-file store for tests and local runs. The file holds
- * { "version": 1, "licenses": { "<id>": record } }.
+ * JSON-file store. The file holds
+ * { "version": 1, "licenses": { "<id>": record }, "orders": { "<order key>": order } }
+ * ("orders" is absent until the first webhook purchase).
  * Writes go to a temp file in the same directory, are fsynced, then renamed over the
- * original. Writes inside one process are serialized. Several processes writing the
- * same file at the same moment can lose an update; the hosted store must not.
+ * original. Writes inside one process are serialized; across processes (the server and
+ * a support CLI run over `fly ssh console`) each write holds `<file>.lock` (created
+ * with O_EXCL) while it re-reads the file, changes one entry and renames. A lock older
+ * than 30 s is taken over (a crashed writer). Reads need no lock: rename is atomic.
+ * When run as root, the new file gets the owner of its directory, so a CLI run as root
+ * doesn't leave a file the server (non-root) can't read.
  * A file that can't be parsed is never overwritten: every call fails until it is fixed.
  */
 export function createJsonFileStore(filePath) {
@@ -101,20 +124,58 @@ export function createJsonFileStore(filePath) {
     if (!data || data.version !== 1 || typeof data.licenses !== 'object' || data.licenses === null) {
       throw new Error(`store file has an unexpected format: ${file}`);
     }
+    if (data.orders !== undefined && (typeof data.orders !== 'object' || data.orders === null)) {
+      throw new Error(`store file has an unexpected format: ${file}`);
+    }
     return data;
   }
 
   async function writeAtomic(data) {
-    await fs.mkdir(path.dirname(file), { recursive: true });
     const tmp = `${file}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`;
     const handle = await fs.open(tmp, 'wx', 0o600);
     try {
+      if (typeof process.getuid === 'function' && process.getuid() === 0) {
+        const owner = await fs.stat(path.dirname(file));
+        await handle.chown(owner.uid, owner.gid);
+      }
       await handle.writeFile(`${JSON.stringify(data, null, 2)}\n`, 'utf8');
       await handle.sync();
     } finally {
       await handle.close();
     }
     await fs.rename(tmp, file);
+  }
+
+  const lockFile = `${file}.lock`;
+  async function withFileLock(fn) {
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    const deadline = Date.now() + LOCK_WAIT_MS;
+    for (;;) {
+      try {
+        const h = await fs.open(lockFile, 'wx', 0o600);
+        await h.close();
+        break;
+      } catch (err) {
+        if (err.code !== 'EEXIST') throw err;
+      }
+      try {
+        const st = await fs.stat(lockFile);
+        if (Date.now() - st.mtimeMs > LOCK_STALE_MS) {
+          await fs.unlink(lockFile).catch(() => {});
+          continue;
+        }
+      } catch (err) {
+        if (err.code === 'ENOENT') continue;
+        throw err;
+      }
+      if (Date.now() > deadline) throw new Error(`store is locked by another process: ${lockFile}`);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    try {
+      return await fn();
+    } finally {
+      await fs.unlink(lockFile).catch(() => {});
+    }
   }
 
   function serialized(fn) {
@@ -132,11 +193,29 @@ export function createJsonFileStore(filePath) {
       });
     },
     put(id, record) {
+      return serialized(() =>
+        withFileLock(async () => {
+          const data = await load();
+          data.licenses[id] = record;
+          await writeAtomic(data);
+        }),
+      );
+    },
+    getOrder(key) {
       return serialized(async () => {
         const data = await load();
-        data.licenses[id] = record;
-        await writeAtomic(data);
+        return data.orders && Object.hasOwn(data.orders, key) ? data.orders[key] : null;
       });
+    },
+    putOrder(key, order) {
+      return serialized(() =>
+        withFileLock(async () => {
+          const data = await load();
+          data.orders ??= {};
+          data.orders[key] = order;
+          await writeAtomic(data);
+        }),
+      );
     },
   };
 }

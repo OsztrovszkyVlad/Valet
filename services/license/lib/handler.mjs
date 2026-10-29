@@ -1,17 +1,25 @@
-// HTTP handler for the activation API (docs/LICENSING.md, "Online check").
-// A plain (req, res) function: works with node:http and can be wrapped by a host adapter.
+// HTTP handler for the license service (docs/LICENSING.md, "Online check" and
+// "License service"). A plain (req, res) function for node:http.
 //
 //   POST /v1/activate    {license_id, machine, app_version}  200 {token} | 404 | 409 | 410
 //   POST /v1/validate    {license_id, machine, app_version}  200 {token} | 404 | 409 | 410
 //   POST /v1/deactivate  {license_id, machine}               204 | 404
+//   POST /v1/webhook/paddle | /v1/webhook/stripe             only the configured merchant; the other is 404
+//   GET  /healthz                                            200 "ok"
 //
 // `token` is an envelope object { payload, signature }, the same shape as a license file.
-// Logs carry route, status and duration only: no license ids, machine ids, emails or IPs.
+// The three activation routes are rate limited per client address when a limiter is
+// given (429 with Retry-After). Webhooks are not rate limited (the signature is checked
+// first) but at most `maxConcurrentWebhooks` are handled at once (503 with Retry-After).
+// Logs carry route, status, duration, and for webhooks the event type and outcome:
+// no license ids, machine ids, merchant ids, emails or IPs.
 
 import { activeMachineCount } from './store.mjs';
 import { issueActivationToken, nowSeconds, UUID_V4, MACHINE_ID } from './license.mjs';
+import { createWebhookProcessor, MERCHANTS } from './webhook.mjs';
 
 export const MAX_BODY_BYTES = 4096;
+export const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 const APP_VERSION = /^[0-9A-Za-z][0-9A-Za-z.+-]{0,31}$/;
 
 class HttpError extends Error {
@@ -121,6 +129,13 @@ function parseRequestFields(body, { appVersion }) {
   return { licenseId, machine };
 }
 
+/** Client address for rate limiting: Fly's header when trusted, else the socket peer. */
+function clientAddress(req, trustFly) {
+  const fly = req.headers['fly-client-ip'];
+  if (trustFly && typeof fly === 'string' && fly) return fly;
+  return req.socket?.remoteAddress ?? 'unknown';
+}
+
 /**
  * Creates the request handler.
  * @param {object} options
@@ -128,8 +143,22 @@ function parseRequestFields(body, { appVersion }) {
  * @param {{keyId: Buffer, privateKey: import('node:crypto').KeyObject}} options.key signing key
  * @param {() => number} [options.now] clock in Unix seconds
  * @param {(entry: object) => void} [options.log] log sink
+ * @param {object|null} [options.webhook] merchant settings for createWebhookProcessor
+ *   ({merchant, secrets, mail, paddle?, fetch?}); null or absent: both webhook routes are 404
+ * @param {{take: Function}|null} [options.rateLimiter] limiter for the activation routes
+ * @param {boolean} [options.trustFly] read the client address from Fly-Client-IP
+ * @param {number} [options.maxConcurrentWebhooks] webhook deliveries handled at once
  */
-export function createHandler({ store, key, now = nowSeconds, log = defaultLog }) {
+export function createHandler({
+  store,
+  key,
+  now = nowSeconds,
+  log = defaultLog,
+  webhook = null,
+  rateLimiter = null,
+  trustFly = false,
+  maxConcurrentWebhooks = 4,
+}) {
   if (!store || typeof store.get !== 'function' || typeof store.put !== 'function') {
     throw new Error('store must implement get and put');
   }
@@ -200,24 +229,75 @@ export function createHandler({ store, key, now = nowSeconds, log = defaultLog }
     '/v1/deactivate': { appVersion: 'optional', run: deactivate },
   };
 
+  const processWebhook = webhook
+    ? createWebhookProcessor({ ...webhook, store, key, now, withLicenseLock: withLock })
+    : null;
+  const webhookPath = webhook ? `/v1/webhook/${webhook.merchant}` : null;
+  const knownPaths = new Set([...Object.keys(routes), ...MERCHANTS.map((m) => `/v1/webhook/${m}`), '/healthz']);
+  let webhooksInFlight = 0;
+
+  async function handleWebhook(req, res, entry) {
+    if (req.method !== 'POST') {
+      req.resume();
+      throw new HttpError(405, 'method_not_allowed', { Allow: 'POST' });
+    }
+    if (webhooksInFlight >= maxConcurrentWebhooks) {
+      req.resume();
+      throw new HttpError(503, 'busy', { 'Retry-After': '10' });
+    }
+    webhooksInFlight += 1;
+    try {
+      const body = await readBody(req, MAX_WEBHOOK_BODY_BYTES);
+      const result = await processWebhook({ body, headers: req.headers });
+      entry.outcome = result.outcome;
+      if (result.type) entry.event = result.type;
+      entry.status = result.status;
+      send(res, result.status, result.body ?? { ok: true });
+    } finally {
+      webhooksInFlight -= 1;
+    }
+  }
+
   return async function handler(req, res) {
     const started = Date.now();
     const pathname = String(req.url ?? '').split('?')[0];
     const route = Object.hasOwn(routes, pathname) ? routes[pathname] : null;
-    let status = 500;
-    let errorName;
+    const entry = { route: knownPaths.has(pathname) ? pathname : 'other', status: 500 };
     try {
+      if (pathname === '/healthz') {
+        req.resume();
+        if (req.method !== 'GET' && req.method !== 'HEAD') {
+          throw new HttpError(405, 'method_not_allowed', { Allow: 'GET, HEAD' });
+        }
+        entry.status = 200;
+        res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Length': 2 });
+        res.end(req.method === 'HEAD' ? undefined : 'ok');
+        return;
+      }
+      if (webhookPath !== null && pathname === webhookPath) {
+        entry.method = req.method;
+        await handleWebhook(req, res, entry);
+        return;
+      }
       if (!route) {
-        status = 404;
+        entry.status = 404;
         req.resume();
         send(res, 404, { error: 'not_found' });
         return;
       }
+      entry.method = req.method;
       if (req.method !== 'POST') {
-        status = 405;
+        entry.status = 405;
         req.resume();
         send(res, 405, { error: 'method_not_allowed' }, { Allow: 'POST' });
         return;
+      }
+      if (rateLimiter) {
+        const verdict = rateLimiter.take(clientAddress(req, trustFly));
+        if (!verdict.ok) {
+          req.resume();
+          throw new HttpError(429, 'rate_limited', { 'Retry-After': String(verdict.retryAfter) });
+        }
       }
       if (!isJsonContentType(req.headers['content-type'])) {
         req.resume();
@@ -226,25 +306,19 @@ export function createHandler({ store, key, now = nowSeconds, log = defaultLog }
       const body = parseJsonObject(await readBody(req, MAX_BODY_BYTES));
       const fields = parseRequestFields(body, route);
       const [code, payload] = await route.run(fields);
-      status = code;
+      entry.status = code;
       send(res, code, payload);
     } catch (err) {
       if (err instanceof HttpError) {
-        status = err.status;
-        send(res, status, { error: err.code }, err.headers);
+        entry.status = err.status;
+        send(res, err.status, { error: err.code }, err.headers);
       } else {
-        status = 500;
-        errorName = err?.name ?? 'Error';
+        entry.status = 500;
+        entry.error = err?.name ?? 'Error';
         if (!res.headersSent) send(res, 500, { error: 'internal' });
       }
     } finally {
-      log({
-        route: route ? pathname : 'other',
-        method: route ? req.method : undefined,
-        status,
-        ms: Date.now() - started,
-        ...(errorName ? { error: errorName } : {}),
-      });
+      log({ ...entry, ms: Date.now() - started });
     }
   };
 }

@@ -1,0 +1,25 @@
+{
+  "event_id": "evt_01jbz8r2t5y8u1i4o7p0a3s6d9",
+  "event_type": "adjustment.created",
+  "occurred_at": "2026-11-02T08:01:12.554433Z",
+  "notification_id": "ntf_01jbz8r2w9e2r5t8y1u4i7o0p3",
+  "data": {
+    "id": "adj_01jbz8r1q4w7e0r3t6y9u2i5o8",
+    "action": "refund",
+    "type": "full",
+    "transaction_id": "txn_01jbx3dq8w5h2k9m4n7p0r3t6v",
+    "subscription_id": null,
+    "customer_id": "ctm_01jbx3cz1a4s7d0f3g6h9j2k5l",
+    "reason": "Requested by the customer within 14 days",
+    "credit_applied_to_balance": null,
+    "currency_code": "EUR",
+    "status": "pending_approval",
+    "items": [
+      { "id": "adjitm_01jbz8r1s5d8f1g4h7j0k3l6z9", "item_id": "txnitm_01jbx3dqa1s2d3f4g5h6j7k8l9", "type": "full", "amount": "2900", "proration": null, "totals": { "subtotal": "2397", "tax": "503", "total": "2900" } }
+    ],
+    "totals": { "subtotal": "2397", "tax": "503", "total": "2900", "fee": "0", "earnings": "0", "currency_code": "EUR" },
+    "payout_totals": null,
+    "created_at": "2026-11-02T08:01:11.000000Z",
+    "updated_at": "2026-11-02T08:01:11.000000Z"
+  }
+}

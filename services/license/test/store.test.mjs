@@ -51,3 +51,55 @@ test('json store: a corrupt file is never overwritten', async () => {
   await assert.rejects(store.get('a'));
   assert.equal(fs.readFileSync(file, 'utf8'), '{broken');
 });
+
+test('json store: two processes writing at once keep every entry', async () => {
+  const { spawn } = await import('node:child_process');
+  const file = path.join(tmp(), 's.json');
+  const storeUrl = new URL('../lib/store.mjs', import.meta.url).href;
+  const script = (tag) =>
+    `const { createJsonFileStore } = await import(${JSON.stringify(storeUrl)});` +
+    `const s = createJsonFileStore(${JSON.stringify(file)});` +
+    `for (let i = 0; i < 25; i++) { await s.put('${tag}' + i, { i }); await s.putOrder('o${tag}' + i, { i }); }`;
+  const runOne = (tag) =>
+    new Promise((resolve, reject) => {
+      const c = spawn(process.execPath, ['--input-type=module', '-e', script(tag)], { stdio: 'inherit' });
+      c.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`exit ${code}`))));
+    });
+  await Promise.all([runOne('a'), runOne('b')]);
+  const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.equal(Object.keys(data.licenses).length, 50);
+  assert.equal(Object.keys(data.orders).length, 50);
+  assert.deepEqual(fs.readdirSync(path.dirname(file)), ['s.json'], 'no lock or temp file left');
+});
+
+test('json store: a held lock makes writes wait; a stale lock is taken over', async () => {
+  const dir = tmp();
+  const file = path.join(dir, 's.json');
+  const store = createJsonFileStore(file);
+  fs.writeFileSync(`${file}.lock`, '');
+  let done = false;
+  const p = store.put('a', { n: 1 }).then(() => {
+    done = true;
+  });
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(done, false, 'waits while the lock is held');
+  fs.unlinkSync(`${file}.lock`);
+  await p;
+  assert.deepEqual(await store.get('a'), { n: 1 });
+
+  fs.writeFileSync(`${file}.lock`, '');
+  const old = new Date(Date.now() - 60_000);
+  fs.utimesSync(`${file}.lock`, old, old);
+  await store.putOrder('o', { license_id: null });
+  assert.deepEqual(await store.getOrder('o'), { license_id: null });
+  assert.equal(fs.existsSync(`${file}.lock`), false);
+});
+
+test('json store: written as root, the file keeps the owner of its directory', { skip: typeof process.getuid !== 'function' || process.getuid() !== 0 }, async () => {
+  const dir = tmp();
+  fs.chownSync(dir, 65534, 65534);
+  const file = path.join(dir, 's.json');
+  await createJsonFileStore(file).put('a', {});
+  assert.equal(fs.statSync(file).uid, 65534);
+  assert.equal(fs.statSync(file).gid, 65534);
+});
