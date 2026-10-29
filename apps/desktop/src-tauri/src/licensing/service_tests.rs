@@ -124,6 +124,8 @@ impl Service {
             .arg(&store)
             // Not env_clear(): node on Windows needs SystemRoot and friends.
             .env_remove("VALET_LICENSE_STORE")
+            // Activation API only; the webhook routes need merchant secrets.
+            .env("VALET_MERCHANT", "none")
             .envs(key_env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
             .stdin(Stdio::null())
             .stdout(Stdio::null())
