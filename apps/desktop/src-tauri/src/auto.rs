@@ -31,7 +31,7 @@ use valet_core::{
     storage::Db,
 };
 
-use crate::commands::operations::{execute_blocking, plan_blocking, record_stats};
+use crate::commands::operations::{execute_blocking, plan_blocking};
 use crate::commands::platform::notify_batch_done;
 use crate::commands::settings::{
     load_app_settings, load_approvals, root_key, watched_folders, AppSettings, Approvals,
@@ -337,7 +337,6 @@ pub(crate) async fn run_pass(
     }
 
     let report = execute_blocking(ops, db.journal(), state.platform.clone()).await?;
-    record_stats(db, &report).await;
     retries.record(&report.results);
     Ok(Some(PassOutcome {
         report: Some(report),
@@ -806,7 +805,14 @@ mod tests {
             b"a"
         );
         assert!(f.inbox.join("b.pdf").exists() && f.inbox.join("c.jpg").exists());
-        assert_eq!(f.db.get_recent_operations(10).await.unwrap().len(), 1);
+        assert_eq!(
+            f.db.journal()
+                .list_ops(&report.batch_id)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
         assert_eq!(f.db.journal().list_batches(10).await.unwrap().len(), 1);
     }
 

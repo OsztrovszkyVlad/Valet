@@ -79,26 +79,6 @@ pub(crate) fn rules_in_plan(plan: &Plan, rules: &[Rule]) -> Vec<RuleVersion> {
         .collect()
 }
 
-/// Writes one statistics row per result (as `execute_operations` always did).
-pub(crate) async fn record_stats(db: &Db, report: &BatchReport) {
-    for r in &report.results {
-        let error = r.error.as_ref().map(|e| e.journal_text());
-        if let Err(e) = db
-            .record_operation(
-                &r.source.to_string_lossy(),
-                &r.dest.to_string_lossy(),
-                op_type(r.kind),
-                &r.rule_name,
-                if error.is_none() { "success" } else { "failed" },
-                error.as_deref(),
-            )
-            .await
-        {
-            log::warn!("Failed to record operation: {}", e);
-        }
-    }
-}
-
 fn op_type(kind: OpKind) -> &'static str {
     match kind {
         OpKind::Move => "move",
@@ -253,8 +233,8 @@ fn execute_response(report: &BatchReport) -> ExecuteResponse {
     }
 }
 
-/// Runs exactly the operations of the previewed plan `plan_id` and records
-/// each result in the statistics table. Files that appeared after the preview
+/// Runs exactly the operations of the previewed plan `plan_id` (each one
+/// journaled by the executor). Files that appeared after the preview
 /// are not in the plan and are not touched; the executor re-checks every
 /// planned file (missing, changed, placeholder, locked) before acting on it.
 /// The stored plan is consumed: a second call with the same id, a wrong id or
@@ -277,7 +257,6 @@ pub(crate) async fn execute_previewed(
     before_execute(&plan);
 
     let report = execute_blocking(plan.ops, db.journal(), state.platform.clone()).await?;
-    record_stats(db, &report).await;
     // Still under `file_ops`, so an auto-apply pass sees all or none of it.
     if record_preview_approval(cfg_dir, &approval).is_err() {
         log::warn!("Rule approvals could not be saved");
@@ -513,7 +492,6 @@ mod tests {
         assert_eq!(std::fs::read(&a).unwrap(), b"a");
         assert!(!f.out.join("a.txt").exists());
         assert!(f.db.journal().list_batches(10).await.unwrap().is_empty());
-        assert!(f.db.get_recent_operations(10).await.unwrap().is_empty());
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -544,7 +522,14 @@ mod tests {
         assert_eq!(std::fs::read(f.out.join("a.txt")).unwrap(), b"a");
         assert_eq!(std::fs::read(&late).unwrap(), b"late");
         assert!(!f.out.join("late.txt").exists());
-        assert_eq!(f.db.get_recent_operations(10).await.unwrap().len(), 1);
+        assert_eq!(
+            f.db.journal()
+                .list_ops(&report.batch_id)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
 
         // The plan is used up.
         let err = execute_previewed(&f.state, &f.db, &f.cfg, "p-1", |_| panic!("ran"))

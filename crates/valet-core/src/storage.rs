@@ -1,4 +1,4 @@
-use crate::model::{FileRow, OperationStats, RecentOperation};
+use crate::model::FileRow;
 use crate::rules::Rule;
 use anyhow::Result;
 use sqlx::{
@@ -141,193 +141,6 @@ impl Db {
             .await?;
         Ok(res.rows_affected() > 0)
     }
-
-    // Operation History & Statistics
-    pub async fn record_operation(
-        &self,
-        source_path: &str,
-        destination_path: &str,
-        operation_type: &str,
-        rule_name: &str,
-        status: &str,
-        error_message: Option<&str>,
-    ) -> Result<()> {
-        sqlx::query(
-      r#"INSERT INTO operation_history (source_path, destination_path, operation_type, rule_name, status, error_message)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)"#,
-    )
-    .bind(source_path)
-    .bind(destination_path)
-    .bind(operation_type)
-    .bind(rule_name)
-    .bind(status)
-    .bind(error_message)
-    .execute(&self.pool).await?;
-        Ok(())
-    }
-
-    pub async fn get_operation_statistics(&self, days_back: Option<i64>) -> Result<OperationStats> {
-        let date_filter = match days_back {
-            Some(days) => format!("WHERE created_at >= datetime('now', '-{} days')", days),
-            None => String::new(),
-        };
-
-        // Basic stats
-        let total_query = format!("SELECT COUNT(*) FROM operation_history {}", date_filter);
-        let (total_operations,): (i64,) =
-            sqlx::query_as(&total_query).fetch_one(&self.pool).await?;
-
-        let success_query = format!(
-            "SELECT COUNT(*) FROM operation_history {} {}",
-            date_filter,
-            if date_filter.is_empty() {
-                "WHERE"
-            } else {
-                "AND"
-            }
-        );
-        let success_query = format!("{} status = 'success'", success_query);
-        let (successful_operations,): (i64,) =
-            sqlx::query_as(&success_query).fetch_one(&self.pool).await?;
-
-        let failed_operations = total_operations - successful_operations;
-
-        // Operation type counts
-        let move_query = format!(
-            "SELECT COUNT(*) FROM operation_history {} {} operation_type = 'move' AND status = 'success'",
-            date_filter,
-            if date_filter.is_empty() {
-                "WHERE"
-            } else {
-                "AND"
-            }
-        );
-        let (files_moved,): (i64,) = sqlx::query_as(&move_query).fetch_one(&self.pool).await?;
-
-        let copy_query = format!(
-            "SELECT COUNT(*) FROM operation_history {} {} operation_type = 'copy' AND status = 'success'",
-            date_filter,
-            if date_filter.is_empty() {
-                "WHERE"
-            } else {
-                "AND"
-            }
-        );
-        let (files_copied,): (i64,) = sqlx::query_as(&copy_query).fetch_one(&self.pool).await?;
-
-        // Rules applied count
-        let rules_query = format!(
-            "SELECT rule_name, COUNT(*) as count FROM operation_history {} {} status = 'success' GROUP BY rule_name",
-            date_filter,
-            if date_filter.is_empty() {
-                "WHERE"
-            } else {
-                "AND"
-            }
-        );
-        let rules_rows: Vec<(String, i64)> =
-            sqlx::query_as(&rules_query).fetch_all(&self.pool).await?;
-        let mut rules_applied_count = std::collections::HashMap::new();
-        for (rule_name, count) in rules_rows {
-            rules_applied_count.insert(rule_name, count as u64);
-        }
-
-        // File types organized
-        let file_types_query = format!(
-            "SELECT LOWER(SUBSTR(source_path, INSTR(source_path, '.') + 1)) as ext, COUNT(*) as count FROM operation_history {} {} status = 'success' AND INSTR(source_path, '.') > 0 GROUP BY ext",
-            date_filter,
-            if date_filter.is_empty() {
-                "WHERE"
-            } else {
-                "AND"
-            }
-        );
-        let file_types_rows: Vec<(String, i64)> = sqlx::query_as(&file_types_query)
-            .fetch_all(&self.pool)
-            .await?;
-        let mut file_types_organized = std::collections::HashMap::new();
-        for (ext, count) in file_types_rows {
-            file_types_organized.insert(ext, count as u64);
-        }
-
-        // Average operations per day
-        let days_query = match days_back {
-            Some(days) => format!(
-                "SELECT COUNT(DISTINCT DATE(created_at)) FROM operation_history WHERE created_at >= datetime('now', '-{} days')",
-                days
-            ),
-            None => "SELECT COUNT(DISTINCT DATE(created_at)) FROM operation_history".to_string(),
-        };
-        let (active_days,): (i64,) = sqlx::query_as(&days_query).fetch_one(&self.pool).await?;
-        let average_operations_per_day = if active_days > 0 {
-            total_operations as f64 / active_days as f64
-        } else {
-            0.0
-        };
-
-        // Last operation date
-        let last_op_query = format!(
-            "SELECT created_at FROM operation_history {} ORDER BY created_at DESC LIMIT 1",
-            date_filter
-        );
-        let last_operation_date: Option<String> = sqlx::query_scalar(&last_op_query)
-            .fetch_optional(&self.pool)
-            .await?;
-
-        Ok(OperationStats {
-            total_operations: total_operations as u64,
-            successful_operations: successful_operations as u64,
-            failed_operations: failed_operations as u64,
-            files_moved: files_moved as u64,
-            files_copied: files_copied as u64,
-            rules_applied_count,
-            file_types_organized,
-            average_operations_per_day,
-            last_operation_date,
-        })
-    }
-
-    pub async fn get_recent_operations(&self, limit: i64) -> Result<Vec<RecentOperation>> {
-        let rows = sqlx::query_as::<_, (i64, String, String, String, String, String, Option<String>, String)>(
-      "SELECT id, source_path, destination_path, operation_type, rule_name, status, error_message, created_at 
-       FROM operation_history ORDER BY created_at DESC LIMIT ?1"
-    )
-    .bind(limit)
-    .fetch_all(&self.pool).await?;
-
-        let mut operations = Vec::new();
-        for (
-            id,
-            source_path,
-            destination_path,
-            operation_type,
-            rule_name,
-            status,
-            error_message,
-            created_at,
-        ) in rows
-        {
-            operations.push(RecentOperation {
-                id: id as u64,
-                source_path,
-                destination_path,
-                operation_type,
-                rule_name,
-                status,
-                error_message,
-                created_at,
-            });
-        }
-
-        Ok(operations)
-    }
-
-    pub async fn clear_operation_history(&self) -> Result<()> {
-        sqlx::query("DELETE FROM operation_history")
-            .execute(&self.pool)
-            .await?;
-        Ok(())
-    }
 }
 
 fn upsert_file_query(f: &FileRow) -> Query<'_, Sqlite, SqliteArguments<'_>> {
@@ -466,36 +279,82 @@ mod tests {
         assert!(!db.delete_rule(rule.id).await.unwrap());
     }
 
+    /// A database at migration 0004 with statistics rows: 0005 drops the
+    /// `operation_history` table and its indexes, the journal keeps its rows.
     #[tokio::test]
-    async fn clearing_history_keeps_the_journal() {
-        use crate::journal::{BatchKind, NewOp, OpType};
+    async fn migration_0005_drops_operation_history_and_keeps_the_journal() {
+        use crate::journal::{BatchKind, Journal, NewOp, OpState, OpType};
+        use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
         let tmp = tempfile::tempdir().unwrap();
-        let db = Db::connect(&tmp.path().join("valet.sqlite3"))
+        let path = tmp.path().join("v4.sqlite3");
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(
+                SqliteConnectOptions::new()
+                    .filename(&path)
+                    .create_if_missing(true),
+            )
             .await
             .unwrap();
-        db.record_operation("a", "b", "move", "r", "success", None)
+        let mut v4 = sqlx::migrate!("./migrations");
+        v4.migrations = std::borrow::Cow::Owned(
+            v4.migrations
+                .iter()
+                .filter(|m| m.version <= 4)
+                .cloned()
+                .collect(),
+        );
+        v4.run(&pool).await.unwrap();
+        for n in 0..3 {
+            sqlx::query(
+                "INSERT INTO operation_history (source_path, destination_path, operation_type, rule_name, status)
+                 VALUES (?1, 'b', 'move', 'r', 'success')",
+            )
+            .bind(format!("a{n}"))
+            .execute(&pool)
             .await
             .unwrap();
-        let j = db.journal();
+        }
+        let j = Journal::new(pool.clone());
         let batch = j.create_batch(BatchKind::Apply).await.unwrap();
-        j.insert_planned(
-            &batch,
-            0,
-            &NewOp {
-                op_type: OpType::Move,
-                source: "a".into(),
-                dest: Some("b".into()),
-                size: Some(1),
-                undo_of: None,
-            },
+        let op = NewOp {
+            op_type: OpType::Move,
+            source: "a".into(),
+            dest: Some("b".into()),
+            size: Some(1),
+            undo_of: None,
+        };
+        let id = j.insert_planned(&batch, 0, &op).await.unwrap();
+        j.start(id, Some("h")).await.unwrap();
+        j.mark_done(id, Some("h")).await.unwrap();
+        pool.close().await;
+
+        let db = Db::connect(&path).await.unwrap();
+        let left: Vec<String> = sqlx::query_scalar(
+            "SELECT name FROM sqlite_master WHERE name LIKE '%operation_history%'",
         )
+        .fetch_all(&db.pool)
         .await
         .unwrap();
-
-        db.clear_operation_history().await.unwrap();
-        assert!(db.get_recent_operations(10).await.unwrap().is_empty());
+        assert!(left.is_empty(), "{left:?}");
+        let j = db.journal();
         assert_eq!(j.list_batches(10).await.unwrap().len(), 1);
-        assert_eq!(j.list_ops(&batch).await.unwrap().len(), 1);
+        let ops = j.list_ops(&batch).await.unwrap();
+        assert_eq!(ops.len(), 1);
+        assert_eq!(ops[0].id, id);
+        assert_eq!(ops[0].state, OpState::Done);
+        assert_eq!(ops[0].hash_after.as_deref(), Some("h"));
+        // A new database never has the table.
+        let fresh = Db::connect(&tmp.path().join("new.sqlite3")).await.unwrap();
+        let n: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM sqlite_master WHERE name = 'operation_history'",
+        )
+        .fetch_one(&fresh.pool)
+        .await
+        .unwrap();
+        assert_eq!(n, 0);
+        db.pool.close().await;
+        fresh.pool.close().await;
     }
 
     #[tokio::test]
