@@ -9,12 +9,12 @@ GitHub Actions.
 
 ### 0.1 Activate the release workflow
 
-The workflow is in `packaging/github/release.yml`. It has not run yet. Its
+The workflow is in `.github/workflows/release.yml`. It has not run yet. Its
 place is `.github/workflows/release.yml`, a path the project hooks protect
 (only Vlad changes it), so the agents could not put it there. To activate it:
 
 ```
-git mv packaging/github/release.yml .github/workflows/release.yml
+git mv .github/workflows/release.yml .github/workflows/release.yml
 git commit -m "Add the release workflow"
 git push origin main
 ```
@@ -224,7 +224,7 @@ out the `android/` and `ios/` folders it also creates (not used), and commit.
 
 | File | Purpose |
 |---|---|
-| `packaging/github/release.yml` | the release workflow, until moved to `.github/workflows/` (0.1) |
+| `.github/workflows/release.yml` | the release workflow, until moved to `.github/workflows/` (0.1) |
 | `apps/desktop/src-tauri/tauri.conf.json` | version, bundle and NSIS settings, CSP |
 | `scripts/set-version.mjs`, `scripts/check-version.mjs` | the version in one step, and the check |
 | `scripts/release-notes.mjs` | release body from `CHANGELOG.md` |
