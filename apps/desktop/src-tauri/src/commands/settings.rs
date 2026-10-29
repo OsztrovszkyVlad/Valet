@@ -9,8 +9,8 @@
 //!
 //! Errors are stable codes the UI translates: `config.driveRoot`,
 //! `config.excludedFolder` and `config.missing` (each as `code: <path>`),
-//! `config.noFolders` (from `dry_run`), `settings.io` and `config.io`
-//! (detail in the log).
+//! `config.noFolders` (from `dry_run`), `settings.invalidChannel` (from
+//! `save_app_settings`), `settings.io` and `config.io` (detail in the log).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -29,6 +29,7 @@ pub(crate) const ERR_MISSING: &str = "config.missing";
 pub(crate) const ERR_NO_FOLDERS: &str = "config.noFolders";
 pub(crate) const ERR_CONFIG_IO: &str = "config.io";
 pub(crate) const ERR_SETTINGS_IO: &str = "settings.io";
+pub(crate) const ERR_INVALID_CHANNEL: &str = "settings.invalidChannel";
 
 const CONFIG_FILE: &str = "config.json";
 const SETTINGS_FILE: &str = "app_settings.json";
@@ -245,6 +246,21 @@ fn lenient_language<'de, D: Deserializer<'de>>(d: D) -> Result<Language, D::Erro
     Ok(serde_json::from_value(v).unwrap_or_default())
 }
 
+/// Update channels the updater knows.
+pub(crate) const UPDATE_CHANNELS: [&str; 2] = ["stable", "beta"];
+
+/// The version of the running app.
+const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// A stored channel Valet does not know (hand-edited file) loads as unset,
+/// so the default for the running version applies.
+fn lenient_channel<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+    let v = serde_json::Value::deserialize(d)?;
+    Ok(v.as_str()
+        .filter(|c| UPDATE_CHANNELS.contains(c))
+        .map(str::to_owned))
+}
+
 /// `app_settings.json`, settings v2. Missing fields take their defaults, so
 /// files from older versions load; their other fields are dropped on save.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -260,6 +276,16 @@ pub(crate) struct AppSettings {
     /// keeps the stored value whatever the UI sends.
     pub(crate) first_preview_approved: bool,
     pub(crate) onboarding_done: bool,
+    /// `"stable"` or `"beta"`. Unset until the settings are saved once; then
+    /// [`effective_update_channel`] applies. `get_app_settings` and
+    /// `save_app_settings` always return it set.
+    #[serde(
+        deserialize_with = "lenient_channel",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub(crate) update_channel: Option<String>,
+    /// Log at DEBUG level (may contain paths). Off by default.
+    pub(crate) debug_logging: bool,
 }
 
 impl Default for AppSettings {
@@ -271,7 +297,33 @@ impl Default for AppSettings {
             auto_apply_enabled: false,
             first_preview_approved: false,
             onboarding_done: false,
+            update_channel: None,
+            debug_logging: false,
         }
+    }
+}
+
+/// The channel the updater uses: the stored one, else `"beta"` for a
+/// pre-release app version (one with `-`, e.g. `0.3.0-beta.1`) and
+/// `"stable"` otherwise.
+pub(crate) fn effective_update_channel(settings: &AppSettings) -> &str {
+    channel_for(settings, APP_VERSION)
+}
+
+fn channel_for<'a>(settings: &'a AppSettings, version: &str) -> &'a str {
+    match settings.update_channel.as_deref() {
+        Some(c) => c,
+        None if version.contains('-') => "beta",
+        None => "stable",
+    }
+}
+
+/// `settings` with `update_channel` set to [`effective_update_channel`].
+fn with_channel(settings: AppSettings, version: &str) -> AppSettings {
+    let channel = channel_for(&settings, version).to_owned();
+    AppSettings {
+        update_channel: Some(channel),
+        ..settings
     }
 }
 
@@ -293,29 +345,52 @@ pub(crate) fn load_app_settings(dir: &Path) -> AppSettings {
     }
 }
 
-fn save_app_settings_in(dir: &Path, incoming: AppSettings) -> Result<AppSettings, String> {
+/// Refuses an unknown `update_channel` (`settings.invalidChannel`); an
+/// unset one is stored as the default for `version`.
+fn save_app_settings_in(
+    dir: &Path,
+    incoming: AppSettings,
+    version: &str,
+) -> Result<AppSettings, String> {
+    if let Some(c) = incoming.update_channel.as_deref() {
+        if !UPDATE_CHANNELS.contains(&c) {
+            return Err(ERR_INVALID_CHANNEL.to_string());
+        }
+    }
     let stored = load_app_settings(dir);
-    let settings = AppSettings {
-        first_preview_approved: stored.first_preview_approved,
-        ..incoming
-    };
+    let settings = with_channel(
+        AppSettings {
+            first_preview_approved: stored.first_preview_approved,
+            ..incoming
+        },
+        version,
+    );
     write_json(dir, SETTINGS_FILE, &settings, ERR_SETTINGS_IO)?;
     Ok(settings)
 }
 
+/// The stored settings with `update_channel` set (see
+/// [`effective_update_channel`]).
 #[tauri::command]
 pub(crate) async fn get_app_settings(app: tauri::AppHandle) -> Result<AppSettings, String> {
-    Ok(load_app_settings(&config_dir(&app)?))
+    let settings = load_app_settings(&config_dir(&app)?);
+    let channel = effective_update_channel(&settings).to_owned();
+    Ok(AppSettings {
+        update_channel: Some(channel),
+        ..settings
+    })
 }
 
 /// Saves the settings the UI sends, except `first_preview_approved`, which
-/// keeps its stored value. Returns the saved settings.
+/// keeps its stored value. `update_channel` must be `"stable"` or `"beta"`
+/// (`settings.invalidChannel` otherwise); when missing, the default for the
+/// running version is stored. Returns the saved settings.
 #[tauri::command]
 pub(crate) async fn save_app_settings(
     settings: AppSettings,
     app: tauri::AppHandle,
 ) -> Result<AppSettings, String> {
-    let saved = save_app_settings_in(&config_dir(&app)?, settings)?;
+    let saved = save_app_settings_in(&config_dir(&app)?, settings, APP_VERSION)?;
     log::info!("App settings saved");
     // The tray menu follows the language setting.
     if let Err(e) = crate::setup::refresh_tray(&app) {
@@ -807,10 +882,95 @@ mod tests {
                 "auto_apply_enabled": false,
                 "first_preview_approved": false,
                 "onboarding_done": false,
+                "debug_logging": false,
             })
         );
         let tmp = tempfile::tempdir().unwrap();
         assert_eq!(load_app_settings(tmp.path()), s, "missing file");
+    }
+
+    #[test]
+    fn update_channel_defaults_to_the_app_version_kind_until_stored() {
+        let unset = AppSettings::default();
+        assert_eq!(channel_for(&unset, "0.3.0"), "stable");
+        assert_eq!(channel_for(&unset, "0.3.0-beta.1"), "beta");
+        let stored = AppSettings {
+            update_channel: Some("stable".into()),
+            ..AppSettings::default()
+        };
+        assert_eq!(channel_for(&stored, "0.3.0-beta.1"), "stable");
+        assert_eq!(
+            effective_update_channel(&unset),
+            if APP_VERSION.contains('-') {
+                "beta"
+            } else {
+                "stable"
+            }
+        );
+        assert_eq!(effective_update_channel(&stored), "stable");
+    }
+
+    #[test]
+    fn saving_stores_the_channel_explicitly_and_refuses_unknown_ones() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        // Saved once on a beta build: stays beta after a stable release.
+        let saved = save_app_settings_in(dir, AppSettings::default(), "0.3.0-beta.1").unwrap();
+        assert_eq!(saved.update_channel.as_deref(), Some("beta"));
+        let loaded = load_app_settings(dir);
+        assert_eq!(loaded, saved);
+        assert_eq!(channel_for(&loaded, "1.0.0"), "beta");
+
+        // The user picks stable.
+        let ui = AppSettings {
+            update_channel: Some("stable".into()),
+            debug_logging: true,
+            ..loaded
+        };
+        let saved = save_app_settings_in(dir, ui, "0.3.0-beta.1").unwrap();
+        assert_eq!(saved.update_channel.as_deref(), Some("stable"));
+        assert!(saved.debug_logging);
+        assert_eq!(load_app_settings(dir), saved);
+
+        // Unknown channel: refused, nothing written.
+        let before = std::fs::read(dir.join(SETTINGS_FILE)).unwrap();
+        for bad in ["nightly", "", "Beta"] {
+            let err = save_app_settings_in(
+                dir,
+                AppSettings {
+                    update_channel: Some(bad.into()),
+                    ..AppSettings::default()
+                },
+                "0.3.0",
+            )
+            .unwrap_err();
+            assert_eq!(err, ERR_INVALID_CHANNEL, "{bad:?}");
+        }
+        assert_eq!(std::fs::read(dir.join(SETTINGS_FILE)).unwrap(), before);
+    }
+
+    #[test]
+    fn unknown_stored_channel_loads_as_unset() {
+        let tmp = tempfile::tempdir().unwrap();
+        for (stored, want) in [
+            (json!("nightly"), None),
+            (json!(3), None),
+            (json!(null), None),
+            (json!("beta"), Some("beta")),
+            (json!("stable"), Some("stable")),
+        ] {
+            std::fs::write(
+                tmp.path().join(SETTINGS_FILE),
+                json!({ "update_channel": stored, "debug_logging": true }).to_string(),
+            )
+            .unwrap();
+            let s = load_app_settings(tmp.path());
+            assert_eq!(s.update_channel.as_deref(), want, "{stored}");
+            assert!(s.debug_logging);
+        }
+        // get_app_settings fills in the default.
+        let s = with_channel(AppSettings::default(), "0.3.0-rc.1");
+        assert_eq!(s.update_channel.as_deref(), Some("beta"));
     }
 
     #[test]
@@ -1042,7 +1202,7 @@ mod tests {
             onboarding_done: true,
             ..AppSettings::default()
         };
-        let saved = save_app_settings_in(dir, ui.clone()).unwrap();
+        let saved = save_app_settings_in(dir, ui.clone(), "0.1.0").unwrap();
         assert!(!saved.first_preview_approved, "the UI cannot set it");
         assert_eq!(saved.language, Language::En);
         assert!(saved.auto_apply_enabled && saved.onboarding_done);
@@ -1065,6 +1225,7 @@ mod tests {
                 first_preview_approved: false,
                 ..ui
             },
+            "0.1.0",
         )
         .unwrap();
         assert!(saved.first_preview_approved);
