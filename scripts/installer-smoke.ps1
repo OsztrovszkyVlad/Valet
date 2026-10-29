@@ -59,19 +59,39 @@ $StartMenuShortcut = Join-Path ([Environment]::GetFolderPath('Programs')) "$Prod
 $CommonStartMenu = [Environment]::GetFolderPath('CommonPrograms')
 $DesktopShortcut = Join-Path ([Environment]::GetFolderPath('DesktopDirectory')) "$ProductName.lnk"
 
+# GitHub keeps at most 10 notice annotations per step, so the notes and
+# passed checks are collected per phase and emitted as one notice per phase
+# at the end. Failed checks are emitted at once as ::error.
+$script:phase = 'setup'
+$script:notes = [ordered]@{}
+
+function Set-Phase([string]$Name) { $script:phase = $Name }
+
+function Add-Line([string]$Text) {
+    if (-not $script:notes.Contains($script:phase)) {
+        $script:notes[$script:phase] = New-Object System.Collections.Generic.List[string]
+    }
+    $script:notes[$script:phase].Add($Text)
+}
+
 function Write-Note([string]$Text) {
-    Write-Host "installer-smoke: $Text"
-    if ($InActions) { Write-Host "::notice title=installer-smoke::$Text" }
+    Write-Host "installer-smoke: [$($script:phase)] $Text"
+    Add-Line $Text
 }
 
 function Write-Fail([string]$Text) {
-    $script:failures.Add($Text)
-    Write-Host "installer-smoke: FAIL: $Text"
-    if ($InActions) { Write-Host "::error title=installer-smoke::$Text" }
+    $script:failures.Add("[$($script:phase)] $Text")
+    Write-Host "installer-smoke: [$($script:phase)] FAIL: $Text"
+    Add-Line "FAIL: $Text"
+    if ($InActions) { Write-Host "::error title=installer-smoke $($script:phase)::$Text" }
 }
 
 function Check([bool]$Condition, [string]$Text) {
-    if ($Condition) { Write-Host "installer-smoke: ok: $Text" } else { Write-Fail $Text }
+    if ($Condition) {
+        Write-Host "installer-smoke: [$($script:phase)] ok: $Text"
+        Add-Line "ok: $Text"
+    }
+    else { Write-Fail $Text }
     return $Condition
 }
 
@@ -82,11 +102,17 @@ function Stop-Smoke([string]$Text) {
 
 function Finish {
     if ($null -ne $script:app) { try { Stop-AppTree $script:app } catch { } }
-    if ($script:failures.Count -gt 0) {
-        Write-Host "installer-smoke: $($script:failures.Count) check(s) failed"
-        exit 1
+    $result = if ($script:failures.Count -gt 0) { "$($script:failures.Count) check(s) failed" } else { 'all checks passed' }
+    Set-Phase 'result'
+    Add-Line $result
+    if ($InActions) {
+        foreach ($k in $script:notes.Keys) {
+            $msg = ($script:notes[$k] -join '; ') -replace '%', '%25' -replace "`r", '' -replace "`n", ' '
+            Write-Host "::notice title=installer-smoke ${k}::$msg"
+        }
     }
-    Write-Note 'all checks passed'
+    Write-Host "installer-smoke: $result"
+    if ($script:failures.Count -gt 0) { exit 1 }
     exit 0
 }
 
@@ -224,6 +250,7 @@ function Start-AndCheck([string]$Label, [string]$Exe) {
 }
 
 # --- Preconditions -----------------------------------------------------------
+Set-Phase 'installer'
 $Installer = (Resolve-Path -LiteralPath $Installer).Path
 $size = (Get-Item -LiteralPath $Installer).Length
 Write-Note ("installer {0}: {1:N2} MB ({2} bytes)" -f (Split-Path -Leaf $Installer), ($size / 1MB), $size)
@@ -234,6 +261,7 @@ Write-Note "user data folder before install: $(if ($dataBefore) { 'exists' } els
 $total = [Diagnostics.Stopwatch]::StartNew()
 
 # --- 1. Install ----------------------------------------------------------------
+Set-Phase 'install'
 $entry = Install-Valet 'install'
 $installDir = Unquote $entry.InstallLocation
 $exe = Join-Path $installDir "$ProductName.exe"
@@ -257,6 +285,7 @@ $desktopAfterInstall = Test-Path -LiteralPath $DesktopShortcut
 Write-Note "desktop shortcut after silent install: $(if ($desktopAfterInstall) { 'present' } else { 'absent' }) ($DesktopShortcut)"
 
 # --- 2. First start --------------------------------------------------------------
+Set-Phase 'first start'
 Start-AndCheck 'first start' $exe
 if (-not (Test-Path -LiteralPath $DbPath)) { Stop-Smoke 'no database after the first start' }
 $dbCreated = (Get-Item -LiteralPath $DbPath).CreationTimeUtc
@@ -264,6 +293,7 @@ $dbId = Get-FileId $DbPath
 Write-Note ("database created {0:o}, file ID {1}" -f $dbCreated, $dbId)
 
 # --- 3. Auto-start value as the app writes it -------------------------------------
+Set-Phase 'uninstall'
 Set-ItemProperty -LiteralPath $RunKey -Name $ProductName -Value "`"$exe`" --minimized"
 Write-Note "HKCU Run '$ProductName' set to `"$exe`" --minimized before uninstalling"
 
@@ -297,6 +327,7 @@ $null = Check (Test-Path -LiteralPath $DbPath -PathType Leaf) "database kept ($D
 Write-Note "local data folder after uninstall: $(if (Test-Path -LiteralPath $LocalDataDir) { 'kept' } else { 'removed' }) ($LocalDataDir)"
 
 # --- 5. Reinstall, data reused ---------------------------------------------------
+Set-Phase 'reinstall'
 $startsBefore = Get-StartLines
 $entry = Install-Valet 'reinstall'
 $null = Check (Same-Path (Unquote $entry.InstallLocation) $installDir) "reinstall: same install dir ($(Unquote $entry.InstallLocation))"
@@ -311,11 +342,13 @@ $startsAfter = Get-StartLines
 $null = Check ($startsAfter -gt $startsBefore) "reinstall: log reused and has a new start line ($startsBefore -> $startsAfter)"
 
 # --- 6. Install over the installed app -------------------------------------------
+Set-Phase 'install over existing'
 $entry = Install-Valet 'install over existing'
 $null = Check (Same-Path (Unquote $entry.InstallLocation) $installDir) "install over existing: same install dir"
 $null = Check (Test-Path -LiteralPath $exe -PathType Leaf) "install over existing: Valet.exe exists"
 $null = Check ((Get-Item -LiteralPath $DbPath).CreationTimeUtc -eq $dbCreated -and (Get-FileId $DbPath) -eq $dbId) "install over existing: database unchanged"
 
+Set-Phase 'result'
 Write-Note ("total {0:N1} s; Valet left installed at {1}" -f $total.Elapsed.TotalSeconds, $installDir)
 if ($env:GITHUB_OUTPUT) {
     "exe=$exe" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8

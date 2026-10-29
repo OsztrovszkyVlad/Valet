@@ -171,7 +171,8 @@ jobs:
           done
           true
 
-  # Same smoke test on Windows (WebView2 + msedgedriver). Report only. The
+  # Same smoke test on Windows (WebView2 + msedgedriver). Blocking since
+  # Phase 3 (passed in runs 40858211883, 40860957330, 40863959594). The
   # job downloads the msedgedriver matching the WebView2 runtime version (the
   # preinstalled one follows the Edge browser). The app uses the runner's
   # real Downloads and %APPDATA% (ephemeral VM).
@@ -183,9 +184,8 @@ jobs:
   # tauri.conf.json at build time; scripts/e2e-tauri-config.mjs). Release
   # builds do not get it.
   e2e-windows:
-    name: e2e smoke (Windows, report only)
+    name: e2e smoke (Windows)
     runs-on: windows-latest
-    continue-on-error: true
     env:
       CARGO_INCREMENTAL: "0"
       TAURI_DRIVER_VERSION: "2.0.6"
