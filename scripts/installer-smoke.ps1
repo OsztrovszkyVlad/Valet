@@ -11,7 +11,10 @@ Per-user install (tauri.conf.json: nsis.installMode = currentUser):
    hold Valet.exe and uninstall.exe, and no Valet key may exist under HKLM.
    The Start Menu shortcut (current user) must point to Valet.exe. No
    desktop shortcut, neither the user's nor the Public desktop
-   (packaging/nsis/hooks.nsh).
+   (packaging/nsis/hooks.nsh). The installer language is stored under
+   HKCU\Software\<publisher>\Valet "Installer Language" (1033 English or
+   1048 Romanian; hooks.nsh), so a later passive update shows no language
+   dialog.
 2. `Valet.exe --minimized`, wait -WaitSeconds: the process must still run,
    %APPDATA%\ro.valetapp.desktop\valet.sqlite3 and
    %LOCALAPPDATA%\ro.valetapp.desktop\logs\valet.log must exist. Then the
@@ -31,9 +34,10 @@ Per-user install (tauri.conf.json: nsis.installMode = currentUser):
    (`/UPDATE` after `/S` or `/P`): `/S /UPDATE` without a shortcut creates
    none; with a shortcut the user made (created here with WScript.Shell),
    `/S /UPDATE` and `/S` keep it. Then `/P /UPDATE` (the updater's default
-   mode; shows a progress window) with a -TimeoutSeconds limit: when it
-   finishes, the shortcut must still be there; when it does not finish, the
-   installer is stopped and a note says so (not a failed check).
+   mode; shows a progress window, no input) must finish within
+   -TimeoutSeconds with exit code 0, keep the shortcut and Valet.exe. On a
+   timeout the installer is stopped and the check fails (a dialog waiting
+   for input, e.g. the language selector).
 Leaves Valet installed, with the desktop shortcut from step 7. Under GitHub
 Actions writes `exe=<Valet.exe>` and `dir=<install dir>` to $GITHUB_OUTPUT
 and emits ::notice:: / ::error::
@@ -69,6 +73,8 @@ $StartMenuShortcut = Join-Path ([Environment]::GetFolderPath('Programs')) "$Prod
 $CommonStartMenu = [Environment]::GetFolderPath('CommonPrograms')
 $DesktopShortcut = Join-Path ([Environment]::GetFolderPath('DesktopDirectory')) "$ProductName.lnk"
 $PublicDesktopShortcut = Join-Path ([Environment]::GetFolderPath('CommonDesktopDirectory')) "$ProductName.lnk"
+# NSIS LANGIDs of the installer languages (tauri.conf.json nsis.languages).
+$InstallerLanguages = @{ '1033' = 'English'; '1048' = 'Romanian' }
 
 # GitHub keeps at most 10 notice annotations per step, so the notes and
 # passed checks are collected per phase and emitted as one notice per phase
@@ -308,6 +314,9 @@ if (Check (Test-Path -LiteralPath $StartMenuShortcut) "Start Menu shortcut exist
 $common = @(Get-ChildItem -LiteralPath $CommonStartMenu -Recurse -Filter "$ProductName.lnk" -ErrorAction SilentlyContinue)
 $null = Check ($common.Count -eq 0) "no Valet shortcut in the all-users Start Menu (found $($common.Count))"
 Test-NoDesktopShortcut 'silent install'
+$LangKey = "HKCU:\Software\$($entry.Publisher)\$ProductName"
+$lang = [string](Get-ItemProperty -LiteralPath $LangKey -Name 'Installer Language' -ErrorAction SilentlyContinue).'Installer Language'
+$null = Check ($InstallerLanguages.ContainsKey($lang)) "'Installer Language' stored after the silent install ($LangKey = '$lang' $($InstallerLanguages[$lang]))"
 
 # --- 2. First start --------------------------------------------------------------
 Set-Phase 'first start'
@@ -396,25 +405,24 @@ if (Check (Test-Path -LiteralPath $DesktopShortcut) "desktop shortcut made by th
         $null = Check (Same-Path $target $exe) "desktop shortcut still targets Valet.exe (got $target)"
     }
 
-    # Passive (/P) shows a progress window. MUI shows the language dialog
-    # unless HKCU\Software\<publisher>\Valet "Installer Language" exists, so
-    # this run is bounded and a timeout is reported as a note only.
-    $langKey = "HKCU:\Software\$($entry.Publisher)\$ProductName"
-    $lang = (Get-ItemProperty -LiteralPath $langKey -Name 'Installer Language' -ErrorAction SilentlyContinue).'Installer Language'
-    Write-Note "'Installer Language' under $langKey before the passive run: $(if ($null -ne $lang) { $lang } else { 'absent' })"
+    # Passive (/P) shows a progress window and must need no input. MUI shows
+    # the language dialog unless "Installer Language" is stored (checked
+    # after the first install), so a timeout means a dialog is waiting.
+    $lang = [string](Get-ItemProperty -LiteralPath $LangKey -Name 'Installer Language' -ErrorAction SilentlyContinue).'Installer Language'
+    Write-Note "'Installer Language' before the passive run: $(if ($lang) { $lang } else { 'absent' })"
     $sw = [Diagnostics.Stopwatch]::StartNew()
     $p = Start-Process -FilePath $Installer -ArgumentList '/P /UPDATE' -PassThru
     $null = $p.Handle
-    if ($p.WaitForExit($TimeoutSeconds * 1000)) {
-        Write-Note ("passive update (/P /UPDATE) exit code {0} after {1:N1} s" -f $p.ExitCode, $sw.Elapsed.TotalSeconds)
-        if ($p.ExitCode -eq 0) {
-            $null = Check (Test-Path -LiteralPath $DesktopShortcut) "passive update: desktop shortcut kept"
-            $null = Check (Test-Path -LiteralPath $exe -PathType Leaf) "passive update: Valet.exe exists"
-        }
-    }
-    else {
+    $finished = $p.WaitForExit($TimeoutSeconds * 1000)
+    if (-not $finished) {
         foreach ($id in (Get-TreeIds $p.Id)) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }
-        Write-Note "passive update (/P /UPDATE) did not finish within $TimeoutSeconds s and was stopped (a dialog waiting for input?)"
+    }
+    $passiveCode = if ($finished) { $p.ExitCode } else { 'none (stopped)' }
+    $null = Check ($finished -and $p.ExitCode -eq 0) ("passive update (/P /UPDATE) finished within {0} s with exit code 0 (took {1:N1} s, exit code {2})" -f $TimeoutSeconds, $sw.Elapsed.TotalSeconds, $passiveCode)
+    if ($finished) {
+        $null = Check (Test-Path -LiteralPath $DesktopShortcut) "passive update: desktop shortcut kept"
+        $null = Check (Test-Path -LiteralPath $exe -PathType Leaf) "passive update: Valet.exe exists"
+        $null = Check (@(Get-HkcuEntries).Count -eq 1) "passive update: one HKCU uninstall entry"
     }
 }
 

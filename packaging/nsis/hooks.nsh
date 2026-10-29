@@ -19,6 +19,19 @@
 ; NSIS_HOOK_PREINSTALL runs before the template creates shortcuts and
 ; NSIS_HOOK_POSTINSTALL after (documented order), so the post hook removes
 ; only a shortcut that the template created during this run.
+;
+; Installer language
+; With displayLanguageSelector, .onInit runs MUI_LANGDLL_DISPLAY. It skips
+; the language dialog when the run is silent or when the value
+; HKCU\Software\<publisher>\<productName> "Installer Language"
+; (MUI_LANGDLL_REGISTRY_*) exists. MUI writes that value only in the
+; install-files page callback (MUI_LANGDLL_SAVELANGUAGE, Modern UI 2
+; Pages/InstallFiles.nsh), and pages never run in a silent install. So after a
+; silent install the updater's passive run (/P /UPDATE) stopped at the
+; language dialog. The post hook writes the value on silent installs, the
+; same value MUI writes after an interactive or passive install: $LANGUAGE,
+; which MUI_LANGDLL_DISPLAY has already set from the registry when the value
+; existed, otherwise the language NSIS chose from the Windows UI language.
 
 Var ValetDesktopLnkExisted
 Var ValetUpdateArg
@@ -39,4 +52,13 @@ Var ValetUpdateArg
   ${AndIf} $ValetDesktopLnkExisted = 0
     Delete "$DESKTOP\${PRODUCTNAME}.lnk"
   ${EndIf}
+
+  ; Evaluated where the macro is inserted, after the template's defines.
+  !ifdef MUI_LANGDLL_REGISTRY_ROOT & MUI_LANGDLL_REGISTRY_KEY & MUI_LANGDLL_REGISTRY_VALUENAME
+    ${If} ${Silent}
+      WriteRegStr ${MUI_LANGDLL_REGISTRY_ROOT} "${MUI_LANGDLL_REGISTRY_KEY}" "${MUI_LANGDLL_REGISTRY_VALUENAME}" $LANGUAGE
+    ${EndIf}
+  !else
+    !error "hooks.nsh: the Tauri NSIS template no longer defines MUI_LANGDLL_REGISTRY_*; recheck the installer language fix"
+  !endif
 !macroend
