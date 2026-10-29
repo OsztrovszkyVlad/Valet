@@ -9,7 +9,9 @@ Per-user install (tauri.conf.json: nsis.installMode = currentUser):
    HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\* with
    DisplayName "Valet" (InstallLocation); it must be %LOCALAPPDATA%\Valet,
    hold Valet.exe and uninstall.exe, and no Valet key may exist under HKLM.
-   The Start Menu shortcut (current user) must point to Valet.exe.
+   The Start Menu shortcut (current user) must point to Valet.exe. No
+   desktop shortcut, neither the user's nor the Public desktop
+   (packaging/nsis/hooks.nsh).
 2. `Valet.exe --minimized`, wait -WaitSeconds: the process must still run,
    %APPDATA%\ro.valetapp.desktop\valet.sqlite3 and
    %LOCALAPPDATA%\ro.valetapp.desktop\logs\valet.log must exist. Then the
@@ -24,9 +26,17 @@ Per-user install (tauri.conf.json: nsis.installMode = currentUser):
 5. Reinstall (`/S`), start again: the database is the same file (creation
    time and NTFS file ID unchanged) and the log has a second start line.
 6. Installs once more over the installed app (`/S`): one uninstall key,
-   Valet.exe present, database unchanged.
-Leaves Valet installed. Under GitHub Actions writes `exe=<Valet.exe>` and
-`dir=<install dir>` to $GITHUB_OUTPUT and emits ::notice:: / ::error::
+   Valet.exe present, database unchanged, still no desktop shortcut.
+7. Desktop shortcut on updates, with the flags tauri-plugin-updater uses
+   (`/UPDATE` after `/S` or `/P`): `/S /UPDATE` without a shortcut creates
+   none; with a shortcut the user made (created here with WScript.Shell),
+   `/S /UPDATE` and `/S` keep it. Then `/P /UPDATE` (the updater's default
+   mode; shows a progress window) with a -TimeoutSeconds limit: when it
+   finishes, the shortcut must still be there; when it does not finish, the
+   installer is stopped and a note says so (not a failed check).
+Leaves Valet installed, with the desktop shortcut from step 7. Under GitHub
+Actions writes `exe=<Valet.exe>` and `dir=<install dir>` to $GITHUB_OUTPUT
+and emits ::notice:: / ::error::
 annotations (install dir, installer size, timings, each failed check).
 Nothing outside the install is deleted; the app data folders are left in
 place.
@@ -58,6 +68,7 @@ $ExpectedInstallDir = Join-Path $env:LOCALAPPDATA $ProductName
 $StartMenuShortcut = Join-Path ([Environment]::GetFolderPath('Programs')) "$ProductName\$ProductName.lnk"
 $CommonStartMenu = [Environment]::GetFolderPath('CommonPrograms')
 $DesktopShortcut = Join-Path ([Environment]::GetFolderPath('DesktopDirectory')) "$ProductName.lnk"
+$PublicDesktopShortcut = Join-Path ([Environment]::GetFolderPath('CommonDesktopDirectory')) "$ProductName.lnk"
 
 # GitHub keeps at most 10 notice annotations per step, so the notes and
 # passed checks are collected per phase and emitted as one notice per phase
@@ -194,10 +205,25 @@ function Stop-AppTree([System.Diagnostics.Process]$Proc) {
     $script:app = $null
 }
 
-# Runs the installer silently. Returns the HKCU uninstall entry.
-function Install-Valet([string]$Label) {
+function Test-NoDesktopShortcut([string]$Label) {
+    $null = Check (-not (Test-Path -LiteralPath $DesktopShortcut)) "$Label`: no desktop shortcut ($DesktopShortcut)"
+    $null = Check (-not (Test-Path -LiteralPath $PublicDesktopShortcut)) "$Label`: no shortcut on the Public desktop ($PublicDesktopShortcut)"
+}
+
+# A desktop shortcut to Valet.exe, as a user would make it.
+function New-DesktopShortcut([string]$Target) {
+    $shell = New-Object -ComObject WScript.Shell
+    $lnk = $shell.CreateShortcut($DesktopShortcut)
+    $lnk.TargetPath = $Target
+    $lnk.WorkingDirectory = Split-Path -Parent $Target
+    $lnk.Save()
+}
+
+# Runs the installer silently (or with $Arguments). Returns the HKCU
+# uninstall entry.
+function Install-Valet([string]$Label, [string]$Arguments = '/S') {
     $sw = [Diagnostics.Stopwatch]::StartNew()
-    $p = Start-Process -FilePath $Installer -ArgumentList '/S' -PassThru -Wait
+    $p = Start-Process -FilePath $Installer -ArgumentList $Arguments -PassThru -Wait
     $ms = $sw.ElapsedMilliseconds
     if (-not (Check ($p.ExitCode -eq 0) "$Label`: installer exit code $($p.ExitCode)")) {
         Stop-Smoke "$Label`: installer failed"
@@ -207,7 +233,7 @@ function Install-Valet([string]$Label) {
         Start-Sleep -Milliseconds 250
         $entries = @(Get-HkcuEntries)
     }
-    Write-Note ("{0}: silent install took {1:N1} s" -f $Label, ($ms / 1000))
+    Write-Note ("{0}: install ({1}) took {2:N1} s" -f $Label, $Arguments, ($ms / 1000))
     if (-not (Check ($entries.Count -eq 1) "$Label`: one HKCU uninstall entry with DisplayName '$ProductName' (found $($entries.Count))")) {
         Stop-Smoke "$Label`: no usable uninstall entry"
     }
@@ -281,8 +307,7 @@ if (Check (Test-Path -LiteralPath $StartMenuShortcut) "Start Menu shortcut exist
 }
 $common = @(Get-ChildItem -LiteralPath $CommonStartMenu -Recurse -Filter "$ProductName.lnk" -ErrorAction SilentlyContinue)
 $null = Check ($common.Count -eq 0) "no Valet shortcut in the all-users Start Menu (found $($common.Count))"
-$desktopAfterInstall = Test-Path -LiteralPath $DesktopShortcut
-Write-Note "desktop shortcut after silent install: $(if ($desktopAfterInstall) { 'present' } else { 'absent' }) ($DesktopShortcut)"
+Test-NoDesktopShortcut 'silent install'
 
 # --- 2. First start --------------------------------------------------------------
 Set-Phase 'first start'
@@ -321,7 +346,7 @@ $null = Check (-not (Test-Path -LiteralPath $exe)) "Valet.exe removed"
 $null = Check (-not (Test-Path -LiteralPath $uninstaller)) "uninstall.exe removed"
 Write-Note "install dir after uninstall: $(if (Test-Path -LiteralPath $installDir) { 'still present: ' + ((Get-ChildItem -LiteralPath $installDir -Recurse -Force | ForEach-Object Name) -join ', ') } else { 'removed' })"
 $null = Check (-not (Test-Path -LiteralPath $StartMenuShortcut)) "Start Menu shortcut removed"
-if ($desktopAfterInstall) { $null = Check (-not (Test-Path -LiteralPath $DesktopShortcut)) "desktop shortcut removed" }
+$null = Check (-not (Test-Path -LiteralPath $DesktopShortcut)) "no desktop shortcut after uninstall"
 $null = Check (@(Get-HkcuEntries).Count -eq 0) "HKCU uninstall entry removed"
 $run = Get-ItemProperty -LiteralPath $RunKey -Name $ProductName -ErrorAction SilentlyContinue
 $null = Check ($null -eq $run) "no '$ProductName' value under HKCU Run"
@@ -336,6 +361,7 @@ $entry = Install-Valet 'reinstall'
 $null = Check (Same-Path (Unquote $entry.InstallLocation) $installDir) "reinstall: same install dir ($(Unquote $entry.InstallLocation))"
 $null = Check (Test-Path -LiteralPath $exe -PathType Leaf) "reinstall: Valet.exe exists"
 $null = Check (Test-Path -LiteralPath $StartMenuShortcut) "reinstall: Start Menu shortcut exists"
+Test-NoDesktopShortcut 'reinstall'
 Start-AndCheck 'start after reinstall' $exe
 $created2 = (Get-Item -LiteralPath $DbPath).CreationTimeUtc
 $id2 = Get-FileId $DbPath
@@ -350,6 +376,47 @@ $entry = Install-Valet 'install over existing'
 $null = Check (Same-Path (Unquote $entry.InstallLocation) $installDir) "install over existing: same install dir"
 $null = Check (Test-Path -LiteralPath $exe -PathType Leaf) "install over existing: Valet.exe exists"
 $null = Check ((Get-Item -LiteralPath $DbPath).CreationTimeUtc -eq $dbCreated -and (Get-FileId $DbPath) -eq $dbId) "install over existing: database unchanged"
+Test-NoDesktopShortcut 'install over existing'
+
+# --- 7. Desktop shortcut on updates ------------------------------------------------
+# tauri-plugin-updater runs the installer with /P (default) or /S, then
+# /UPDATE (tauri-plugin-updater 2.14.1, updater.rs updater_parameters).
+Set-Phase 'update'
+$null = Install-Valet 'update without shortcut' '/S /UPDATE'
+Test-NoDesktopShortcut 'update without shortcut'
+
+New-DesktopShortcut $exe
+if (Check (Test-Path -LiteralPath $DesktopShortcut) "desktop shortcut made by the user ($DesktopShortcut)") {
+    $null = Install-Valet 'update with shortcut' '/S /UPDATE'
+    $null = Check (Test-Path -LiteralPath $DesktopShortcut) "update with shortcut: desktop shortcut kept"
+    $null = Install-Valet 'silent install with shortcut' '/S'
+    $null = Check (Test-Path -LiteralPath $DesktopShortcut) "silent install with shortcut: desktop shortcut kept"
+    if (Test-Path -LiteralPath $DesktopShortcut) {
+        $target = Get-ShortcutTarget $DesktopShortcut
+        $null = Check (Same-Path $target $exe) "desktop shortcut still targets Valet.exe (got $target)"
+    }
+
+    # Passive (/P) shows a progress window. MUI shows the language dialog
+    # unless HKCU\Software\<publisher>\Valet "Installer Language" exists, so
+    # this run is bounded and a timeout is reported as a note only.
+    $langKey = "HKCU:\Software\$($entry.Publisher)\$ProductName"
+    $lang = (Get-ItemProperty -LiteralPath $langKey -Name 'Installer Language' -ErrorAction SilentlyContinue).'Installer Language'
+    Write-Note "'Installer Language' under $langKey before the passive run: $(if ($null -ne $lang) { $lang } else { 'absent' })"
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    $p = Start-Process -FilePath $Installer -ArgumentList '/P /UPDATE' -PassThru
+    $null = $p.Handle
+    if ($p.WaitForExit($TimeoutSeconds * 1000)) {
+        Write-Note ("passive update (/P /UPDATE) exit code {0} after {1:N1} s" -f $p.ExitCode, $sw.Elapsed.TotalSeconds)
+        if ($p.ExitCode -eq 0) {
+            $null = Check (Test-Path -LiteralPath $DesktopShortcut) "passive update: desktop shortcut kept"
+            $null = Check (Test-Path -LiteralPath $exe -PathType Leaf) "passive update: Valet.exe exists"
+        }
+    }
+    else {
+        foreach ($id in (Get-TreeIds $p.Id)) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }
+        Write-Note "passive update (/P /UPDATE) did not finish within $TimeoutSeconds s and was stopped (a dialog waiting for input?)"
+    }
+}
 
 Set-Phase 'result'
 Write-Note ("total {0:N1} s; Valet left installed at {1}" -f $total.Elapsed.TotalSeconds, $installDir)

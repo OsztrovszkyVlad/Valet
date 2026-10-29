@@ -67,7 +67,8 @@
           "Romanian": "../../../packaging/nsis/Romanian.nsh"
         },
         "displayLanguageSelector": true,
-        "startMenuFolder": "Valet"
+        "startMenuFolder": "Valet",
+        "installerHooks": "../../../packaging/nsis/hooks.nsh"
       }
     }
   }
