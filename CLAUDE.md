@@ -47,7 +47,7 @@ The product plan is `docs/PLAN.md`. Read it before any phase work. It wins over 
 
 ## Dependency allowlist (no question needed)
 
-Rust: `trash`, `notify`, `notify-debouncer-mini`, `walkdir`, `blake3`, `sqlx` or `rusqlite`, `serde`, `serde_json`, `thiserror`, `anyhow`, `regex`, `uuid`, `proptest`, `tempfile`, `criterion`, `tracing`, `tracing-subscriber`, `windows-sys` (platform crate only), `minisign-verify` (license check), `reqwest` (desktop app only, license check; approved by Vlad, 2026-10-29), `tauri-plugin-{log,single-instance,autostart,notification,updater,dialog,fs,shell}`.
+Rust: `trash`, `notify`, `notify-debouncer-mini`, `walkdir`, `blake3`, `sqlx` or `rusqlite`, `serde`, `serde_json`, `thiserror`, `anyhow`, `regex`, `uuid`, `proptest`, `tempfile`, `criterion`, `tracing`, `tracing-subscriber`, `windows-sys` (platform crate only), `minisign-verify` (license check), `reqwest` (desktop app only, license check; approved by Vlad, 2026-10-29), `rustls` with the `ring` feature (desktop app only, crypto provider for `reqwest`; approved by Vlad), `tauri-plugin-{log,single-instance,autostart,notification,updater,dialog,fs,shell}`.
 Frontend: `react`, `react-i18next`, `i18next`, `zustand`, `vitest`, `@testing-library/react`, and as devDependencies only `@testing-library/dom`, `jsdom` (approved by Vlad, 2026-10-29).
 
 ## Phase protocol
