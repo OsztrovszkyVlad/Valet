@@ -63,6 +63,9 @@ describe('ProSection', () => {
         expect(screen.getByTestId('pro-plan-line').textContent).toBe('Planul curent: Pro, licență pe ana@example.com.');
         expect(screen.getByText(/^Actualizări incluse până la 29 octombrie 2027\.$/)).toBeTruthy();
         expect(screen.getByText(/^Ultima verificare a licenței: 20 octombrie 2026/)).toBeTruthy();
+        expect(screen.getByTestId('pro-license-id').textContent).toBe(
+            `Cod licență (pentru asistență): ${LICENSE.license_id}`,
+        );
         expect(screen.queryByTestId('pro-buy')).toBeNull();
         expect(screen.getByTestId('pro-check')).toBeTruthy();
         expect(screen.getByTestId('pro-remove')).toBeTruthy();

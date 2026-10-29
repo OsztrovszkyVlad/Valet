@@ -593,7 +593,8 @@
     "removeConfirm": "The license is removed from this computer and frees one of its 3 activations, so you can use it on another computer. The license file is not deleted; you can import it again at any time.",
     "removeYes": "Remove license",
     "removing": "Removing the license...",
-    "removed": "The license was removed from this computer."
+    "removed": "The license was removed from this computer.",
+    "licenseId": "License code (for support): {{id}}"
   },
   "license": {
     "reason": {

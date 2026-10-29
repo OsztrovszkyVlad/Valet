@@ -599,7 +599,8 @@
     "removeConfirm": "Licența se scoate de pe acest calculator și eliberează una dintre cele 3 activări, ca s-o poți folosi pe alt calculator. Fișierul licenței nu se șterge; îl poți importa din nou oricând.",
     "removeYes": "Scoate licența",
     "removing": "Se scoate licența...",
-    "removed": "Licența a fost scoasă de pe acest calculator."
+    "removed": "Licența a fost scoasă de pe acest calculator.",
+    "licenseId": "Cod licență (pentru asistență): {{id}}"
   },
   "license": {
     "reason": {

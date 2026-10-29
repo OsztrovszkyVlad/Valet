@@ -284,6 +284,9 @@ const ProSection: React.FC<ProSectionProps> = ({ plan, onPlanChange, sectionRef 
 
             {license !== null && (
                 <div className="pro-license" data-testid="pro-license">
+                    <p className="form-help" data-testid="pro-license-id">
+                        {t('pro.licenseId', { id: license.license_id })}
+                    </p>
                     <p className="form-help">
                         {plan.last_check_at !== null
                             ? t('pro.lastCheck', { date: formatUnixDateTime(plan.last_check_at, lng) })
