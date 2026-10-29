@@ -1,4 +1,4 @@
-//! Operation commands: dry run, execute, statistics, history.
+//! Operation commands: dry run, execute, history.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -432,66 +432,6 @@ pub(crate) async fn undo_batch(
         report.skipped.len()
     );
     Ok(report)
-}
-
-#[derive(serde::Serialize, serde::Deserialize)]
-pub(crate) struct StatsResponse {
-    stats: valet_core::model::OperationStats,
-    recent_operations: Vec<valet_core::model::RecentOperation>,
-}
-
-#[tauri::command]
-pub(crate) async fn get_statistics(
-    time_range: String,
-    app: tauri::AppHandle,
-) -> Result<StatsResponse, String> {
-    log::info!("Getting statistics for time range: {}", time_range);
-
-    let state = app.state::<AppState>();
-    let db = Db::connect(&state._db_path)
-        .await
-        .map_err(|e| format!("Database connection failed: {}", e))?;
-
-    let days_back = match time_range.as_str() {
-        "1d" => Some(1),
-        "7d" => Some(7),
-        "30d" => Some(30),
-        "90d" => Some(90),
-        "all" => None,
-        _ => Some(7), // default to 7 days
-    };
-
-    let stats = db
-        .get_operation_statistics(days_back)
-        .await
-        .map_err(|e| format!("Failed to get statistics: {}", e))?;
-
-    let recent_operations = db
-        .get_recent_operations(50)
-        .await
-        .map_err(|e| format!("Failed to get recent operations: {}", e))?;
-
-    Ok(StatsResponse {
-        stats,
-        recent_operations,
-    })
-}
-
-#[tauri::command]
-pub(crate) async fn clear_operation_history(app: tauri::AppHandle) -> Result<(), String> {
-    log::info!("Clearing operation history");
-
-    let state = app.state::<AppState>();
-    let db = Db::connect(&state._db_path)
-        .await
-        .map_err(|e| format!("Database connection failed: {}", e))?;
-
-    db.clear_operation_history()
-        .await
-        .map_err(|e| format!("Failed to clear operation history: {}", e))?;
-
-    log::info!("Operation history cleared successfully");
-    Ok(())
 }
 
 #[cfg(test)]
