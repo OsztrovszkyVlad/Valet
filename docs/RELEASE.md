@@ -193,7 +193,9 @@ or delete the bad pre-release, then release `-beta.N+1` with the fix.
 - Installs for the current user only, no administrator rights, into
   `%LOCALAPPDATA%\Valet`; uninstall entry under `HKCU`.
 - Language selector (English, Romanian); Start menu shortcut in the folder
-  "Valet"; optional desktop shortcut.
+  "Valet". Desktop shortcut: offered on the finish page of an interactive
+  install; not created by a silent install (`/S`, winget); an update keeps
+  whatever the user has (`packaging/nsis/hooks.nsh`).
 - Downloads and runs the WebView2 bootstrapper if WebView2 is missing (needs
   internet only in that case).
 - The uninstaller offers "Delete the application data" (unticked by default).
