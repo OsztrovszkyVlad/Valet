@@ -4,7 +4,7 @@ Versiunea în română: [USER_GUIDE.ro.md](USER_GUIDE.ro.md)
 
 Valet puts your files in order, using rules you can see and undo. This guide describes what the app does in the version in this repository.
 
-Valet is still in testing. It has no public installer and no release. You start it from the source code (see [README.md](../README.md)). Until you trust it, work on folders where you have copies of your files.
+Valet is still in testing. No version has been published yet. When one is, the installer will be on the GitHub Releases page ([section 17](#17-installing-updates-and-uninstalling) says how to install it and why Windows warns); until then you start it from the source code (see [README.md](../README.md)). Until you trust it, work on folders where you have copies of your files.
 
 The screenshots show test folders, which is why the paths start with `/tmp/valet-e2e-…`. They were taken from the real app, on Linux, by the automatic UI smoke test. The app was in Romanian, so the screenshots show Romanian text. On Windows, paths look like `C:\Users\name\Downloads`. The names below are the English interface names.
 
@@ -26,6 +26,7 @@ The screenshots show test folders, which is why the paths start with `/tmp/valet
 14. [Privacy](#14-privacy)
 15. [Where the data is](#15-where-the-data-is)
 16. [Known limits](#16-known-limits)
+17. [Installing, updates and uninstalling](#17-installing-updates-and-uninstalling)
 
 ## 1. What Valet does and does not do
 
@@ -45,7 +46,7 @@ The screenshots show test folders, which is why the paths start with `/tmp/valet
 - It never overwrites a file. If the name at the destination is taken, the file gets `name (2).ext`, then `name (3).ext`, and so on.
 - It does not rename files and it does not tag them. These actions do not exist in the current version.
 - It does not read file contents to classify files. Rules look at the name, extension, type, size, dates and path. The only reading of contents is the hash check of files it moves, copies or sends to the Recycle Bin, and the comparison of same-size files for duplicate rules.
-- It does not use the internet (see [section 14](#14-privacy)).
+- It uses the internet only to check whether a newer version of Valet exists and, after you allow it, to download it. It sends no file names, paths or contents (see [section 14](#14-privacy)).
 - It does not touch system folders, hidden files, or OneDrive and Dropbox files that are not downloaded (see [section 12](#12-what-valet-never-touches)).
 
 ## 2. First run
@@ -60,7 +61,7 @@ The first time you start Valet, a 3-step guide appears. Nothing moves during it.
 - Downloads and Desktop are checked. Documents and Pictures are not.
 - You can add another folder by typing its path in "Add another folder", for example `C:\Users\name\Projects`. There is no folder picker.
 - You must check at least one folder.
-- Valet refuses a folder if it is a whole drive (`C:\`, `D:\`, `\\server\share`), if its path contains a default-excluded name (for example `AppData` or `Program Files`), or if it does not exist. Valet checks the folders when you press "Continue" on step 2. If one is refused, you get a message and go back to step 1.
+- Valet refuses a folder if it is a whole drive (`C:\`, `D:\`, `\\server\share`) or if its path contains a default-excluded name (for example `AppData` or `Program Files`). A folder that does not exist right now, for example an external drive that is unplugged, is not refused: it is saved and marked "unavailable" (see [section 11](#11-settings)). Valet checks the folders when you press "Continue" on step 2. If one is refused, you get a message and go back to step 1.
 - You can change the list at any time in Settings.
 
 **Step 2 of 3: rules**
@@ -433,6 +434,7 @@ Approval belongs to a rule at a version and to the watched folders of the previe
 - Removing a folder from the list removes its approvals. The folders that stay keep theirs.
 - If one watched folder is inside another, a file in the inner folder needs approval under both.
 - The "Organize" button appears only when the preview has at least one operation. A folder with nothing to organize yet is approved by a later preview that has something to do.
+- An unavailable watched folder (for example an unplugged external drive) is skipped while it is missing, keeps its approvals, and is watched again when it comes back, within 10 minutes (see [section 11](#11-settings)).
 - An `approvals.json` written by an earlier version of Valet recorded no folders, so it approves no folder. After updating, run a preview and press "Organize" once.
 
 ## 10. Tray and starting with Windows
@@ -455,12 +457,21 @@ Approval belongs to a rule at a version and to the watched folders of the previe
 
 ![Settings](images/settings.png)
 
-- **Watched folders:** the list of folders. You type the path and press "Add", or press "Remove". Valet refuses a whole drive, a folder with an excluded name in its path (for example `AppData`, `Program Files`, `.git`, `node_modules`), and a folder that does not exist. A folder you add is not organized automatically until you approve a preview (see [section 9](#9-automatic-organizing)); a note with the button "Open Preview" says so.
-- **Folders that are not watched:** the same checks apply when Valet reads `config.json`, so a folder you added there by hand is checked too. An entry that is a whole drive, has an excluded name in its path, or does not exist is not watched and not planned. It stays in the file. Settings lists it with "Not watched:" and the reason, without a "Remove" button, and shows "Remove the folders not watched". While such an entry is in the list, "Add" and the other "Remove" buttons are disabled; the one button removes all of them at once. If no valid folder is left, the preview says "No watched folder exists on disk. Add one in Settings."
+The screenshot shows the Settings screen before the Updates, Support and About sections (described below) were added. From top to bottom the screen has: the watched folders, the general options (language, notification, start with Windows, automatic apply), Updates, Support and About.
+
+- **Watched folders:** the list of folders. You type the path and press "Add", or press "Remove". Valet refuses a whole drive and a folder with an excluded name in its path (for example `AppData`, `Program Files`, `.git`, `node_modules`). A folder that does not exist right now is accepted (see "Unavailable folders"). A folder you add is not organized automatically until you approve a preview (see [section 9](#9-automatic-organizing)); a note with the button "Open Preview" says so.
+- **Unavailable folders:** a folder in the list that does not exist at the moment, for example because the external drive is unplugged, is saved and shown with the text "Unavailable right now (for example, a disconnected drive). Resumes automatically when it is back." It has a "Remove" button like any folder. While it is missing, Valet does not watch or plan it, the other folders work as usual, and no file in it is touched. If all folders are missing, the preview says "No watched folder exists on disk. Add one in Settings." A manual preview reads the disk every time, so it sees the folder as soon as it is back. Automatic organizing reads the list again before each full check (every 10 minutes), so it picks the folder up within 10 minutes, with no restart. The folder keeps its approvals. This was tested with simulated folders, not with a real external drive.
+- **Folders that are not watched:** the whole-drive and excluded-name checks also apply when Valet reads `config.json`, so a folder you added there by hand is checked too. An entry that is a whole drive or has an excluded name in its path is not watched and not planned. It stays in the file. Settings lists it with "Not watched:" and the reason, without a "Remove" button, and shows "Remove the folders not watched". While such an entry is in the list, "Add" and the other "Remove" buttons are disabled; the one button removes all of them at once.
 - **Language:** Română or English. It changes at once. Rules and presets already installed keep their names and folders.
 - **Short notification after a batch:** on by default.
 - **Start Valet with Windows:** see [section 10](#10-tray-and-starting-with-windows).
 - **Apply rules automatically in watched folders:** see [section 9](#9-automatic-organizing).
+- **Updates:** shows "Installed version: …", the list "Update channel" (Stable or Beta; "Beta gets new versions earlier, before they are marked stable.") and the button "Check now". The result is "You have the newest version." or "Version … is available.", with the publication date and "What changed" (the release notes, shown as plain text). "Install and restart" asks for a confirmation ("Valet will restart. No operation is interrupted: the installation waits for the running batch."); then the download progress is shown. If a batch is running, Valet shows "Waiting for the running batch to finish." and tries again by itself; "Cancel" stops the wait. If the automatic check finds a version, you get a notification, an "Update available" mark on the Settings button and, on the other screens, a note with the button "Open Settings". Valet installs only after you press the button and confirm. More in [section 17](#17-installing-updates-and-uninstalling).
+  - If your version has no updates configured (as when you start it from the source code), "Check now" answers "Updates are not configured in this version."
+  - Without internet, the answer is "The update server could not be reached. Check the internet connection."
+  - The automatic check cannot be switched off in Settings; only the channel can be chosen.
+- **Support:** the checkbox "Detailed log (for troubleshooting)". When on, the log gets more lines, which may contain file paths; they stay on your computer. It applies at once, with no restart. Where the log is: [section 15](#15-where-the-data-is). The app has no button that opens the log folder.
+- **About:** one line with the version, the license and the repository address: "Valet … · MIT license · github.com/OsztrovszkyVlad/Valet".
 
 Each change is saved at once.
 
@@ -492,12 +503,18 @@ The "drive without a Recycle Bin" case was tested with a simulated Recycle Bin. 
 
 ## 14. Privacy
 
-- Valet does not use the internet for your files. The app code has no network calls. A search of the code, at the version in this repository, finds no network library or call. The only HTTP addresses in the project are `http://localhost:5173` (the local development server, in `tauri.conf.json`) and `http://127.0.0.1` in the automatic UI test.
-- Automatic updates, the license check and error reporting are not in the app yet.
+The full page, with what a request contains and what is stored where: [PRIVACY.md](PRIVACY.md). In short:
+
+- Valet does not send your files over the internet. The only Valet code that connects to the internet is the update code.
+- The check asks for a static file (JSON) at one of two GitHub addresses, the one for your channel (Stable or Beta). The request contains no file names, paths, rules or contents. GitHub sees what any web server sees: your IP address, the time and the program that asked (`tauri-plugin-updater/2.14.1`). The installed version is not sent.
+- The check runs 30 seconds after Valet starts, then once every 24 hours while it runs, and when you press "Check now". The automatic check installs nothing and cannot be switched off in Settings.
+- The installer of a new version is downloaded only after you press "Install and restart" and confirm. Its signature is checked with a public key inside the app (the update plugin does this; Valet has no test of it).
+- A build made without the update keys, such as any start from the source code, makes no check at all.
+- There is no telemetry, no error reporting (Sentry is not integrated) and no license check. If error reports are added, they will be opt-in, with a screen "Ce trimitem" (what we send).
 - File names, paths and contents do not leave the computer.
 - The journal (History) keeps the full paths of files, on your disk.
-- No capture of network traffic was made while the app ran. It cannot be said for sure that Tauri or its plugins make no request at runtime.
-- In development, the run logs write full paths at DEBUG level. A release build, at INFO level, is meant not to write paths, but no release build was made to check.
+- No capture of network traffic was made while the app ran. It cannot be said for sure what WebView2 (a Microsoft component) or the Tauri plugins do beyond what the code shows.
+- The run logs: the INFO level (the default) writes no file paths, as far as the log calls in the code show; no test checks their text. The DEBUG level (the "Detailed log" checkbox in Settings) can write paths. No installed release was run to check what it writes.
 
 ## 15. Where the data is
 
@@ -505,17 +522,45 @@ In `%APPDATA%\ro.valetapp.desktop`:
 
 - `valet.sqlite3`: the rules and the operation journal;
 - `config.json`: the watched folders;
-- `app_settings.json`: language, notifications, starting with Windows, automatic apply, whether you finished the first-run guide and whether you approved a preview;
+- `app_settings.json`: language, notifications, starting with Windows, automatic apply, whether you finished the first-run guide, whether you approved a preview, the update channel and the "Detailed log" checkbox;
 - `approvals.json`: the approved rules, the version at which each was approved and the watched folders of the preview that approved it.
 
-Valet never deletes rows from the journal. The journal grows with every batch.
+Valet never deletes rows from the journal. The journal grows with every batch. Earlier versions also kept a table of statistics; it was removed, and History still comes from the journal.
+
+**The run logs** are in `%LOCALAPPDATA%\ro.valetapp.desktop\logs`. The active file is `valet.log`. At 2 MB it is closed and renamed `valet_<date and time>.log`; at most 5 files are kept (the active one and 4 older ones), so at most about 10 MB. To open them, type the path in the Explorer address bar. The path comes from Tauri and was not checked on a Windows install.
+
+- By default they hold the INFO level: what started, how many operations, batch ids, warnings and errors.
+- "Detailed log (for troubleshooting)" in Settings, Support, switches to DEBUG. File paths can appear there. The log is not sent anywhere; if you send it to someone, read it first.
+- If the program stops because of an internal error (a panic), a line "Panic at …" is written to the log (paths in the message are replaced by `<path>`). Operations left half done are decided at the next start, as after any stop (see [section 6](#6-history)).
 
 ## 16. Known limits
 
-- Test version. Valet has no installer and has not been released.
+- Test version. No version has been published, and the installer is not code-signed (Windows SmartScreen warns, see [section 17](#17-installing-updates-and-uninstalling)).
+- Updating has not been tried on a real Windows computer yet: there is no published version to update from.
 - The "rename" and "tag" actions from the plan do not exist.
 - Undo works on a whole batch, not on a file. Rules cannot be reordered from the interface.
 - A watched folder added later is organized automatically only after you approve a preview (see [section 9](#9-automatic-organizing)).
 - Windows can lose change events when there are very many. The full check every 10 minutes catches them. Valet cannot ask for a rescan by itself in that case, so a file can wait up to 10 minutes.
-- Tests that use real Windows (Recycle Bin, attributes, restore from the Recycle Bin) run in CI on `windows-latest`. They passed at the last version that CI ran (`c5acb7d`); the newer changes have not been run on Windows yet. Details in [SAFETY.md](SAFETY.md). Restore from the Windows Recycle Bin was tested only on the CI machine. A power loss, real OneDrive and Dropbox, USB drives and network shares were not tested.
+- Tests that use real Windows (Recycle Bin, attributes, restore from the Recycle Bin) run in CI on `windows-latest`. Their state at each commit, including what passed and what was not run, is in [SAFETY.md](SAFETY.md). Restore from the Windows Recycle Bin was tested only on the CI machine. A power loss, real OneDrive and Dropbox, USB drives, network shares and a real external drive that is unplugged and plugged in again were not tested.
 - Other limits and cases, with the tests that cover them, are in [SAFETY.md](SAFETY.md).
+
+## 17. Installing, updates and uninstalling
+
+**Installing.** No version has been published yet. When one is, the installer will be on the [GitHub Releases](https://github.com/OsztrovszkyVlad/Valet/releases) page, named `Valet_<version>_x64-setup.exe`. The installer is set up to:
+
+- install for the current user only, with no administrator rights, in `%LOCALAPPDATA%\Valet` (the default folder of the Tauri template; not checked on Windows);
+- offer English or Romanian, a "Valet" folder in the Start menu and, optionally, a desktop shortcut;
+- download Microsoft WebView2 if it is missing (the only case in which the installer needs the internet).
+
+The installer was not run on Windows in the sessions that wrote this guide.
+
+**The Windows SmartScreen warning.** The installer and the app are not code-signed yet. Because of that, Windows SmartScreen shows "Windows protected your PC" when you run it. To go on, select "More info", then "Run anyway". The warning appears for programs that are unsigned and not widely downloaded; it is not the result of an analysis of Valet. A free signing certificate for open-source projects (SignPath Foundation or Certum Open Source) has not been obtained yet. If you want to check the downloaded file, the "Release" run in GitHub Actions lists the SHA-256 of the installer; compare it with the output of `Get-FileHash Valet_<version>_x64-setup.exe -Algorithm SHA256`.
+
+**Updates.** In Settings, Updates, choose the channel (Stable or Beta) and press "Check now", or wait for the automatic check (see [section 14](#14-privacy)). If a newer version exists, press "Install and restart" and confirm. If a batch of operations is running, the installation waits for it to finish. Valet restarts by itself; your rules, history and settings stay. Updates exist only in versions built with the updater's signing keys; a version without them answers "Updates are not configured in this version.", and then you install the new installer by hand. Do not install an older version over a newer one: the older version may not be able to open the database the newer one migrated (not tested).
+
+**Uninstalling.** From Windows, Settings, Apps, Valet, Uninstall (or with the uninstaller in the install folder).
+
+- Your data stays by default: settings, rules, approvals and the journal, so History and undo work after a reinstall.
+- The uninstaller has a checkbox "Delete the application data", unticked at the start. Ticked, it deletes `%APPDATA%\ro.valetapp.desktop` (including the operation journal, so History and undo are gone) and `%LOCALAPPDATA%\ro.valetapp.desktop` (the run logs). This was read from the Tauri template; no uninstall was run on Windows.
+- The "Start Valet with Windows" entry is removed on uninstall.
+- Files that Valet moved or copied stay where they are, and files in the Recycle Bin stay in the Recycle Bin. Uninstalling undoes nothing. To undo a batch, do it from History before you uninstall.

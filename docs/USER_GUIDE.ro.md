@@ -4,7 +4,7 @@ English version: [USER_GUIDE.en.md](USER_GUIDE.en.md)
 
 Valet pune ordine în fișierele de pe calculatorul tău, după reguli pe care le vezi și le poți anula. Ghidul descrie ce face aplicația în versiunea din acest depozit.
 
-Valet e încă în faza de test. Nu are instalator public și nu are lansare. Se pornește din codul sursă (vezi [README.md](../README.md)). Până nu ai încredere în el, lucrează pe foldere în care ai copii ale fișierelor.
+Valet e încă în faza de test. Nicio versiune nu a fost publicată încă. Când va exista una, instalatorul va fi pe pagina GitHub Releases ([secțiunea 17](#17-instalare-actualizări-și-dezinstalare) spune cum se instalează și de ce Windows avertizează); până atunci se pornește din codul sursă (vezi [README.md](../README.md)). Până nu ai încredere în el, lucrează pe foldere în care ai copii ale fișierelor.
 
 Capturile de ecran din ghid arată foldere de test, de aceea căile încep cu `/tmp/valet-e2e-…`. Au fost făcute din aplicația reală, pe Linux, de testul automat al interfeței. Pe Windows căile arată ca `C:\Users\nume\Descărcări`.
 
@@ -26,6 +26,7 @@ Capturile de ecran din ghid arată foldere de test, de aceea căile încep cu `/
 14. [Confidențialitate](#14-confidențialitate)
 15. [Unde sunt datele](#15-unde-sunt-datele)
 16. [Limite cunoscute](#16-limite-cunoscute)
+17. [Instalare, actualizări și dezinstalare](#17-instalare-actualizări-și-dezinstalare)
 
 ## 1. Ce face Valet și ce nu face
 
@@ -45,7 +46,7 @@ Capturile de ecran din ghid arată foldere de test, de aceea căile încep cu `/
 - Nu suprascrie fișiere. Dacă numele de la destinație e ocupat, fișierul primește `nume (2).ext`, apoi `nume (3).ext` și așa mai departe.
 - Nu redenumește fișiere și nu le etichetează. Aceste acțiuni nu există în versiunea de acum.
 - Nu se uită la conținutul fișierelor ca să le clasifice. Regulile se uită la nume, extensie, tip, mărime, date și cale. Singura citire de conținut e verificarea cu amprentă (hash) a fișierelor pe care le mută, le copiază sau le trimite la Coș, și compararea fișierelor de aceeași mărime pentru regulile de duplicate.
-- Nu iese pe internet (vezi [secțiunea 14](#14-confidențialitate)).
+- Pe internet merge doar ca să verifice dacă există o versiune nouă a lui Valet și, după ce îi dai voie, ca s-o descarce. Nu trimite nume de fișiere, căi sau conținut (vezi [secțiunea 14](#14-confidențialitate)).
 - Nu atinge folderele de sistem, fișierele ascunse și fișierele OneDrive sau Dropbox nedescărcate (vezi [secțiunea 12](#12-ce-nu-atinge-valet-niciodată)).
 
 ## 2. Prima pornire
@@ -60,7 +61,7 @@ La prima pornire apare un ghid în 3 pași. Nimic nu se mută în timpul lui. Gh
 - Descărcări și Desktop sunt bifate. Documente și Imagini nu sunt.
 - Poți adăuga alt folder scriind calea lui în câmpul „Adaugă alt folder”, de exemplu `C:\Users\nume\Proiecte`. Nu există fereastră de alegere a folderului.
 - Trebuie să bifezi cel puțin un folder.
-- Valet refuză un folder dacă e un disc întreg (`C:\`, `D:\`, `\\server\share`), dacă în calea lui apare un nume exclus implicit (de exemplu `AppData` sau `Program Files`) sau dacă nu există. Valet verifică folderele când apeși „Continuă” la pasul 2. Dacă unul e refuzat, primești un mesaj și revii la pasul 1.
+- Valet refuză un folder dacă e un disc întreg (`C:\`, `D:\`, `\\server\share`) sau dacă în calea lui apare un nume exclus implicit (de exemplu `AppData` sau `Program Files`). Un folder care nu există acum, de exemplu un disc extern scos, nu e refuzat: se salvează și e marcat „indisponibil” (vezi [secțiunea 11](#11-setări)). Valet verifică folderele când apeși „Continuă” la pasul 2. Dacă unul e refuzat, primești un mesaj și revii la pasul 1.
 - Lista se poate schimba oricând în Setări.
 
 **Pasul 2 din 3: regulile**
@@ -431,6 +432,7 @@ Aprobarea ține de o regulă, la o versiune, și de folderele urmărite ale prev
 - Eliminarea unui folder din listă îi șterge aprobările. Folderele rămase le păstrează pe ale lor.
 - Dacă un folder urmărit e în interiorul altuia, un fișier din folderul interior are nevoie de aprobare sub amândouă.
 - Butonul „Organizează” apare doar când previzualizarea are cel puțin o operație. Un folder în care nu e încă nimic de organizat se aprobă printr-o previzualizare ulterioară care are ceva de făcut.
+- Un folder urmărit indisponibil (de exemplu un disc extern scos) e sărit cât lipsește, își păstrează aprobările și e urmărit din nou când apare, în cel mult 10 minute (vezi [secțiunea 11](#11-setări)).
 - Un `approvals.json` scris de o versiune mai veche de Valet nu reținea foldere, deci nu aprobă niciun folder. După actualizare, rulează o previzualizare și apasă „Organizează” o dată.
 
 ## 10. Zona de notificare și pornirea cu Windows
@@ -453,12 +455,21 @@ Aprobarea ține de o regulă, la o versiune, și de folderele urmărite ale prev
 
 ![Setări](images/settings.png)
 
-- **Foldere urmărite:** lista folderelor. Scrii calea și apeși „Adaugă”, sau apeși „Elimină”. Valet refuză un disc întreg, un folder cu un nume exclus în cale (de exemplu `AppData`, `Program Files`, `.git`, `node_modules`) și un folder care nu există. Un folder adăugat nu se organizează automat până nu aprobi o previzualizare (vezi [secțiunea 9](#9-organizarea-automată)); o notă cu butonul „Deschide Previzualizarea” o spune.
-- **Foldere neurmărite:** aceleași verificări se fac și când Valet citește `config.json`, deci și un folder adăugat acolo cu mâna e verificat. O intrare care e un disc întreg, are un nume exclus în cale sau nu există nu e urmărită și nu e planificată. Rămâne în fișier. Setările o listează cu „Nu e urmărit:” și motivul, fără buton „Elimină”, și arată „Elimină folderele neurmărite”. Cât timp o asemenea intrare e în listă, „Adaugă” și celelalte butoane „Elimină” sunt inactive; un singur buton le elimină pe toate odată. Dacă nu rămâne niciun folder valid, previzualizarea scrie „Niciun folder urmărit nu există pe disc. Adaugă unul în Setări.”
+Captura arată ecranul Setări așa cum era înainte să fie adăugate secțiunile Actualizări, Asistență și Despre (descrise mai jos). Ecranul are, de sus în jos: folderele urmărite, opțiunile generale (limba, notificarea, pornirea cu Windows, aplicarea automată), Actualizări, Asistență și Despre.
+
+- **Foldere urmărite:** lista folderelor. Scrii calea și apeși „Adaugă”, sau apeși „Elimină”. Valet refuză un disc întreg și un folder cu un nume exclus în cale (de exemplu `AppData`, `Program Files`, `.git`, `node_modules`). Un folder care nu există acum e primit (vezi „Foldere indisponibile”). Un folder adăugat nu se organizează automat până nu aprobi o previzualizare (vezi [secțiunea 9](#9-organizarea-automată)); o notă cu butonul „Deschide Previzualizarea” o spune.
+- **Foldere indisponibile:** un folder din listă care nu există în acest moment, de exemplu pentru că discul extern e scos, se salvează și apare cu textul „Indisponibil acum (de exemplu, disc deconectat). Se reia automat când apare.” Are butonul „Elimină”, ca orice folder. Cât lipsește, Valet nu-l urmărește și nu-l planifică; celelalte foldere merg ca de obicei, iar fișierele din el nu sunt atinse. Dacă lipsesc toate folderele, previzualizarea scrie „Niciun folder urmărit nu există pe disc. Adaugă unul în Setări.” O previzualizare manuală citește discul de fiecare dată, deci vede folderul imediat ce a apărut. Organizarea automată citește lista din nou înainte de fiecare verificare completă (la 10 minute), deci îl reia în cel mult 10 minute, fără repornire. Folderul își păstrează aprobările. S-a testat cu foldere simulate, nu cu un disc extern real.
+- **Foldere neurmărite:** aceleași verificări de disc întreg și de nume exclus se fac și când Valet citește `config.json`, deci și un folder adăugat acolo cu mâna e verificat. O intrare care e un disc întreg sau are un nume exclus în cale nu e urmărită și nu e planificată. Rămâne în fișier. Setările o listează cu „Nu e urmărit:” și motivul, fără buton „Elimină”, și arată „Elimină folderele neurmărite”. Cât timp o asemenea intrare e în listă, „Adaugă” și celelalte butoane „Elimină” sunt inactive; un singur buton le elimină pe toate odată.
 - **Limba:** Română sau English. Se schimbă imediat. Regulile și presetările deja instalate își păstrează numele și folderele.
 - **Notificare scurtă după un lot:** pornită din oficiu.
 - **Pornește Valet odată cu Windows:** vezi [secțiunea 10](#10-zona-de-notificare-și-pornirea-cu-windows).
 - **Aplicare automată în folderele urmărite:** vezi [secțiunea 9](#9-organizarea-automată).
+- **Actualizări:** arată „Versiunea instalată: …”, lista „Canal de actualizare” (Stabil sau Beta; „Beta primește versiunile noi mai devreme, înainte să fie marcate stabile.”) și butonul „Verifică acum”. Rezultatul e „Ai cea mai nouă versiune.” sau „Versiunea … e disponibilă.”, cu data publicării și „Ce s-a schimbat” (textul notelor de versiune, afișat ca text simplu). „Instalează și repornește” cere o confirmare („Valet se va reporni. Nicio operație nu e întreruptă: instalarea așteaptă lotul în curs.”); apoi apare progresul descărcării. Dacă un lot rulează, Valet scrie „Aștept să se termine lotul în curs.” și reîncearcă singur; „Renunță” oprește așteptarea. Dacă verificarea automată găsește o versiune, apare o notificare, un semn „Actualizare disponibilă” pe butonul Setări și, pe celelalte ecrane, o notă cu butonul „Vezi în Setări”. Valet instalează doar după ce apeși și confirmi. Mai multe în [secțiunea 17](#17-instalare-actualizări-și-dezinstalare).
+  - Dacă versiunea ta nu are actualizările configurate (cum e cazul la o pornire din codul sursă), „Verifică acum” răspunde „Actualizările nu sunt configurate în această versiune.”
+  - Fără internet, răspunsul e „Serverul de actualizări nu a putut fi contactat. Verifică conexiunea la internet.”
+  - Verificarea automată nu se poate opri din Setări; se poate alege doar canalul.
+- **Asistență:** caseta „Jurnal detaliat (pentru depanare)”. Pornită, jurnalul scrie mai multe linii, care pot conține căi de fișiere; rămân pe calculatorul tău. Se aplică pe loc, fără repornire. Unde e jurnalul: [secțiunea 15](#15-unde-sunt-datele). Aplicația nu are un buton care să deschidă folderul de jurnal.
+- **Despre:** o linie cu versiunea, licența și adresa depozitului: „Valet … · Licență MIT · github.com/OsztrovszkyVlad/Valet”.
 
 Fiecare schimbare se salvează pe loc.
 
@@ -490,12 +501,18 @@ Cazul „disc fără Coș” s-a testat cu un Coș simulat. Nu s-a testat cu un 
 
 ## 14. Confidențialitate
 
-- Valet nu folosește internetul pentru fișierele tale. În codul aplicației nu există apeluri de rețea. Căutarea în cod, la versiunea din acest depozit, nu găsește nicio bibliotecă sau apel de rețea. Singurele adrese HTTP din proiect sunt `http://localhost:5173` (serverul local de dezvoltare, în `tauri.conf.json`) și `http://127.0.0.1` în testul automat al interfeței.
-- Actualizarea automată, verificarea licenței și raportarea de erori nu sunt încă în aplicație.
+Pagina completă, cu ce conține o cerere și ce se păstrează unde: [PRIVACY.ro.md](PRIVACY.ro.md). Pe scurt:
+
+- Valet nu trimite fișierele tale pe internet. Singurul cod al lui Valet care se conectează la internet e cel de actualizare.
+- Verificarea cere un fișier static (JSON) de pe una din două adrese GitHub, cea a canalului tău (Stabil sau Beta). Cererea nu conține nume de fișiere, căi, reguli sau conținut. GitHub vede ce vede orice server web: adresa ta IP, ora și programul care a cerut (`tauri-plugin-updater/2.14.1`). Versiunea instalată nu se trimite.
+- Se verifică la 30 de secunde după pornire, apoi o dată la 24 de ore cât rulează Valet, și când apeși „Verifică acum”. Verificarea automată nu instalează nimic și nu se poate opri din Setări.
+- Instalatorul unei versiuni noi se descarcă doar după ce apeși „Instalează și repornește” și confirmi. Semnătura lui e verificată cu o cheie publică din aplicație (o face pluginul de actualizare; Valet nu are un test pentru asta).
+- O versiune făcută fără cheile de actualizare, cum e orice pornire din codul sursă, nu face nicio verificare.
+- Nu există telemetrie, nu există rapoarte de erori (Sentry nu e integrat) și nu există verificare de licență. Dacă rapoartele de erori se adaugă, vor fi opt-in, cu un ecran „Ce trimitem”.
 - Nume de fișiere, căi și conținut nu pleacă de pe calculator.
 - Jurnalul (Istoricul) păstrează căile întregi ale fișierelor, pe discul tău.
-- Nu s-a făcut o captură a traficului de rețea la rularea aplicației. Nu se poate spune sigur că Tauri sau pluginurile lui nu fac nicio cerere la rulare.
-- Jurnalele de rulare scriu în dezvoltare căi întregi, la nivelul DEBUG. Un build de release, la nivelul INFO, e făcut să nu scrie căi, dar nu s-a construit un build de release ca să se verifice.
+- Nu s-a făcut o captură a traficului de rețea la rularea aplicației. Nu se poate spune sigur ce face WebView2 (o componentă Microsoft) sau ce fac pluginurile Tauri în afară de ce se vede în cod.
+- Jurnalele de rulare: nivelul INFO (implicit) nu scrie căi de fișiere, după cum s-au citit apelurile de jurnal din cod; niciun test nu verifică textul lor. Nivelul DEBUG (caseta „Jurnal detaliat” din Setări) poate scrie căi. Nu s-a rulat o versiune instalată ca să se verifice ce scrie.
 
 ## 15. Unde sunt datele
 
@@ -503,17 +520,45 @@ Cazul „disc fără Coș” s-a testat cu un Coș simulat. Nu s-a testat cu un 
 
 - `valet.sqlite3`: regulile și jurnalul de operații;
 - `config.json`: folderele urmărite;
-- `app_settings.json`: limba, notificările, pornirea cu Windows, aplicarea automată, dacă ai terminat ghidul de prima pornire și dacă ai aprobat o previzualizare;
+- `app_settings.json`: limba, notificările, pornirea cu Windows, aplicarea automată, dacă ai terminat ghidul de prima pornire, dacă ai aprobat o previzualizare, canalul de actualizare și caseta „Jurnal detaliat”;
 - `approvals.json`: regulile aprobate, versiunea la care a fost aprobată fiecare și folderele urmărite ale previzualizării care a aprobat-o.
 
-Valet nu șterge niciodată rânduri din jurnal. Jurnalul crește cu fiecare lot.
+Valet nu șterge niciodată rânduri din jurnal. Jurnalul crește cu fiecare lot. Versiunile mai vechi păstrau și un tabel de statistici; a fost eliminat, iar Istoricul se vede în continuare din jurnal.
+
+**Jurnalele de rulare** sunt în `%LOCALAPPDATA%\ro.valetapp.desktop\logs`. Fișierul activ e `valet.log`. La 2 MB se închide și se redenumește `valet_<data și ora>.log`; se păstrează cel mult 5 fișiere (cel activ și 4 mai vechi), deci cel mult aproximativ 10 MB. Ca să le deschizi, scrie calea în bara de adrese din Explorer. Calea vine din Tauri și nu s-a verificat pe o instalare Windows.
+
+- Din oficiu scriu nivelul INFO: ce a pornit, câte operații, id-uri de lot, avertismente și erori.
+- „Jurnal detaliat (pentru depanare)” în Setări, Asistență, trece pe DEBUG. Acolo pot apărea căi de fișiere. Jurnalul nu se trimite nicăieri; dacă îl trimiți cuiva, citește-l mai întâi.
+- Dacă programul se oprește dintr-o eroare internă (panică), se scrie în jurnal o linie „Panic at …” (căile din mesaj sunt înlocuite cu `<path>`). Operațiile rămase la jumătate se hotărăsc la următoarea pornire, ca după orice oprire (vezi [secțiunea 6](#6-istoric)).
 
 ## 16. Limite cunoscute
 
-- Versiune de test. Valet nu are instalator și nu a fost lansat.
+- Versiune de test. Nicio versiune nu a fost publicată, iar instalatorul nu e semnat (Windows SmartScreen avertizează, vezi [secțiunea 17](#17-instalare-actualizări-și-dezinstalare)).
+- Actualizarea nu a fost încă încercată pe un calculator Windows real: nu există o versiune publicată de la care să se actualizeze.
 - Acțiunile „redenumește” și „etichetează” din plan nu există.
 - Anularea merge pe lot întreg, nu pe fișier. Regulile nu se pot reordona din interfață.
 - Un folder urmărit adăugat mai târziu se organizează automat doar după ce aprobi o previzualizare (vezi [secțiunea 9](#9-organizarea-automată)).
 - Windows poate pierde evenimente de schimbare când sunt foarte multe. Verificarea completă la 10 minute le prinde. Valet nu poate cere singur o rescanare în acel caz, așa că un fișier poate aștepta până la 10 minute.
-- Testele care folosesc Windows real (Coș, atribute, restaurare din Coș) rulează în CI pe `windows-latest`. Au trecut la ultima versiune rulată de CI (`c5acb7d`); schimbările mai noi nu au fost încă rulate pe Windows. Detalii în [SAFETY.md](SAFETY.md). Restaurarea din Coșul de reciclare Windows a fost testată doar pe mașina CI. Pană de curent, OneDrive și Dropbox reale, USB și resursele de rețea nu s-au testat.
+- Testele care folosesc Windows real (Coș, atribute, restaurare din Coș) rulează în CI pe `windows-latest`. Starea lor pe fiecare commit, inclusiv ce a trecut și ce nu s-a rulat, e în [SAFETY.md](SAFETY.md). Restaurarea din Coșul de reciclare Windows a fost testată doar pe mașina CI. Pană de curent, OneDrive și Dropbox reale, USB, resursele de rețea și un disc extern real scos și reconectat nu s-au testat.
 - Alte limite și cazuri, cu testele care le acoperă, sunt în [SAFETY.md](SAFETY.md).
+
+## 17. Instalare, actualizări și dezinstalare
+
+**Instalare.** Nicio versiune nu a fost publicată încă. Când va exista una, instalatorul va fi pe pagina [GitHub Releases](https://github.com/OsztrovszkyVlad/Valet/releases), cu numele `Valet_<versiune>_x64-setup.exe`. Instalatorul e făcut să:
+
+- se instaleze doar pentru utilizatorul curent, fără drepturi de administrator, în `%LOCALAPPDATA%\Valet` (folderul implicit al șablonului Tauri; nu s-a verificat pe Windows);
+- ofere limba engleză sau română, un folder „Valet” în meniul Start și, opțional, o scurtătură pe desktop;
+- descarce Microsoft WebView2 dacă lipsește (singurul caz în care instalatorul are nevoie de internet).
+
+Instalatorul nu a fost rulat pe Windows în sesiunile care au scris acest ghid.
+
+**Avertismentul Windows SmartScreen.** Instalatorul și aplicația nu sunt semnate digital încă. Din cauza asta, Windows SmartScreen arată la rulare „Windows protected your PC” (în Windows cu limba română textul e tradus; nu s-a verificat cum). Ca să continui, apasă „More info”, apoi „Run anyway”. Avertismentul apare pentru programe nesemnate și puțin descărcate; nu e rezultatul unei analize a lui Valet. Un certificat de semnare gratuit pentru proiecte open-source (SignPath Foundation sau Certum Open Source) nu a fost obținut încă. Dacă vrei să verifici fișierul descărcat, rularea „Release” din GitHub Actions listează suma SHA-256 a instalatorului; o compari cu rezultatul comenzii `Get-FileHash Valet_<versiune>_x64-setup.exe -Algorithm SHA256`.
+
+**Actualizări.** În Setări, Actualizări, alegi canalul (Stabil sau Beta) și apeși „Verifică acum”, sau aștepți verificarea automată (vezi [secțiunea 14](#14-confidențialitate)). Dacă există o versiune nouă, apeși „Instalează și repornește” și confirmi. Dacă un lot de operații rulează, instalarea așteaptă să se termine. Valet se repornește singur; regulile, istoricul și setările rămân. Actualizările există doar în versiunile făcute cu cheile de semnare ale actualizatorului; o versiune fără ele răspunde „Actualizările nu sunt configurate în această versiune.”, iar atunci instalezi manual instalatorul nou. Nu instala o versiune mai veche peste una mai nouă: versiunea veche s-ar putea să nu poată deschide baza de date pe care a migrat-o cea nouă (nu s-a testat).
+
+**Dezinstalare.** Din Windows, Setări, Aplicații, Valet, Dezinstalează (sau cu dezinstalatorul din folderul de instalare).
+
+- Datele tale rămân din oficiu: setările, regulile, aprobările și jurnalul, deci Istoricul și anularea merg și după o reinstalare.
+- Dezinstalatorul are o casetă „Șterge datele aplicației”, nebifată la început. Bifată, șterge `%APPDATA%\ro.valetapp.desktop` (inclusiv jurnalul de operații, deci Istoricul și anularea dispar) și `%LOCALAPPDATA%\ro.valetapp.desktop` (jurnalele de rulare). Asta s-a citit din șablonul Tauri; nu s-a rulat o dezinstalare pe Windows.
+- Intrarea „Pornește Valet odată cu Windows” se șterge la dezinstalare.
+- Fișierele pe care Valet le-a mutat sau copiat rămân unde sunt, iar cele din Coșul de reciclare rămân în Coș. Dezinstalarea nu anulează nimic. Dacă vrei să anulezi un lot, fă-o din Istoric înainte de dezinstalare.
