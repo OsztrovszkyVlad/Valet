@@ -347,6 +347,10 @@ button:focus-visible {
     color: #1e40af;
 }
 
+.update-note span {
+    flex: 1;
+}
+
 .notice-message .error-close {
     color: #1e40af;
 }

@@ -56,6 +56,8 @@ const SETTINGS: AppSettings = {
     auto_apply_enabled: false,
     first_preview_approved: false,
     onboarding_done: false,
+    update_channel: 'stable',
+    debug_logging: false,
 };
 
 let completeError: string | null;

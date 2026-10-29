@@ -93,3 +93,47 @@
 .settings-select {
     max-width: 16rem;
 }
+
+.settings-folder-unavailable code {
+    color: #6b7280;
+}
+
+.settings-update-actions {
+    margin: 0.5rem 0;
+}
+
+.settings-update-result p {
+    margin: 0.5rem 0;
+}
+
+.settings-update-error {
+    color: #dc2626;
+}
+
+.settings-update-notes h4 {
+    margin: 0.5rem 0 0.25rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+.settings-update-notes p {
+    white-space: pre-wrap;
+    max-height: 12rem;
+    overflow-y: auto;
+    font-size: 0.875rem;
+}
+
+.settings-update-confirm {
+    margin-top: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.settings-update-progress progress {
+    width: 100%;
+    max-width: 24rem;
+}
+
+.settings-about {
+    margin: 0;
+    user-select: text;
+}

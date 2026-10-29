@@ -4,15 +4,19 @@ import {
     configureAutoStart,
     errorMessage,
     getAppSettings,
+    getAppVersion,
     getAutoStart,
     getConfig,
     saveAppSettings,
     saveConfig,
     type AppSettings,
     type Config,
+    type ConfigView,
     type InvalidConfigPath,
     type Language,
+    type UpdateChannel,
 } from '../api/commands';
+import UpdateSection from '../components/UpdateSection';
 import { commandErrorText } from '../i18n/format';
 import './SettingsView.css';
 
@@ -20,17 +24,30 @@ type Status = 'idle' | 'saving' | 'saved';
 
 const LANGUAGES: Language[] = ['ro', 'en'];
 
+/** The stored config and the entries `get_config` reports as invalid or unavailable. */
+function splitConfigView(c: ConfigView): { config: Config; invalid: InvalidConfigPath[]; unavailable: string[] } {
+    const { invalid_paths: invalidPaths, unavailable_paths: unavailablePaths, ...config } = c;
+    return {
+        config,
+        invalid: Array.isArray(invalidPaths) ? invalidPaths : [],
+        unavailable: Array.isArray(unavailablePaths) ? unavailablePaths : [],
+    };
+}
+
 interface SettingsViewProps {
     /** Opens the Preview screen (offered after a folder is added). */
     onOpenPreview?: () => void;
+    /** Version announced by the backend's daily update check, if any. */
+    announcedVersion?: string | null;
 }
 
 /**
- * Secondary screen: language, watched folders, notifications, autostart, auto-apply. Each change saves at once.
+ * Secondary screen: watched folders, general options, updates, support and about. Each change saves at once.
  * Watched folders the backend reports as invalid are marked with the reason; the list can be changed only
- * after they are removed, because `save_config` refuses a list that contains one.
+ * after they are removed, because `save_config` refuses a list that contains one. Unavailable folders
+ * (missing right now) are marked too and stay removable one by one.
  */
-const SettingsView: React.FC<SettingsViewProps> = ({ onOpenPreview }) => {
+const SettingsView: React.FC<SettingsViewProps> = ({ onOpenPreview, announcedVersion = null }) => {
     const { t, i18n } = useTranslation();
     const [settings, setSettings] = useState<AppSettings | null>(null);
     const [config, setConfig] = useState<Config | null>(null);
@@ -40,20 +57,34 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onOpenPreview }) => {
     const [newFolder, setNewFolder] = useState('');
     // Entries of a hand-edited config.json that are not watched.
     const [invalid, setInvalid] = useState<InvalidConfigPath[]>([]);
+    // Valid entries that do not exist right now (e.g. an unplugged drive).
+    const [unavailable, setUnavailable] = useState<string[]>([]);
+    // Null when `get_app_version` failed.
+    const [version, setVersion] = useState<string | null>(null);
     // Shown after a folder is added: it needs an approved preview first.
     const [addedNotice, setAddedNotice] = useState(false);
+
+    const applyConfigView = (c: ConfigView) => {
+        const split = splitConfigView(c);
+        setConfig(split.config);
+        setInvalid(split.invalid);
+        setUnavailable(split.unavailable);
+    };
 
     useEffect(() => {
         let cancelled = false;
         // The auto-start entry can change outside Valet (Task Manager); show its real state.
         const autoStart = getAutoStart().catch(() => null);
-        Promise.all([getAppSettings(), getConfig(), autoStart])
-            .then(([s, c, a]) => {
+        const appVersion = getAppVersion().catch(() => null);
+        Promise.all([getAppSettings(), getConfig(), autoStart, appVersion])
+            .then(([s, c, a, v]) => {
                 if (!cancelled) {
                     setSettings(a === null ? s : { ...s, auto_start: a });
-                    const { invalid_paths: invalidPaths, ...stored } = c;
-                    setConfig(stored);
-                    setInvalid(Array.isArray(invalidPaths) ? invalidPaths : []);
+                    const split = splitConfigView(c);
+                    setConfig(split.config);
+                    setInvalid(split.invalid);
+                    setUnavailable(split.unavailable);
+                    setVersion(v);
                 }
             })
             .catch((err: unknown) => {
@@ -126,9 +157,16 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onOpenPreview }) => {
         setError('');
         setStatus('saving');
         try {
-            setConfig(await saveConfig({ ...config, inbox_paths: inboxPaths }));
-            // save_config accepts only lists without invalid entries.
-            setInvalid([]);
+            const saved = await saveConfig({ ...config, inbox_paths: inboxPaths });
+            try {
+                // Which of the saved folders exist right now.
+                applyConfigView(await getConfig());
+            } catch {
+                setConfig(saved);
+                // save_config accepts only lists without invalid entries.
+                setInvalid([]);
+                setUnavailable((prev) => prev.filter((p) => saved.inbox_paths.includes(p)));
+            }
             setStatus('saved');
             return true;
         } catch (err) {
@@ -154,6 +192,10 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onOpenPreview }) => {
     };
 
     const removeFolder = (path: string) => saveFolders(config.inbox_paths.filter((p) => p !== path));
+
+    const isUnavailable = (path: string) => unavailable.includes(path);
+
+    const changeChannel = (update_channel: UpdateChannel) => void updateSettings({ update_channel });
 
     const removeInvalid = () => saveFolders(config.inbox_paths.filter((p) => invalidCode(p) === undefined));
 
@@ -209,8 +251,14 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onOpenPreview }) => {
                     <ul className="settings-folders">
                         {config.inbox_paths.map((path) => {
                             const code = invalidCode(path);
+                            const away = !code && isUnavailable(path);
                             return (
-                                <li key={path} className={code ? 'settings-folder-invalid' : undefined}>
+                                <li
+                                    key={path}
+                                    className={
+                                        code ? 'settings-folder-invalid' : away ? 'settings-folder-unavailable' : undefined
+                                    }
+                                >
                                     <div className="settings-folder-text">
                                         <code>{path}</code>
                                         {code && (
@@ -218,6 +266,11 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onOpenPreview }) => {
                                                 {t('settings.invalidReason', {
                                                     reason: t(`backendError.${code}`),
                                                 })}
+                                            </small>
+                                        )}
+                                        {away && (
+                                            <small className="settings-folder-reason">
+                                                {t('settings.unavailableReason')}
                                             </small>
                                         )}
                                     </div>
@@ -319,6 +372,41 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onOpenPreview }) => {
                         {!settings.first_preview_approved && <> {t('settings.autoApplyLocked')}</>}
                     </small>
                 </div>
+            </section>
+
+            <UpdateSection
+                version={version}
+                channel={settings.update_channel}
+                saving={saving}
+                onChannelChange={changeChannel}
+                announcedVersion={announcedVersion}
+            />
+
+            <section className="settings-section">
+                <h3>{t('settings.supportTitle')}</h3>
+                <div className="form-group">
+                    <label className="checkbox-label">
+                        <input
+                            type="checkbox"
+                            className="form-checkbox"
+                            checked={settings.debug_logging}
+                            disabled={saving}
+                            aria-describedby="settings-debug-logging-help"
+                            onChange={(e) => void updateSettings({ debug_logging: e.target.checked })}
+                        />
+                        <span className="checkbox-text">{t('settings.debugLogging')}</span>
+                    </label>
+                    <small id="settings-debug-logging-help" className="form-help">
+                        {t('settings.debugLoggingHelp')} {t('settings.debugLoggingRestart')}
+                    </small>
+                </div>
+            </section>
+
+            <section className="settings-section">
+                <h3>{t('settings.aboutTitle')}</h3>
+                <p className="settings-about" data-testid="settings-about">
+                    {version !== null ? t('settings.aboutLine', { version }) : t('settings.aboutLineNoVersion')}
+                </p>
             </section>
         </div>
     );

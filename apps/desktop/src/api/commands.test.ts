@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import {
+    checkForUpdate,
+    getAppVersion,
+    installUpdate,
+    onUpdateAvailable,
+    onUpdateProgress,
     closePreview,
     completeOnboarding,
     configureAutoStart,
@@ -23,8 +29,10 @@ import {
 } from './commands';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
+vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn() }));
 
 const invokeMock = vi.mocked(invoke);
+const listenMock = vi.mocked(listen);
 
 beforeEach(() => {
     invokeMock.mockReset();
@@ -59,6 +67,8 @@ describe('command wrappers', () => {
             auto_apply_enabled: false,
             first_preview_approved: false,
             onboarding_done: true,
+            update_channel: 'stable',
+            debug_logging: false,
         };
         invokeMock.mockResolvedValueOnce(settings);
         await expect(saveAppSettings(settings)).resolves.toEqual(settings);
@@ -110,6 +120,42 @@ describe('command wrappers', () => {
     it('pass rejections through unchanged', async () => {
         invokeMock.mockRejectedValueOnce('preview_required');
         await expect(executeOperations('old')).rejects.toBe('preview_required');
+    });
+});
+
+describe('updater wrappers', () => {
+    it('call the updater commands without arguments', async () => {
+        invokeMock.mockResolvedValueOnce('0.3.0');
+        await expect(getAppVersion()).resolves.toBe('0.3.0');
+        expect(invokeMock).toHaveBeenLastCalledWith('get_app_version');
+
+        const found = { available: true, version: '0.4.0', notes: 'n', date: '2026-10-29T10:00:00Z' };
+        invokeMock.mockResolvedValueOnce(found);
+        await expect(checkForUpdate()).resolves.toEqual(found);
+        expect(invokeMock).toHaveBeenLastCalledWith('check_for_update');
+
+        await installUpdate();
+        expect(invokeMock).toHaveBeenLastCalledWith('install_update');
+
+        invokeMock.mockRejectedValueOnce('update.busy');
+        await expect(installUpdate()).rejects.toBe('update.busy');
+    });
+
+    it('subscribe to update-progress and update-available with the payload', async () => {
+        const handlers = new Map<string, (e: { payload: unknown }) => void>();
+        const unlisten = vi.fn();
+        listenMock.mockImplementation(async (event, handler) => {
+            handlers.set(event, handler as (e: { payload: unknown }) => void);
+            return unlisten;
+        });
+        const progress = vi.fn();
+        const available = vi.fn();
+        await expect(onUpdateProgress(progress)).resolves.toBe(unlisten);
+        await expect(onUpdateAvailable(available)).resolves.toBe(unlisten);
+        handlers.get('update-progress')?.({ payload: { downloaded: 10, total: null } });
+        handlers.get('update-available')?.({ payload: { version: '0.4.0' } });
+        expect(progress).toHaveBeenCalledWith({ downloaded: 10, total: null });
+        expect(available).toHaveBeenCalledWith({ version: '0.4.0' });
     });
 });
 

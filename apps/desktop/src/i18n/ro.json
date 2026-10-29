@@ -4,7 +4,8 @@
     "label": "Ecran principal",
     "preview": "Previzualizare",
     "rules": "Reguli",
-    "settings": "Setări"
+    "settings": "Setări",
+    "updateBadge": "Actualizare disponibilă"
   },
   "common": {
     "cancel": "Renunță",
@@ -205,7 +206,37 @@
     "invalidHelp": "Unele foldere din listă nu sunt urmărite. Elimină-le ca să poți schimba lista.",
     "removeInvalid": "Elimină folderele neurmărite",
     "newFolderNotice": "Folderul nou se organizează automat doar după o previzualizare aprobată.",
-    "openPreview": "Deschide Previzualizarea"
+    "openPreview": "Deschide Previzualizarea",
+    "unavailableReason": "Indisponibil acum (de exemplu, disc deconectat). Se reia automat când apare.",
+    "updatesTitle": "Actualizări",
+    "currentVersion": "Versiunea instalată: {{version}}",
+    "versionUnknown": "Versiunea instalată nu a putut fi citită.",
+    "updateChannel": "Canal de actualizare",
+    "channelStable": "Stabil",
+    "channelBeta": "Beta",
+    "channelHelp": "Beta primește versiunile noi mai devreme, înainte să fie marcate stabile.",
+    "updatePrivacy": "Valet se conectează la internet pentru actualizări doar când apeși „Verifică acum” și o dată pe zi, la verificarea automată. Nu trimite nume sau căi de fișiere.",
+    "checkNow": "Verifică acum",
+    "checking": "Se verifică...",
+    "upToDate": "Ai cea mai nouă versiune.",
+    "updateFound": "Versiunea {{version}} e disponibilă.",
+    "updateDate": "Publicată: {{date}}",
+    "updateNotes": "Ce s-a schimbat",
+    "install": "Instalează și repornește",
+    "installConfirm": "Valet se va reporni. Nicio operație nu e întreruptă: instalarea așteaptă lotul în curs.",
+    "installConfirmButton": "Confirmă instalarea",
+    "installing": "Se descarcă actualizarea...",
+    "restarting": "Se repornește Valet...",
+    "progress": "Descărcat: {{downloaded}} din {{total}}",
+    "progressUnknown": "Descărcat: {{downloaded}}",
+    "progressLabel": "Progresul descărcării",
+    "supportTitle": "Asistență",
+    "debugLogging": "Jurnal detaliat (pentru depanare)",
+    "debugLoggingHelp": "Poate conține căi de fișiere. Rămâne pe calculatorul tău.",
+    "debugLoggingRestart": "Se aplică după repornire.",
+    "aboutTitle": "Despre",
+    "aboutLine": "Valet {{version}} · Licență MIT · github.com/OsztrovszkyVlad/Valet",
+    "aboutLineNoVersion": "Valet · Licență MIT · github.com/OsztrovszkyVlad/Valet"
   },
   "backendError": {
     "config": {
@@ -234,11 +265,19 @@
       "storage": "Regulile nu au putut fi citite sau salvate."
     },
     "settings": {
-      "io": "Setările nu au putut fi salvate."
+      "io": "Setările nu au putut fi salvate.",
+      "invalidChannel": "Canalul de actualizare nu e valid. Alege Stabil sau Beta."
     },
     "preset": {
       "unknown": "Presetare necunoscută.",
       "storage": "Presetările nu au putut fi instalate."
+    },
+    "update": {
+      "notConfigured": "Actualizările nu sunt configurate în această versiune.",
+      "network": "Serverul de actualizări nu a putut fi contactat. Verifică conexiunea la internet.",
+      "busy": "Aștept să se termine lotul în curs.",
+      "noUpdate": "Nu există o versiune mai nouă.",
+      "failed": "Actualizarea nu a reușit. Detaliile sunt în jurnal."
     }
   },
   "folder": {
@@ -444,5 +483,9 @@
     "ruleCount_other": "{{count}} de reguli",
     "language": "Limba",
     "languageSaveFailed": "Limba nu a putut fi salvată: {{message}}"
+  },
+  "updateNote": {
+    "text": "Versiunea {{version}} e disponibilă.",
+    "open": "Vezi în Setări"
   }
 }

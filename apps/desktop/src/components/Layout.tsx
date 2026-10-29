@@ -13,9 +13,11 @@ interface LayoutProps {
     onViewChange: (view: View) => void;
     /** Shown above the active view on every screen, e.g. the last-batch undo box. */
     banner?: ReactNode;
+    /** Marks the Settings button: an update is available. */
+    updateBadge?: boolean;
 }
 
-const Layout: React.FC<LayoutProps> = ({ children, activeView, onViewChange, banner }) => {
+const Layout: React.FC<LayoutProps> = ({ children, activeView, onViewChange, banner, updateBadge = false }) => {
     const { t } = useTranslation();
 
     return (
@@ -47,6 +49,15 @@ const Layout: React.FC<LayoutProps> = ({ children, activeView, onViewChange, ban
                             ⚙
                         </span>
                         {t('nav.settings')}
+                        {updateBadge && (
+                            <span
+                                className="nav-settings-badge"
+                                data-testid="nav-settings-badge"
+                                role="img"
+                                aria-label={t('nav.updateBadge')}
+                                title={t('nav.updateBadge')}
+                            />
+                        )}
                     </button>
                 </div>
             </header>

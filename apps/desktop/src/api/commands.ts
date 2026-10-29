@@ -212,6 +212,10 @@ export function undoBatch(batchId: string, force: boolean): Promise<UndoReport> 
 
 export type Language = 'ro' | 'en';
 
+/** Updater channels `save_app_settings` accepts; anything else is `settings.invalidChannel`. */
+export const UPDATE_CHANNELS = ['stable', 'beta'] as const;
+export type UpdateChannel = (typeof UPDATE_CHANNELS)[number];
+
 /** `app_settings.json`, settings v2. */
 export interface AppSettings {
     language: Language;
@@ -222,6 +226,10 @@ export interface AppSettings {
     /** Set by the backend after the user approves a preview. Read-only here. */
     first_preview_approved: boolean;
     onboarding_done: boolean;
+    /** Always set by `get_app_settings` and `save_app_settings`. */
+    update_channel: UpdateChannel;
+    /** DEBUG-level log (may contain paths; stays on this computer). */
+    debug_logging: boolean;
 }
 
 /** `config.json`. Only `inbox_paths` is edited by the UI; other fields are sent back unchanged. */
@@ -239,8 +247,8 @@ export function saveAppSettings(settings: AppSettings): Promise<AppSettings> {
     return invoke<AppSettings>('save_app_settings', { settings });
 }
 
-/** Why a `config.json` entry is not watched. */
-export type InvalidConfigCode = 'config.driveRoot' | 'config.excludedFolder' | 'config.missing';
+/** Why a `config.json` entry is refused. */
+export type InvalidConfigCode = 'config.driveRoot' | 'config.excludedFolder';
 
 /** A `config.json` entry (from a hand-edited file) that is not watched or planned. */
 export interface InvalidConfigPath {
@@ -249,19 +257,25 @@ export interface InvalidConfigPath {
 }
 
 /**
- * What `get_config` returns: the stored config, invalid entries included in
- * `inbox_paths`, plus `invalid_paths`. `saveConfig` refuses a list that still
- * contains an invalid entry.
+ * What `get_config` returns: the stored config, every entry included in
+ * `inbox_paths`, plus `invalid_paths` (refused; `saveConfig` rejects a list
+ * that still contains one) and `unavailable_paths` (valid folders that do not
+ * exist right now, e.g. an unplugged drive; saved, not watched until they
+ * exist again).
  */
 export interface ConfigView extends Config {
     invalid_paths: InvalidConfigPath[];
+    unavailable_paths: string[];
 }
 
 export function getConfig(): Promise<ConfigView> {
     return invoke<ConfigView>('get_config');
 }
 
-/** Rejects with a code such as `config.driveRoot` when a folder cannot be watched. */
+/**
+ * Rejects with a code such as `config.driveRoot` when a folder cannot be
+ * watched. A folder that does not exist is saved (unavailable).
+ */
 export function saveConfig(config: Config): Promise<Config> {
     return invoke<Config>('save_config', { config });
 }
@@ -419,6 +433,59 @@ export interface OnboardingResult {
  */
 export function completeOnboarding(folders: string[], presetIds: string[]): Promise<OnboardingResult> {
     return invoke<OnboardingResult>('complete_onboarding', { folders, presetIds });
+}
+
+// ---------------------------------------------------------------- updater
+
+/** Result of `check_for_update`. `version`, `notes` and `date` come with `available: true`. */
+export interface UpdateCheck {
+    available: boolean;
+    version?: string;
+    notes?: string;
+    date?: string;
+}
+
+/** Version of the running app. */
+export function getAppVersion(): Promise<string> {
+    return invoke<string>('get_app_version');
+}
+
+/**
+ * Asks the update server of the saved channel for a newer version. Rejects
+ * with `update.notConfigured` (builds without an updater), `update.network`
+ * or `update.failed`.
+ */
+export function checkForUpdate(): Promise<UpdateCheck> {
+    return invoke<UpdateCheck>('check_for_update');
+}
+
+/**
+ * Downloads and installs the update, then restarts Valet. Rejects with
+ * `update.busy` while a batch runs, `update.noUpdate`, `update.network`,
+ * `update.notConfigured` or `update.failed`.
+ */
+export function installUpdate(): Promise<void> {
+    return invoke<void>('install_update');
+}
+
+/** Payload of `update-progress`, sent while `installUpdate` downloads. Bytes. */
+export interface UpdateProgress {
+    downloaded: number;
+    /** Null when the server does not send a size. */
+    total: number | null;
+}
+
+/** Payload of `update-available`, sent by the backend's daily check. */
+export interface UpdateAvailable {
+    version: string;
+}
+
+export function onUpdateProgress(handler: (event: UpdateProgress) => void): Promise<UnlistenFn> {
+    return listen<UpdateProgress>('update-progress', (e) => handler(e.payload));
+}
+
+export function onUpdateAvailable(handler: (event: UpdateAvailable) => void): Promise<UnlistenFn> {
+    return listen<UpdateAvailable>('update-available', (e) => handler(e.payload));
 }
 
 // ---------------------------------------------------------------- events

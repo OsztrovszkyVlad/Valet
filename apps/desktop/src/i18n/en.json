@@ -4,7 +4,8 @@
     "label": "Main screen",
     "preview": "Preview",
     "rules": "Rules",
-    "settings": "Settings"
+    "settings": "Settings",
+    "updateBadge": "Update available"
   },
   "common": {
     "cancel": "Cancel",
@@ -205,7 +206,37 @@
     "invalidHelp": "Some folders in the list are not watched. Remove them to change the list.",
     "removeInvalid": "Remove the folders not watched",
     "newFolderNotice": "The new folder is organized automatically only after an approved preview.",
-    "openPreview": "Open Preview"
+    "openPreview": "Open Preview",
+    "unavailableReason": "Unavailable right now (for example, a disconnected drive). Resumes automatically when it is back.",
+    "updatesTitle": "Updates",
+    "currentVersion": "Installed version: {{version}}",
+    "versionUnknown": "The installed version could not be read.",
+    "updateChannel": "Update channel",
+    "channelStable": "Stable",
+    "channelBeta": "Beta",
+    "channelHelp": "Beta gets new versions earlier, before they are marked stable.",
+    "updatePrivacy": "Valet connects to the internet for updates only when you click “Check now” and once a day, for the automatic check. No file names or paths are sent.",
+    "checkNow": "Check now",
+    "checking": "Checking...",
+    "upToDate": "You have the newest version.",
+    "updateFound": "Version {{version}} is available.",
+    "updateDate": "Published: {{date}}",
+    "updateNotes": "What changed",
+    "install": "Install and restart",
+    "installConfirm": "Valet will restart. No operation is interrupted: the installation waits for the running batch.",
+    "installConfirmButton": "Confirm installation",
+    "installing": "Downloading the update...",
+    "restarting": "Restarting Valet...",
+    "progress": "Downloaded: {{downloaded}} of {{total}}",
+    "progressUnknown": "Downloaded: {{downloaded}}",
+    "progressLabel": "Download progress",
+    "supportTitle": "Support",
+    "debugLogging": "Detailed log (for troubleshooting)",
+    "debugLoggingHelp": "May contain file paths. Stays on your computer.",
+    "debugLoggingRestart": "Applies after a restart.",
+    "aboutTitle": "About",
+    "aboutLine": "Valet {{version}} · MIT license · github.com/OsztrovszkyVlad/Valet",
+    "aboutLineNoVersion": "Valet · MIT license · github.com/OsztrovszkyVlad/Valet"
   },
   "backendError": {
     "config": {
@@ -234,11 +265,19 @@
       "storage": "Rules could not be read or saved."
     },
     "settings": {
-      "io": "Settings could not be saved."
+      "io": "Settings could not be saved.",
+      "invalidChannel": "The update channel is not valid. Choose Stable or Beta."
     },
     "preset": {
       "unknown": "Unknown preset.",
       "storage": "Presets could not be installed."
+    },
+    "update": {
+      "notConfigured": "Updates are not configured in this version.",
+      "network": "The update server could not be reached. Check the internet connection.",
+      "busy": "Waiting for the running batch to finish.",
+      "noUpdate": "There is no newer version.",
+      "failed": "The update failed. The details are in the log."
     }
   },
   "folder": {
@@ -441,5 +480,9 @@
     "ruleCount_other": "{{count}} rules",
     "language": "Language",
     "languageSaveFailed": "The language could not be saved: {{message}}"
+  },
+  "updateNote": {
+    "text": "Version {{version}} is available.",
+    "open": "Open Settings"
   }
 }

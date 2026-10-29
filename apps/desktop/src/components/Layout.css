@@ -74,6 +74,14 @@
     font-size: 1.1rem;
 }
 
+.nav-settings-badge {
+    display: inline-block;
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background: #dc2626;
+}
+
 .main-content {
     flex: 1;
     padding: 1.5rem;

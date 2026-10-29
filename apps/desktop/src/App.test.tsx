@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import App from './App';
-import type { AppSettings, BatchFinished, BatchInfo, DryRunResponse } from './api/commands';
+import type { AppSettings, BatchFinished, BatchInfo, DryRunResponse, UpdateAvailable } from './api/commands';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn() }));
@@ -13,6 +13,7 @@ const listenMock = vi.mocked(listen);
 let settings: AppSettings;
 let batches: BatchInfo[];
 let batchFinished: ((e: { payload: BatchFinished }) => void) | null;
+let updateAvailable: ((e: { payload: UpdateAvailable }) => void) | null;
 const unlisten = vi.fn();
 
 const PREVIEW: DryRunResponse = {
@@ -32,12 +33,16 @@ beforeEach(() => {
         auto_apply_enabled: false,
         first_preview_approved: false,
         onboarding_done: false,
+        update_channel: 'stable',
+        debug_logging: false,
     };
     batches = [];
     batchFinished = null;
+    updateAvailable = null;
     listenMock.mockReset();
     listenMock.mockImplementation(async (event, handler) => {
         if (event === 'batch-finished') batchFinished = handler as typeof batchFinished;
+        if (event === 'update-available') updateAvailable = handler as typeof updateAvailable;
         return unlisten;
     });
     invokeMock.mockReset();
@@ -62,6 +67,10 @@ beforeEach(() => {
                 return { inbox_paths: ['C:\\D'] };
             case 'get_batch':
                 return { batch: batches[0], operations: [] };
+            case 'get_auto_start':
+                return false;
+            case 'get_app_version':
+                return '0.3.0';
             default:
                 throw new Error(`unexpected command ${cmd}`);
         }
@@ -134,5 +143,41 @@ describe('App', () => {
         await waitFor(() => expect(batchFinished).not.toBeNull());
         act(() => batchFinished?.({ payload: { batch_id: 'b-0', done: 0, failed: 1, auto: true } }));
         expect(screen.queryByRole('region', { name: 'Ultimul lot' })).toBeNull();
+    });
+
+    it('marks the Settings button and shows a dismissible note when the daily check finds an update', async () => {
+        settings.onboarding_done = true;
+        render(<App />);
+        await screen.findByRole('tab', { name: 'Previzualizare' });
+        await waitFor(() => expect(updateAvailable).not.toBeNull());
+        expect(screen.queryByTestId('nav-settings-badge')).toBeNull();
+        expect(screen.queryByTestId('update-note')).toBeNull();
+
+        act(() => updateAvailable?.({ payload: { version: '0.4.0' } }));
+        expect(screen.getByRole('img', { name: 'Actualizare disponibilă' })).toBeTruthy();
+        const note = screen.getByTestId('update-note');
+        expect(within(note).getByText('Versiunea 0.4.0 e disponibilă.')).toBeTruthy();
+
+        // The note goes away when closed; the badge stays.
+        fireEvent.click(within(note).getByRole('button', { name: 'Închide' }));
+        expect(screen.queryByTestId('update-note')).toBeNull();
+        expect(screen.getByTestId('nav-settings-badge')).toBeTruthy();
+        expect(calls('check_for_update')).toHaveLength(0);
+        expect(calls('install_update')).toHaveLength(0);
+    });
+
+    it('opens Settings from the update note, where the update can be installed', async () => {
+        settings.onboarding_done = true;
+        render(<App />);
+        await screen.findByRole('tab', { name: 'Previzualizare' });
+        await waitFor(() => expect(updateAvailable).not.toBeNull());
+        act(() => updateAvailable?.({ payload: { version: '0.4.0' } }));
+
+        fireEvent.click(screen.getByRole('button', { name: 'Vezi în Setări' }));
+        expect(await screen.findByRole('heading', { name: 'Setări' })).toBeTruthy();
+        expect(await screen.findByText('Versiunea 0.4.0 e disponibilă.')).toBeTruthy();
+        expect(screen.getByRole('button', { name: 'Instalează și repornește' })).toBeTruthy();
+        expect(screen.queryByTestId('update-note')).toBeNull();
+        expect(calls('install_update')).toHaveLength(0);
     });
 });

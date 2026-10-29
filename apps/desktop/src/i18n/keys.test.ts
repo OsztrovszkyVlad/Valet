@@ -120,12 +120,20 @@ describe('run-time i18n keys', () => {
         expect(missing(keys)).toEqual([]);
     });
 
-    it('cover every rule.*, config.*, settings.* and preset.* code in the Rust commands', () => {
-        const codes = rustCodes(['rule.', 'config.', 'settings.', 'preset.']);
+    it('cover every rule.*, config.*, settings.*, preset.* and update.* code in the Rust commands', () => {
+        const codes = rustCodes(['rule.', 'config.', 'settings.', 'preset.', 'update.']);
         expect(codes).toContain('rule.invalidRegex');
         expect(codes).toContain('config.driveRoot');
+        expect(codes).toContain('settings.invalidChannel');
         expect(codes.length).toBeGreaterThanOrEqual(22);
         expect(missing(codes.map((c) => `backendError.${c}`))).toEqual([]);
+    });
+
+    it('cover the updater error codes of the updater contract', () => {
+        const codes = ['notConfigured', 'network', 'busy', 'noUpdate', 'failed'].map(
+            (c) => `backendError.update.${c}`,
+        );
+        expect(missing(codes)).toEqual([]);
     });
 });
 
