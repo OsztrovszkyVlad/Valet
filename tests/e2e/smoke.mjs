@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // UI smoke test (PLAN 2 exit criterion, PLAN 4.6): onboarding -> preview ->
-// organize -> undo -> history, driven through tauri-driver + WebDriver.
+// organize -> undo -> history -> trial badge and Valet Pro section, driven through
+// tauri-driver + WebDriver.
 //
 // Builds nothing. Needs a built app (with `tauri/custom-protocol`, so it
 // serves the embedded dist/), `tauri-driver` and, on Linux, `WebKitWebDriver`
@@ -80,6 +81,13 @@ const RO = {
     kindApply: 'Organizare',
     kindUndo: 'Anulare',
     invoicesRule: 'Facturi și chitanțe',
+    // Plan (docs/LICENSING.md): a fresh profile is on the 14-day trial; CI builds ship
+    // empty license/pubkey.txt, api.txt and checkout.txt, so licensing is not configured.
+    trialBadge: 'Probă Pro: 14 zile',
+    proTitle: 'Valet Pro',
+    proNotConfiguredPrefix: 'Licențele nu sunt încă active',
+    buy: 'Cumpără Pro',
+    buyUnavailable: 'Cumpărarea nu e deschisă încă.',
 };
 
 /** XPath string literal (labels contain no double quotes). */
@@ -108,6 +116,14 @@ const X = {
     undoResult: `//section[@aria-label=${lit(RO.lastBatch)}]//div[contains(@class,'undo-result')]`,
     undoResultClose: `//section[@aria-label=${lit(RO.lastBatch)}]//div[contains(@class,'undo-result')]//button[normalize-space()=${lit(RO.close)}]`,
     historyRows: `//tr[contains(@class,'history-row')]`,
+    planBadge: tid('nav-plan'),
+    proSection: tid('pro-section'),
+    proTitle: `${tid('pro-section')}//h3`,
+    proNotConfigured: tid('pro-not-configured'),
+    proBuy: tid('pro-buy'),
+    proBuyUnavailable: tid('pro-buy-unavailable'),
+    proImportFile: tid('pro-import-file'),
+    proPasteToggle: tid('pro-paste-toggle'),
 };
 
 // ---------- small helpers ----------
@@ -471,6 +487,30 @@ async function main() {
             await session.waitFor(X.heading(RO.settings), { what: 'Settings heading' });
             await sleep(300);
             await shot('settings');
+        });
+
+        await step('trial badge and Valet Pro section (licensing not configured)', async () => {
+            const badge = await session.waitFor(X.planBadge, { what: 'plan badge (data-testid nav-plan)' });
+            const kind = await badge.attribute('data-plan');
+            assert(kind === 'trial', `fresh profile is on the trial (data-plan), got ${kind}`);
+            const label = (await badge.property('textContent')).trim();
+            assert(label === RO.trialBadge, `plan badge reads "${RO.trialBadge}", got "${label}"`);
+            // The badge opens Settings at the Pro section.
+            await badge.click();
+            await session.waitFor(X.proSection, { what: 'Valet Pro section' });
+            const title = (await (await session.xpath(X.proTitle)).property('textContent')).trim();
+            assert(title === RO.proTitle, `section title "${RO.proTitle}", got "${title}"`);
+            const note = (await (await session.waitFor(X.proNotConfigured, { what: 'not-configured note' })).property('textContent')).trim();
+            assert(note.startsWith(RO.proNotConfiguredPrefix), `note starts with "${RO.proNotConfiguredPrefix}": "${note}"`);
+            const buy = await session.xpath(X.proBuy);
+            assert((await buy.property('textContent')).trim() === RO.buy, `buy button reads ${RO.buy}`);
+            assert((await buy.enabled()) === false, 'buy button is disabled (checkout.txt empty)');
+            const unavailable = (await (await session.xpath(X.proBuyUnavailable)).property('textContent')).trim();
+            assert(unavailable === RO.buyUnavailable, `buy help reads "${RO.buyUnavailable}": "${unavailable}"`);
+            for (const [what, xp] of [['import file', X.proImportFile], ['paste toggle', X.proPasteToggle]]) {
+                assert((await (await session.xpath(xp)).enabled()) === false, `${what} is disabled (licensing not configured)`);
+            }
+            await shot('settings-pro', '[data-testid="pro-section"]');
         });
 
         currentStep = 'teardown';
