@@ -31,8 +31,8 @@ function missing(keys: string[]): string[] {
     return out;
 }
 
-/** Rust command sources, read at test time; modules that land later are picked up. */
-const RUST_SOURCES = import.meta.glob('../../src-tauri/src/commands/*.rs', {
+/** Rust command sources (and top-level modules such as `updater.rs`), read at test time; modules that land later are picked up. */
+const RUST_SOURCES = import.meta.glob(['../../src-tauri/src/commands/*.rs', '../../src-tauri/src/*.rs'], {
     query: '?raw',
     import: 'default',
     eager: true,

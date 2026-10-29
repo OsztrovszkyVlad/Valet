@@ -233,7 +233,6 @@
     "supportTitle": "Support",
     "debugLogging": "Detailed log (for troubleshooting)",
     "debugLoggingHelp": "May contain file paths. Stays on your computer.",
-    "debugLoggingRestart": "Applies after a restart.",
     "aboutTitle": "About",
     "aboutLine": "Valet {{version}} · MIT license · github.com/OsztrovszkyVlad/Valet",
     "aboutLineNoVersion": "Valet · MIT license · github.com/OsztrovszkyVlad/Valet"

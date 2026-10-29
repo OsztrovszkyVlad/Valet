@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import i18n from '../i18n';
 import SettingsView from './SettingsView';
+import { INSTALL_RETRY_MS } from '../components/UpdateSection';
 import type { AppSettings, Config, InvalidConfigPath, UpdateCheck } from '../api/commands';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
@@ -505,6 +506,55 @@ describe('SettingsView updates', () => {
         expect(callsTo('install_update')).toHaveLength(2);
     });
 
+    it('retries a busy install on a timer too (manual batches and undo send no event)', async () => {
+        updateCheck = { available: true, version: '0.4.0' };
+        installResults = ['update.busy', 'update.busy'];
+        // The retry interval starts when the busy answer arrives; real time still passes for findBy.
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        try {
+            await renderLoaded();
+            fireEvent.click(screen.getByRole('button', { name: 'Verifică acum' }));
+            fireEvent.click(await screen.findByRole('button', { name: 'Instalează și repornește' }));
+            fireEvent.click(screen.getByRole('button', { name: 'Confirmă instalarea' }));
+            expect(await screen.findByText('Aștept să se termine lotul în curs.')).toBeTruthy();
+            expect(callsTo('install_update')).toHaveLength(1);
+            await act(async () => {
+                await vi.advanceTimersByTimeAsync(INSTALL_RETRY_MS);
+            });
+            expect(callsTo('install_update')).toHaveLength(2);
+            expect(screen.getByText('Aștept să se termine lotul în curs.')).toBeTruthy();
+            await act(async () => {
+                await vi.advanceTimersByTimeAsync(INSTALL_RETRY_MS);
+            });
+            expect(callsTo('install_update')).toHaveLength(3);
+        } finally {
+            vi.useRealTimers();
+        }
+        expect(await screen.findByText('Se repornește Valet...')).toBeTruthy();
+    });
+
+    it('stops waiting when the user cancels', async () => {
+        updateCheck = { available: true, version: '0.4.0' };
+        installResults = ['update.busy'];
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        try {
+            await renderLoaded();
+            fireEvent.click(screen.getByRole('button', { name: 'Verifică acum' }));
+            fireEvent.click(await screen.findByRole('button', { name: 'Instalează și repornește' }));
+            fireEvent.click(screen.getByRole('button', { name: 'Confirmă instalarea' }));
+            await screen.findByText('Aștept să se termine lotul în curs.');
+            fireEvent.click(screen.getByRole('button', { name: 'Renunță' }));
+            expect(screen.queryByText('Aștept să se termine lotul în curs.')).toBeNull();
+            await act(async () => {
+                await vi.advanceTimersByTimeAsync(INSTALL_RETRY_MS * 2);
+            });
+        } finally {
+            vi.useRealTimers();
+        }
+        expect(callsTo('install_update')).toHaveLength(1);
+        expect(screen.getByRole('button', { name: 'Instalează și repornește' })).toBeTruthy();
+    });
+
     it('shows a translated error when the install fails and offers it again', async () => {
         updateCheck = { available: true, version: '0.4.0' };
         installResults = ['update.failed'];
@@ -522,6 +572,11 @@ describe('SettingsView updates', () => {
         expect(screen.getByText('Versiunea 0.4.0 e disponibilă.')).toBeTruthy();
         expect(screen.getByRole('button', { name: 'Instalează și repornește' })).toBeTruthy();
         expect(callsTo('check_for_update')).toHaveLength(0);
+
+        // Found on the previous channel: hidden until the new channel is checked.
+        fireEvent.change(screen.getByLabelText('Canal de actualizare'), { target: { value: 'beta' } });
+        await screen.findByText('Salvat.');
+        expect(screen.queryByRole('button', { name: 'Instalează și repornește' })).toBeNull();
     });
 
     it('still loads when the version cannot be read', async () => {
@@ -555,11 +610,8 @@ describe('SettingsView support and about', () => {
         await renderLoaded();
         const box = screen.getByLabelText('Jurnal detaliat (pentru depanare)') as HTMLInputElement;
         expect(box.checked).toBe(false);
-        expect(
-            screen.getByText(
-                'Poate conține căi de fișiere. Rămâne pe calculatorul tău. Se aplică după repornire.',
-            ),
-        ).toBeTruthy();
+        // The backend applies the log level at once (logging::set_debug_logging): no restart note.
+        expect(screen.getByText('Poate conține căi de fișiere. Rămâne pe calculatorul tău.')).toBeTruthy();
         fireEvent.click(box);
         await screen.findByText('Salvat.');
         expect(callsTo('save_app_settings').at(-1)?.[1]).toEqual({

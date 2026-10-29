@@ -397,7 +397,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onOpenPreview, announcedVer
                         <span className="checkbox-text">{t('settings.debugLogging')}</span>
                     </label>
                     <small id="settings-debug-logging-help" className="form-help">
-                        {t('settings.debugLoggingHelp')} {t('settings.debugLoggingRestart')}
+                        {t('settings.debugLoggingHelp')}
                     </small>
                 </div>
             </section>

@@ -233,7 +233,6 @@
     "supportTitle": "Asistență",
     "debugLogging": "Jurnal detaliat (pentru depanare)",
     "debugLoggingHelp": "Poate conține căi de fișiere. Rămâne pe calculatorul tău.",
-    "debugLoggingRestart": "Se aplică după repornire.",
     "aboutTitle": "Despre",
     "aboutLine": "Valet {{version}} · Licență MIT · github.com/OsztrovszkyVlad/Valet",
     "aboutLineNoVersion": "Valet · Licență MIT · github.com/OsztrovszkyVlad/Valet"

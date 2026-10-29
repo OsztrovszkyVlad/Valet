@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
     checkForUpdate,
@@ -27,6 +27,12 @@ type CheckState =
  */
 type InstallState = 'idle' | 'confirm' | 'installing' | 'waiting' | 'restarting';
 
+/**
+ * While waiting for a batch, `install_update` is retried at this interval as well:
+ * manual batches and undo send no `batch-finished`. A refused call costs no network.
+ */
+export const INSTALL_RETRY_MS = 3000;
+
 interface UpdateSectionProps {
     /** Version of the running app; null when `get_app_version` failed. */
     version: string | null;
@@ -54,6 +60,10 @@ const UpdateSection: React.FC<UpdateSectionProps> = ({
     const [install, setInstall] = useState<InstallState>('idle');
     const [installError, setInstallError] = useState('');
     const [progress, setProgress] = useState<UpdateProgress | null>(null);
+    // The announced update was found on the previous channel.
+    const [channelChanged, setChannelChanged] = useState(false);
+    // One `install_update` call at a time.
+    const inFlight = useRef(false);
 
     useEffect(() => {
         let unlisten: (() => void) | null = null;
@@ -71,6 +81,8 @@ const UpdateSection: React.FC<UpdateSectionProps> = ({
     }, []);
 
     const runInstall = useCallback(async () => {
+        if (inFlight.current) return;
+        inFlight.current = true;
         setInstallError('');
         setProgress(null);
         setInstall('installing');
@@ -80,10 +92,12 @@ const UpdateSection: React.FC<UpdateSectionProps> = ({
         } catch (err) {
             if (parseCommandError(err)?.code === 'update.busy') {
                 setInstall('waiting');
-                return;
+            } else {
+                setInstallError(commandErrorText(t, err));
+                setInstall('idle');
             }
-            setInstallError(commandErrorText(t, err));
-            setInstall('idle');
+        } finally {
+            inFlight.current = false;
         }
     }, [t]);
 
@@ -92,9 +106,11 @@ const UpdateSection: React.FC<UpdateSectionProps> = ({
         if (install !== 'waiting') return;
         let unlisten: (() => void) | null = null;
         let stopped = false;
-        onBatchFinished(() => {
+        const retry = () => {
             if (!stopped) void runInstall();
-        })
+        };
+        const timer = setInterval(retry, INSTALL_RETRY_MS);
+        onBatchFinished(retry)
             .then((fn) => {
                 if (stopped) fn();
                 else unlisten = fn;
@@ -102,6 +118,7 @@ const UpdateSection: React.FC<UpdateSectionProps> = ({
             .catch((err) => console.error('Failed to listen for batches:', errorMessage(err)));
         return () => {
             stopped = true;
+            clearInterval(timer);
             unlisten?.();
         };
     }, [install, runInstall]);
@@ -119,12 +136,14 @@ const UpdateSection: React.FC<UpdateSectionProps> = ({
     const changeChannel = (next: UpdateChannel) => {
         // A result belongs to the channel it was checked on.
         setCheck({ kind: 'idle' });
+        setChannelChanged(true);
         onChannelChange(next);
     };
 
     const result = check.kind === 'done' ? check.result : null;
+    const announced = channelChanged ? null : announcedVersion;
     const availableVersion =
-        result?.available === true ? (result.version ?? announcedVersion ?? '') : result === null ? announcedVersion : null;
+        result?.available === true ? (result.version ?? announced ?? '') : result === null ? announced : null;
     const busy = install !== 'idle' && install !== 'confirm';
 
     return (
