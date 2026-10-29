@@ -37,14 +37,6 @@ pub fn license_api_base() -> Option<&'static str> {
     non_empty(include_str!("../license/api.txt"))
 }
 
-/// The machine id sent to the license service: the first 32 hex characters
-/// of `blake3("valet-machine-v1:" + machine_guid)`. The platform layer reads
-/// the GUID; only this hash leaves the machine.
-pub fn machine_id_from_guid(machine_guid: &str) -> String {
-    let hash = blake3::hash(format!("valet-machine-v1:{machine_guid}").as_bytes());
-    hash.to_hex()[..32].to_string()
-}
-
 /// A build dated `build_date` (Unix seconds; `VALET_BUILD_DATE`, or an
 /// update's `pub_date`) is covered by a license with `updates_until`.
 pub fn covers(updates_until: i64, build_date: i64) -> bool {
@@ -230,7 +222,8 @@ pub struct PlanInputs<'a> {
     pub license: Option<&'a str>,
     /// Contents of `activation.valet-token`, if the file exists.
     pub activation: Option<&'a str>,
-    /// This machine's id ([`machine_id_from_guid`]), if it could be read.
+    /// This machine's id (`valet_platform::machine_id` in the app), if it
+    /// could be read.
     pub machine_id: Option<&'a str>,
     pub now: i64,
     /// `VALET_BUILD_DATE` of the running build.
@@ -330,26 +323,6 @@ mod tests {
     fn shipped_files_are_empty_so_licensing_is_not_configured() {
         assert_eq!(shipped_public_key(), None);
         assert_eq!(license_api_base(), None);
-    }
-
-    #[test]
-    fn machine_id_is_32_lowercase_hex_and_depends_on_the_guid() {
-        let a = machine_id_from_guid("4c4c4544-0042-3510-8052-b4c04f4e4d32");
-        assert_eq!(a.len(), 32);
-        assert!(
-            a.chars()
-                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
-        );
-        assert_eq!(
-            a,
-            machine_id_from_guid("4c4c4544-0042-3510-8052-b4c04f4e4d32")
-        );
-        assert_ne!(
-            a,
-            machine_id_from_guid("4c4c4544-0042-3510-8052-b4c04f4e4d33")
-        );
-        let full = blake3::hash(b"valet-machine-v1:x").to_hex();
-        assert_eq!(machine_id_from_guid("x"), &full[..32]);
     }
 
     #[test]
