@@ -32,9 +32,11 @@ Valet nu șterge niciodată definitiv un fișier: ce elimină ajunge în Coșul 
 
 Un lot terminat se poate anula cât timp fișierele mutate nu au fost modificate; dacă ai modificat unul, Valet te întreabă. Fiecare operație se scrie într-un jurnal înainte să ruleze, iar după o cădere Valet verifică operațiile neterminate la pornirea următoare.
 
-Fără cont, fără reclame, fără telemetrie. Valet verifică pe GitHub dacă există versiuni noi și, doar cu o licență Pro, verifică licența (identificatorul licenței, un hash într-un singur sens al identificatorului calculatorului, versiunea aplicației). Nu se trimit nume de fișiere, căi sau conținut.
+Fără cont, fără reclame, fără telemetrie. Actualizările vin prin Store; versiunea din Store nu verifică GitHub. Doar cu o licență Pro, Valet verifică licența (identificatorul licenței, un hash într-un singur sens al identificatorului calculatorului, versiunea aplicației). Nu se trimit nume de fișiere, căi sau conținut. Pornirea cu Windows se setează din setările Windows (Valet are un buton care le deschide). Dezinstalarea aplicației din Store șterge datele ei, inclusiv Istoricul și anularea.
 
 Gratuit: toate cele opt reguli gata făcute, 3 reguli proprii, 2 foldere urmărite, istoric de 7 zile, anularea ultimului lot. Pro: fără limite, anularea oricărui lot, export și import de reguli; 29 € cu TVA inclus, o singură dată, cu actualizări 12 luni, cumpărat în afara Store. Proba de 14 zile de Pro nu cere card.
+
+[VLAD: cumpărarea Pro nu e deschisă încă (nu există server de licențe în build-urile de acum). Nu trimite listarea cu prețul înainte să funcționeze cumpărarea, sau scoate fraza cu prețul.]
 
 Română și engleză. Windows 10 22H2 și Windows 11, pe 64 de biți. Valet e în beta: nu îl îndrepta spre foldere ale căror conținut nu îl poți pierde și folosește previzualizarea.
 
@@ -106,7 +108,7 @@ Nu pot rula chestionarul. Acestea sunt răspunsurile pe care le sugerează compo
 | Conținut generat de utilizatori, chat, interacțiune între utilizatori | Nu | Fără conturi și fără schimb între utilizatori. Aplicația arată doar numele fișierelor proprii ale utilizatorului. |
 | Partajează locația utilizatorului | Nu | Nu se folosește. |
 | Partajează informații personale cu alții | [VLAD: verifică] | Doar cu o licență Pro: identificatorul licenței, identificatorul hash al calculatorului, versiunea aplicației, către serverul propriu de licențe. Fără nume de fișiere sau căi. Vezi `docs/PRIVACY.ro.md`. Răspunde după formularea chestionarului. |
-| Acces nerestricționat la internet sau un browser | Nu | Interfața încarcă doar fișierele proprii ale aplicației; nu are browser. Verificarea versiunii și a licenței merg la adrese fixe. |
+| Acces nerestricționat la internet sau un browser | Nu | Interfața încarcă doar fișierele proprii ale aplicației; nu are browser. Verificarea licenței (și, în afara Store, a versiunii) merge la adrese fixe. |
 | Reclame | Nu | Nu există. |
 | Achiziții în aplicație prin Store | Nu | Pro se cumpără în afara Store (`docs/PLAN.md` secțiunea 3.2). |
 | Achiziții digitale de orice fel în aplicație | [VLAD: verifică] | Dacă ecranul Pro are un buton „Cumpără” care deschide browserul, chestionarul sau politica Store îl pot număra. Vezi mai jos. |
@@ -125,8 +127,9 @@ Rezultat așteptat, neverificat: cea mai joasă clasă de vârstă (potrivit pen
 
 - Planul Gratuit merge fără licență și fără cont.
 - Funcțiile Pro cer un fișier de licență cumpărat în afara Store. [VLAD: pune aici o licență de test pentru testeri, emisă manual, și spune cum se importă (Setări).]
-- Aplicația citește și mută fișiere în folderele alese de utilizator și trimite fișierele eliminate la Coșul de reciclare. O aplicație desktop împachetată care face asta are de obicei nevoie de capabilitatea full-trust (`runFullTrust`); Partner Center poate cere un motiv. [VLAD: neverificat; pachetul MSIX nu e construit încă.]
-- Folosirea rețelei: verificarea versiunii și, cu o licență Pro, verificarea licenței. Nicio altă conexiune. `docs/PRIVACY.ro.md`.
+- Aplicația citește și mută fișiere în folderele alese de utilizator și trimite fișierele eliminate la Coșul de reciclare. O aplicație desktop împachetată care face asta are de obicei nevoie de capabilitatea full-trust (`runFullTrust`); Partner Center poate cere un motiv. [VLAD: neverificat. Manifestul din `packaging/msix/AppxManifest.xml` cere `runFullTrust`, iar fluxul `.github/workflows/msix.yml` construiește pachetul, dar pachetul nu a fost trimis în Partner Center.]
+- Folosirea rețelei: în versiunea din Store, doar verificarea licenței, și numai cu o licență Pro importată într-un build cu server de licențe (cele de acum nu au). Verificarea versiunii nu rulează în versiunea din Store. Nicio altă conexiune. `docs/PRIVACY.ro.md`.
+- Pornirea cu Windows: în versiunea din Store nu e o bifă în aplicație; Setări are un buton care deschide setările Windows pentru aplicațiile de la pornire (`packaging/msix/README.md`, secțiunea 5).
 
 ## Întrebări deschise pentru Vlad
 
@@ -137,4 +140,5 @@ Rezultat așteptat, neverificat: cea mai joasă clasă de vârstă (potrivit pen
 5. Răspunsurile de vârstă marcate `[VLAD: verifică]`.
 6. O licență de test pentru testerii de certificare.
 7. Capturi de pe Windows în `docs/screenshots/`.
-8. Pachetul MSIX și semnarea Store nu sunt construite încă; listarea nu se poate trimite până nu sunt.
+8. Pachetul MSIX se construiește în CI (`packaging/msix/README.md`), dar nu a fost trimis în Partner Center și nu a fost încercat într-o instalare din Store; identitatea pachetului vine din Partner Center.
+9. Cumpărarea Pro nu e deschisă (nu există server de licențe); decide ce spune listarea despre preț până atunci.

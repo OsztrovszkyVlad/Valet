@@ -14,7 +14,8 @@ Unde sunt lucrurile (ca în `docs/PRIVACY.ro.md`):
 
 - Fișierul de jurnal: `%LOCALAPPDATA%\ro.valetapp.desktop\logs\valet.log` (cele mai vechi sunt `valet_<data și ora>.log` în același folder, cel mult 5 fișiere).
 - Jurnal detaliat: Setări, Asistență, „Jurnal detaliat (pentru depanare)”. Se aplică pe loc, fără repornire. E oprit din oficiu.
-- Folderul de date: `%APPDATA%\ro.valetapp.desktop` (baza de date cu jurnalul de operații, setările, fișierele de licență).
+- Folderul de date: `%APPDATA%\ro.valetapp.desktop` (baza de date cu jurnalul de operații, setările, fișierele de licență; licențele scoase sunt în subfolderul `license-removed`). În versiunea din Microsoft Store datele sunt într-un folder al pachetului, sub `%LOCALAPPDATA%\Packages\`, iar jurnalul e în `%LOCALAPPDATA%\ro.valetapp.desktop\logs` doar în varianta obișnuită (neverificat în Store).
+- Planul și licența: Setări, Valet Pro.
 - Versiunea: Setări, Despre.
 
 ---
@@ -116,6 +117,8 @@ Ca să caut comanda ta, am nevoie de adresa de email folosită la cumpărare și
 Vlad
 ```
 
+Notă internă: serviciul de licențe are `services/license/revoke.mjs`, care retrage o licență (după revocare, Valet o refuză cu „Licența a fost revocată.”). Dacă o rambursare retrage licența, și când, hotărăște Vlad odată cu politica de mai sus.
+
 ---
 
 ## 5. Licența nu se activează
@@ -126,10 +129,13 @@ Bună, {nume},
 Hai să aflăm de ce. Ce spune Valet când imporți licența (propoziția exactă sau o captură de ecran)?
 Cauze frecvente:
 
-- „Prea multe activări”. O licență merge pe cel mult 3 calculatoare. Dacă nu mai folosești unul dintre ele,
-  deschide Valet pe acel calculator, mergi la Setări, șterge licența și importă-o din nou aici.
-  Ștergerea eliberează locul acelui calculator. Dezinstalarea Valet nu îl eliberează.
-  Dacă vechiul calculator nu mai există (stricat, formatat), scrie-mi înapoi și spune-mi; mă uit eu manual.
+- „Licența e deja activă pe 3 calculatoare”. O licență merge pe cel mult 3 calculatoare. Dacă nu mai folosești unul dintre ele,
+  deschide Valet pe acel calculator, mergi la Setări, Valet Pro, apasă „Scoate licența de pe acest calculator”
+  și importă licența din nou aici. Scoaterea eliberează locul acelui calculator. Dezinstalarea Valet nu îl eliberează.
+  Dacă vechiul calculator nu mai există (stricat, formatat), sau licența a fost scoasă fără internet,
+  scrie-mi înapoi cu adresa de email folosită la cumpărare. Pot goli de pe server lista calculatoarelor active
+  ale licenței. După aceea imporți licența pe calculatorul nou (Setări, Valet Pro, „Am o licență”).
+  Resetarea golește doar lista calculatoarelor active; licența rămâne la fel.
 - Fără internet în momentul importului. Importul are nevoie de o conexiune la serverul de licențe.
   După aceea, Valet verifică din nou cel mult o dată la 30 de zile. Dacă conexiunea cade mai târziu,
   Pro merge în continuare până la 60 de zile de la ultima verificare reușită, apoi aplicația merge ca Gratuit
@@ -148,7 +154,12 @@ Te rog să-mi spui și versiunea Valet (Setări, Despre) și versiunea de Window
 Vlad
 ```
 
-[VLAD DECIDE: ce se face când vechiul calculator nu mai există. Contractul serviciului de licențe nu are resetare făcută de utilizator; mai sus se presupune o resetare manuală, care trebuie să fie posibilă ca propoziția să rămână.]
+Note interne pentru acest caz:
+
+- Resetarea o face Vlad, pe server: `node services/license/reset.mjs --license <identificator> --store <fișier>` (sau cu variabila `VALET_LICENSE_STORE`). Comanda golește calculatoarele active ale licenței; istoricul calculatoarelor și înregistrarea licenței rămân (`services/license/reset.mjs`, `docs/LICENSING.md`, „License service”). Ea nu poate fi făcută de utilizator.
+- Comanda cere identificatorul licenței (un UUID), pe care aplicația nu îl arată: Setări arată doar emailul. Se găsește în evidența vânzărilor, după email, sau în fișierul `.valet-license` al omului (câmpul `license_id` din `payload`). Ce evidență a vânzărilor există nu e hotărât: webhook-ul comerciantului nu e construit. [VLAD: hotărăște unde ții legătura email – identificator.]
+- Nu cere fișierul `.valet-license` dacă ajunge emailul. Fișierul are identificatorul, emailul și datele licenței, nu fișierele omului.
+- Spune omului să nu folosească licența pe calculatorul vechi dacă îl repară mai târziu: ar ocupa din nou un loc.
 
 ---
 

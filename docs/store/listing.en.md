@@ -32,9 +32,11 @@ Valet never deletes a file permanently: anything it removes goes to the Windows 
 
 A finished batch can be undone while the moved files are unchanged; if you changed one, Valet asks first. Each operation is written to a journal before it runs, and after a crash Valet checks the unfinished ones at the next start.
 
-No account, no ads, no telemetry. Valet checks GitHub for new versions and, only with a Pro license, checks the license (license id, a one-way hash of the machine id, the app version). No file names, paths or contents are sent.
+No account, no ads, no telemetry. Updates come through the Store; the Store version does not check GitHub. Only with a Pro license, Valet checks the license (license id, a one-way hash of the machine id, the app version). No file names, paths or contents are sent. Starting with Windows is set in the Windows settings (Valet has a button that opens them). Uninstalling the app from the Store deletes its data, including History and undo.
 
 Free: all eight ready-made rules, 3 own rules, 2 watched folders, 7 days of history, undo of the latest batch. Pro: no limits, undo of any batch, export and import of rules; 29 EUR with VAT included, once, with 12 months of updates, bought outside the Store. A 14-day Pro trial needs no card.
+
+[VLAD: buying Pro is not open yet (the current builds have no license server). Do not submit the listing with the price before buying works, or remove the sentence with the price.]
 
 Romanian and English. Windows 10 22H2 and Windows 11, 64-bit. Valet is in beta: do not point it at folders whose contents you cannot lose, and use the preview.
 
@@ -106,7 +108,7 @@ I cannot run the questionnaire. These are the answers the app's behavior suggest
 | User-generated content, chat, user interaction | No | No accounts and no sharing between users. The app shows only the user's own file names. |
 | Shares the user's location | No | Not used. |
 | Shares personal information with others | [VLAD: check] | Only with a Pro license: license id, hashed machine id, app version, to Valet's own license server. No file names or paths. See `docs/PRIVACY.md`. Answer by the questionnaire's wording. |
-| Unrestricted internet access or a web browser | No | The interface loads only the app's own files; it has no browser. The update check and license check go to fixed addresses. |
+| Unrestricted internet access or a web browser | No | The interface loads only the app's own files; it has no browser. The license check (and, outside the Store, the update check) goes to fixed addresses. |
 | Ads | No | None. |
 | In-app purchases through the Store | No | Pro is bought outside the Store (`docs/PLAN.md` section 3.2). |
 | Digital purchases of any kind in the app | [VLAD: check] | If the Pro screen has a "Buy" button that opens the browser, the questionnaire or the Store policy may count it. See below. |
@@ -125,8 +127,9 @@ Expected result, not verified: the lowest age rating (suitable for all ages).
 
 - The Free plan works without a license or an account.
 - Pro features need a license file bought outside the Store. [VLAD: put a test license here for the testers, issued by hand, and say how to import it (Settings).]
-- The app reads and moves files in the folders the user picks, and sends removed files to the Recycle Bin. A packaged desktop app that does this normally needs the full-trust capability (`runFullTrust`); Partner Center may ask for a reason. [VLAD: not checked; the MSIX package is not built yet.]
-- Network use: the update check and, with a Pro license, the license check. No other connections. `docs/PRIVACY.md`.
+- The app reads and moves files in the folders the user picks, and sends removed files to the Recycle Bin. A packaged desktop app that does this normally needs the full-trust capability (`runFullTrust`); Partner Center may ask for a reason. [VLAD: not checked. The manifest in `packaging/msix/AppxManifest.xml` asks for `runFullTrust`, and the workflow `.github/workflows/msix.yml` builds the package, but the package was not submitted in Partner Center.]
+- Network use: in the Store version, only the license check, and only with a Pro license imported in a build with a license server (the current ones have none). The version check does not run in the Store version. No other connections. `docs/PRIVACY.md`.
+- Starting with Windows: in the Store version it is not a checkbox in the app; Settings has a button that opens the Windows settings for startup apps (`packaging/msix/README.md`, section 5).
 
 ## Open questions for Vlad
 
@@ -137,4 +140,5 @@ Expected result, not verified: the lowest age rating (suitable for all ages).
 5. The age rating answers marked `[VLAD: check]`.
 6. A test license for the certification testers.
 7. Screenshots from Windows in `docs/screenshots/`.
-8. The MSIX package and Store signing are not built yet; this listing cannot be submitted until they are.
+8. The MSIX package is built in CI (`packaging/msix/README.md`) but was not submitted in Partner Center and was not tried in a Store install; the package identity comes from Partner Center.
+9. Buying Pro is not open (there is no license server); decide what the listing says about the price until then.

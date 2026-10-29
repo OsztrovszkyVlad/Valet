@@ -14,7 +14,8 @@ Where things are (as in `docs/PRIVACY.md`):
 
 - Log file: `%LOCALAPPDATA%\ro.valetapp.desktop\logs\valet.log` (older ones are `valet_<date and time>.log` in the same folder, at most 5 files).
 - Detailed log: Settings, Support, "Detailed log (for troubleshooting)". It takes effect at once, without a restart. It is off by default.
-- Data folder: `%APPDATA%\ro.valetapp.desktop` (database with the journal, settings, license files).
+- Data folder: `%APPDATA%\ro.valetapp.desktop` (database with the journal, settings, license files; removed licenses are in the subfolder `license-removed`). In the Microsoft Store version the data is in a folder of the package, under `%LOCALAPPDATA%\Packages\`, and the logs are in `%LOCALAPPDATA%\ro.valetapp.desktop\logs` only in the usual variant (not checked in the Store version).
+- Plan and license: Settings, Valet Pro.
 - Version: Settings, About.
 
 ---
@@ -116,6 +117,8 @@ To look at your order I need the email address used for the purchase and, if you
 Vlad
 ```
 
+Internal note: the license service has `services/license/revoke.mjs`, which withdraws a license (after a revoke, Valet refuses it with "The license was revoked."). Whether a refund revokes the license, and when, is Vlad's decision, together with the policy above.
+
 ---
 
 ## 5. License does not activate
@@ -126,10 +129,13 @@ Hi {name},
 Let us find out why. What does Valet say when you import the license (the exact sentence, or a screenshot)?
 Common causes:
 
-- "Too many activations". A license works on up to 3 computers. If you no longer use one of them,
-  open Valet on that computer, go to Settings, remove the license, and import it again here.
-  Removing it frees that computer's place. Uninstalling Valet does not free it.
-  If the old computer is gone (broken, formatted), write back and tell me; I will look at it by hand.
+- "The license is already active on 3 computers". A license works on up to 3 computers. If you no longer use one of them,
+  open Valet on that computer, go to Settings, Valet Pro, press "Remove the license from this computer",
+  and import the license again here. Removing it frees that computer's place. Uninstalling Valet does not free it.
+  If the old computer is gone (broken, formatted), or the license was removed without internet,
+  write back with the email address used for the purchase. I can clear the license's list of active computers
+  on the server. After that you import the license on the new computer (Settings, Valet Pro, "I have a license").
+  The reset clears only the list of active computers; the license stays as it is.
 - No internet at the moment of import. Importing needs one connection to the license server.
   After that, Valet checks again at most once every 30 days. If the connection fails later,
   Pro keeps working for up to 60 days after the last successful check, then the app works as Free
@@ -148,7 +154,12 @@ Please also tell me the Valet version (Settings, About) and your Windows version
 Vlad
 ```
 
-[VLAD DECIDES: what to do when the old computer is gone. The license service contract has no self-service reset; a manual reset by hand is assumed above and must be possible before this sentence stays.]
+Internal notes for this case:
+
+- Vlad does the reset, on the server: `node services/license/reset.mjs --license <id> --store <file>` (or with the variable `VALET_LICENSE_STORE`). The command clears the active machines of the license; the machine history and the license record stay (`services/license/reset.mjs`, `docs/LICENSING.md`, "License service"). The user cannot do it.
+- The command needs the license id (a UUID), which the app does not show: Settings shows only the email. It is found in the sales records, by email, or in the person's `.valet-license` file (the `license_id` field in `payload`). Which sales records exist is not decided: the merchant webhook is not built. [VLAD: decide where the email to id link is kept.]
+- Do not ask for the `.valet-license` file if the email is enough. The file has the id, the email and the license data, not the person's files.
+- Tell the person not to use the license on the old computer if they repair it later: it would take a place again.
 
 ---
 

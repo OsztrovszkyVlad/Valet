@@ -45,11 +45,61 @@ rules you set.
   drive) is saved and marked "Unavailable right now". Valet skips it and
   watches it again when it is back, within 10 minutes, and it keeps its
   approvals.
+- A 14-day Pro trial with all Pro features. It starts the first time Valet
+  runs, needs no card and uses no network. A small indicator at the top shows
+  the days left.
+- A Free plan for after the trial: 3 own rules enabled at once (the 8 presets
+  are not counted), 2 watched folders active, History showing the last 7 days,
+  and undo for the newest organize batch only. Rule export and import are not
+  included. Nothing is deleted when a limit applies: the rules and folders
+  over the limit stay saved, turned off, and come back with Pro.
+- A dialog "Choose what stays active on the Free plan", shown when the plan
+  falls back to Free with more than 3 own rules or 2 folders. You pick which 3
+  rules and which 2 folders stay active; "Decide later" keeps the first 3
+  rules and the first 2 folders until you choose.
+- Settings, Valet Pro: the plan, what each plan includes, the price (29 EUR,
+  VAT included, one-time, 12 months of updates) and a way to import a license
+  file, or its text pasted in. A license is activated online and works on up
+  to 3 computers. Valet asks the license server again at most every 30 days
+  and keeps working as Pro for up to 30 more days without a connection, then
+  works as Free until the next successful check. "Remove the license from this
+  computer" frees one of the 3 places; the license files are moved to a
+  `license-removed` folder, not deleted.
+- Export and import of rules (Pro and trial), on the Rules screen.
+- A warning before installing an update that your license does not cover: the
+  new version will run as Free; the current version stays Pro.
+- Settings, Updates: the checkbox "Check for updates automatically", on by
+  default. "Check now" works when it is off.
+- A package for the Microsoft Store (MSIX) is built in CI; it is not published.
+  In that build, updates come from the Store, starting with Windows is set in
+  the Windows settings (Settings has a button that opens them), and
+  uninstalling the app deletes its data, including History.
+
+Licenses are not active in this version: no license server is configured, so
+buying and activating a license do not work yet. The trial and the Free plan
+work.
 
 ### Changed
 
 - The unused statistics table (`operation_history`) is removed from the
   database. History comes from the journal and is not affected.
+- The automatic update check can now be switched off in Settings (it could
+  not before).
+- Valet opens its database while the main window is created, so it starts
+  faster. Recovery of interrupted operations still finishes before the folder
+  watcher starts.
+- A silent install (`/S`, winget, scripts) no longer creates a desktop
+  shortcut. The interactive installer still offers it on its last page, and an
+  update keeps the shortcut you already have.
+- The license check is the second network use besides updates, and it only
+  happens with a Pro license on a build that has a license server. It sends
+  the license id, a one-way hash of the computer id and the app version (see
+  `docs/PRIVACY.md`).
+
+### Fixed
+
+- Updates installed without a window (the updater runs the installer in
+  passive mode) no longer stop at the installer's language dialog.
 
 ### Safety
 
@@ -62,8 +112,10 @@ rules you set.
   Files being written, locked files and OneDrive/Dropbox files that are not
   downloaded are skipped too.
 - No file names, paths or contents leave your computer. The only network use
-  is the update check and download (see `docs/PRIVACY.md`); there is no
-  telemetry and no crash reporting.
+  is the update check and download and, with a Pro license, the license check
+  (see `docs/PRIVACY.md`); there is no telemetry and no crash reporting.
+- The plan limits never delete or trim the journal, rules or folders, and
+  license files are moved, not deleted (`docs/SAFETY.md`).
 - Databases from earlier test builds (Phase 1 and Phase 2) open with the
   current version, with the journal unchanged (`upgrade_journal` tests).
 
