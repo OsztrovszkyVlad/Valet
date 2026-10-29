@@ -416,6 +416,8 @@ pub(crate) async fn save_app_settings(
 ) -> Result<AppSettings, String> {
     let saved = save_app_settings_in(&config_dir(&app)?, settings, APP_VERSION)?;
     log::info!("App settings saved");
+    // The log level follows `debug_logging` without a restart.
+    crate::logging::set_debug_logging(saved.debug_logging);
     // The tray menu follows the language setting.
     if let Err(e) = crate::setup::refresh_tray(&app) {
         log::warn!("Failed to update the tray menu: {e}");

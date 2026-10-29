@@ -256,7 +256,7 @@ impl LockedRetries {
     pub(crate) fn allows(&self, path: &Path) -> bool {
         self.failures
             .get(path)
-            .map_or(true, |&n| n <= LOCKED_RETRY_PASSES)
+            .is_none_or(|&n| n <= LOCKED_RETRY_PASSES)
     }
 
     /// Counts the `Locked` failures of a pass; any other outcome clears the

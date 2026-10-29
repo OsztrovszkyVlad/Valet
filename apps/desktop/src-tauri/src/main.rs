@@ -1,27 +1,27 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use log::LevelFilter;
 use tauri::menu::Menu;
 use tauri::WindowEvent;
-use tauri_plugin_log::Builder;
 
 use commands::platform::launched_minimized;
 
 mod auto;
 mod commands;
 mod i18n;
+mod logging;
 mod setup;
 mod state;
+mod updater;
 
 fn main() {
-    // DEBUG lines may contain full paths; keep them out of release logs.
-    let log_level = if cfg!(debug_assertions) {
-        LevelFilter::Debug
-    } else {
-        LevelFilter::Info
-    };
+    logging::install_panic_hook();
 
-    tauri::Builder::default()
+    let context = tauri::generate_context!();
+    // Release builds merge `plugins.updater` from tauri.updater.conf.json;
+    // without it the plugin would fail to start, so it is left out.
+    let updater_configured = updater::configured(context.config());
+
+    let mut builder = tauri::Builder::default()
         // Must stay the first plugin: its setup takes the instance lock while
         // `Builder::build` initializes plugins, before `setup::setup` (and with
         // it journal recovery) runs. A second process exits inside that call.
@@ -32,8 +32,17 @@ fn main() {
                 setup::show_main_window(app);
             }
         }))
-        .plugin(Builder::default().level(log_level).build())
-        .plugin(tauri_plugin_notification::init())
+        // DEBUG lines may contain full paths; INFO by default in release
+        // (`logging::set_debug_logging` follows the setting).
+        .plugin(logging::plugin(&logging::log_settings()))
+        .plugin(tauri_plugin_notification::init());
+    if updater_configured {
+        builder = builder
+            .plugin(tauri_plugin_updater::Builder::new().build())
+            .manage(updater::UpdateSlot::default());
+    }
+
+    builder
         .invoke_handler(tauri::generate_handler![
             commands::rules::get_rules,
             commands::rules::upsert_rule,
@@ -54,7 +63,10 @@ fn main() {
             commands::platform::configure_auto_start,
             commands::platform::get_auto_start,
             commands::platform::show_in_explorer,
-            commands::platform::send_notification
+            commands::platform::send_notification,
+            updater::get_app_version,
+            updater::check_for_update,
+            updater::install_update
         ])
         .menu(Menu::new) // optional
         // Closing the main window hides it: Valet keeps running in the tray
@@ -68,6 +80,6 @@ fn main() {
             }
         })
         .setup(setup::setup)
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("error while running tauri application");
 }

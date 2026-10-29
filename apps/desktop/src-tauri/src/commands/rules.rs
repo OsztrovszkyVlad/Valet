@@ -212,7 +212,7 @@ fn options_ok(options: &Value) -> bool {
         Value::Null => true,
         Value::Object(o) => ["includeHidden", "topLevelOnly"]
             .iter()
-            .all(|k| o.get(*k).map_or(true, Value::is_boolean)),
+            .all(|k| o.get(*k).is_none_or(Value::is_boolean)),
         _ => false,
     }
 }

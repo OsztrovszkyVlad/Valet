@@ -1,5 +1,6 @@
-//! App startup: DB init, journal recovery, app state, file
-//! watcher with the auto-apply loop, tray, main window visibility.
+//! App startup: log level, DB init, journal recovery, app state, file
+//! watcher with the auto-apply loop, update checks, tray, main window
+//! visibility.
 
 use std::sync::atomic::Ordering;
 
@@ -11,12 +12,22 @@ use tauri::{
 use valet_core::{executor, storage::Db};
 
 use crate::commands::platform::launched_minimized;
+use crate::commands::settings::load_app_settings;
 use crate::i18n;
 use crate::state::{config_dir, AppState};
 
 pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     // --- DB init (no rules: onboarding installs presets) ---
     let cfg_dir = config_dir(app).expect("config dir");
+    // --- Log level from the settings (DEBUG may contain paths) ---
+    let debug_logging = load_app_settings(&cfg_dir).debug_logging;
+    crate::logging::set_debug_logging(debug_logging);
+    log::info!(
+        "Valet {} starting, debug logging {}",
+        app.package_info().version,
+        if debug_logging { "on" } else { "off" }
+    );
+
     let db_path = cfg_dir.join("valet.sqlite3");
     let state = AppState::new(db_path.clone());
     tauri::async_runtime::block_on(async {
@@ -35,6 +46,13 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
 
     // --- File watcher and auto-apply loop, after recovery ---
     crate::auto::start(app.handle(), cfg_dir);
+
+    // --- Update checks, after recovery (30 s delay, then every 24 h) ---
+    if crate::updater::configured(app.config()) {
+        crate::updater::start_auto_check(app.handle());
+    } else {
+        log::info!("Updater not configured in this build");
+    }
 
     // --- Tray ---
     let tray_menu = tray_menu(app.handle())?;

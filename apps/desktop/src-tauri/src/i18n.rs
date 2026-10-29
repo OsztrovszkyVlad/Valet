@@ -64,7 +64,7 @@ pub(crate) fn text(lang: Lang) -> &'static Text {
 fn ro_count(n: usize, one: &str, many: &str) -> String {
     if n == 1 {
         format!("1 {one}")
-    } else if n >= 20 && (n % 100 == 0 || n % 100 >= 20) {
+    } else if n >= 20 && (n.is_multiple_of(100) || n % 100 >= 20) {
         format!("{n} de {many}")
     } else {
         format!("{n} {many}")

@@ -1,6 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Valet",
+  "mainBinaryName": "Valet",
   "version": "0.1.0",
   "identifier": "ro.valetapp.desktop",
   "build": {
