@@ -98,3 +98,51 @@ Base URL and public key come from `crates/valet-core/license/` files committed b
 - `node services/license/reset.mjs --license <id>` clears the active machines of a license (support: the old PC is gone and can't deactivate). History is kept.
 - The merchant webhook (Paddle, Polar or Stripe, Vlad's decision) is not part of this contract yet.
 - The secret key is read from the `VALET_LICENSE_SECRET_KEY` environment variable on the server. It is never committed. Tests use a key generated at test time. Committed fixtures are signed with a key labelled TEST whose public half is never shipped.
+
+## App commands (Tauri, `commands/license.rs` unless noted)
+
+Errors are the usual `"code: detail"` strings or `{code, …}` objects that `parseCommandError` reads. Every command that changes the plan returns the new `PlanView`.
+
+`PlanView` (snake_case):
+
+```
+{
+  plan: {kind:"free"} | {kind:"trial", ends_at} | {kind:"pro", license_id, email, updates_until},
+  reasons: string[],                // contract codes above
+  limits: {own_rules: number|null, folders: number|null, history_days: number|null,
+           undo_latest_only: boolean, export_import: boolean},
+  licensing_configured: boolean,    // pubkey.txt and api.txt both set
+  checkout_available: boolean,      // checkout.txt set
+  choice_pending: boolean,          // show the "pick what stays active" dialog
+  license: {license_id, email, updates_until} | null,   // also when not Pro, to explain why
+  trial_ends_at: number | null,
+  last_check_at: number | null,     // checked_at of the stored token
+  packaged: boolean                 // Microsoft Store (MSIX) build
+}
+```
+
+| Command | Args | Does | Errors |
+|---|---|---|---|
+| `get_plan_status` | — | resolves the plan, applies a pending downgrade or upgrade (below) | — |
+| `import_license_file` | — | native open dialog (`.valet-license`), then like `import_license_text`; `null` on cancel | as below |
+| `import_license_text` | `text` | verifies, activates online, stores both files | `license.not_configured`, `license.invalid_signature`, `license.wrong_product`, `license.not_covering_build`, `license.network`, `license.unknown`, `license.too_many`, `license.revoked` |
+| `check_license_now` | — | validate call, even before 30 days | `license.network`, then as above |
+| `remove_license` | — | deactivate (best effort; a network error doesn't block), then moves both files to `license-removed/<unix>-…` (never deleted) | — |
+| `apply_plan_choice` | `rule_ids: string[]`, `folders: string[]` | Free only: these own rules (≤ 3) enabled, the other own rules plan-disabled; these folders (≤ 2) moved to the front of `inbox_paths`; clears `choice_pending` | `plan.limit`, `plan.notFree` |
+| `export_rules_file` | — | Pro/Trial: native save dialog, writes the export; refuses an existing path | `plan.proOnly`, `export.exists`, `export.io` |
+| `import_rules_file` | — | Pro/Trial: native open dialog, imports as new disabled-for-auto-apply rules (they need a preview) | `plan.proOnly`, `import.*` |
+| `open_external` (`platform.rs`) | `target: "checkout" \| "startup_settings"` | opens the checkout URL (`checkout.txt`) or `ms-settings:startupapps`; nothing else can be opened | `open.unavailable` |
+
+Changes to existing commands:
+- `upsert_rule`: `check_rule_change` (→ `plan.limit`); the UI can't add or change `presetId` or `planDisabled` (the stored values are kept).
+- `save_config`: `check_folders` (→ `plan.limit`).
+- `get_config`: adds `inactive_paths` (Free, beyond the first 2).
+- `list_batches`: Free hides batches older than 7 days and adds `hidden_older: boolean` to the response.
+- `undo_batch`: Free refuses anything but the latest batch (`plan.undoLatestOnly`).
+- `check_for_update`: adds `pub_date` and `covered_by_license: boolean | null` (null when not Pro).
+- `configure_auto_start`, `check_for_update`, `install_update`: in the packaged build they return `autostart.packaged` / `update.packaged`.
+- `AppSettings` gains `auto_update_check: boolean` (default true). Off: no automatic checks; "Check now" still works.
+
+Plan transitions run at startup, hourly, and after any command above that changes the plan: Free with more than 3 enabled own rules or more than 2 folders → `apply_free_limits`, `choice_pending = true`; Trial or Pro → `restore_after_upgrade`, `choice_pending = false`. Rules are written with `db.upsert_rule` (keeps `version`, so approvals survive the round trip).
+
+`checkout.txt` sits next to `pubkey.txt` and `api.txt`: the HTTPS checkout URL. Empty means buying isn't open yet.
