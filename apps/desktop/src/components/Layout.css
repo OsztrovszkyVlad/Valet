@@ -113,23 +113,7 @@
         padding: 0 1rem;
     }
 
-    .nav-plan {
-    padding: 0.25rem 0.6rem;
-    border: 1px solid #d1d5db;
-    border-radius: 999px;
-    background: transparent;
-    color: #4b5563;
-    font-size: 0.8rem;
-    cursor: pointer;
-    white-space: nowrap;
-}
-
-.nav-plan:hover {
-    color: #4f5bd5;
-    border-color: #4f5bd5;
-}
-
-.main-content {
+    .main-content {
         padding: 1rem;
     }
 }
