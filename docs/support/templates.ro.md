@@ -157,7 +157,7 @@ Vlad
 Note interne pentru acest caz:
 
 - Resetarea o face Vlad, pe server: `node services/license/reset.mjs --license <identificator> --store <fișier>` (sau cu variabila `VALET_LICENSE_STORE`). Comanda golește calculatoarele active ale licenței; istoricul calculatoarelor și înregistrarea licenței rămân (`services/license/reset.mjs`, `docs/LICENSING.md`, „License service”). Ea nu poate fi făcută de utilizator.
-- Comanda cere identificatorul licenței (un UUID), pe care aplicația nu îl arată: Setări arată doar emailul. Se găsește în evidența vânzărilor, după email, sau în fișierul `.valet-license` al omului (câmpul `license_id` din `payload`). Ce evidență a vânzărilor există nu e hotărât: webhook-ul comerciantului nu e construit. [VLAD: hotărăște unde ții legătura email – identificator.]
+- Comanda cere identificatorul licenței (un UUID), pe care omul îl vede în Setări → Valet Pro („Cod licență (pentru asistență)”). Se mai găsește în evidența vânzărilor, după email, sau în fișierul `.valet-license` al omului (câmpul `license_id` din `payload`). Ce evidență a vânzărilor există nu e hotărât: webhook-ul comerciantului nu e construit. [VLAD: hotărăște unde ții legătura email – identificator.]
 - Nu cere fișierul `.valet-license` dacă ajunge emailul. Fișierul are identificatorul, emailul și datele licenței, nu fișierele omului.
 - Spune omului să nu folosească licența pe calculatorul vechi dacă îl repară mai târziu: ar ocupa din nou un loc.
 

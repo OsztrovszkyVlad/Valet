@@ -157,7 +157,7 @@ Vlad
 Internal notes for this case:
 
 - Vlad does the reset, on the server: `node services/license/reset.mjs --license <id> --store <file>` (or with the variable `VALET_LICENSE_STORE`). The command clears the active machines of the license; the machine history and the license record stay (`services/license/reset.mjs`, `docs/LICENSING.md`, "License service"). The user cannot do it.
-- The command needs the license id (a UUID), which the app does not show: Settings shows only the email. It is found in the sales records, by email, or in the person's `.valet-license` file (the `license_id` field in `payload`). Which sales records exist is not decided: the merchant webhook is not built. [VLAD: decide where the email to id link is kept.]
+- The command needs the license id (a UUID), which the user can read in Settings → Valet Pro ("License code (for support)"). It is also found in the sales records, by email, or in the person's `.valet-license` file (the `license_id` field in `payload`). Which sales records exist is not decided: the merchant webhook is not built. [VLAD: decide where the email to id link is kept.]
 - Do not ask for the `.valet-license` file if the email is enough. The file has the id, the email and the license data, not the person's files.
 - Tell the person not to use the license on the old computer if they repair it later: it would take a place again.
 
