@@ -5,6 +5,11 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1"
+# machine_id(): hash of the machine GUID (docs/LICENSING.md).
+# `prefer_intrinsics`: SSE4.1/AVX2 from Rust intrinsics instead of assembly,
+# so `cargo clippy -p valet-platform --target x86_64-pc-windows-msvc` works
+# from Linux without an MSVC assembler. Unifies with valet-core's blake3.
+blake3 = { version = "1", features = ["prefer_intrinsics"] }
 tokio = { version = "1", features = ["sync"] }
 
 # Match the version family that `notify-debouncer-mini` expects to avoid type mismatches
@@ -23,6 +28,8 @@ windows-sys = { version = "=0.61.2", features = [
   # RegCreateKeyExW (autostart.rs) takes a SECURITY_ATTRIBUTES pointer.
   "Win32_Security",
   "Win32_Storage_FileSystem",
+  # GetCurrentPackageFullName (package.rs).
+  "Win32_Storage_Packaging_Appx",
   "Win32_System_Registry",
 ] }
 

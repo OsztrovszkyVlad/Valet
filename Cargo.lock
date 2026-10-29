@@ -5730,6 +5730,7 @@ name = "valet-platform"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "blake3",
  "notify",
  "notify-debouncer-mini",
  "serde_json",
