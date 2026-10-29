@@ -26,6 +26,7 @@ use crate::commands::platform::notify;
 use crate::commands::settings::{effective_update_channel, load_app_settings};
 use crate::i18n::{self, Lang};
 use crate::state::{config_dir, AppState};
+use valet_core::license::{covers, PlanTier};
 
 /// Stable channel: the release GitHub marks "Latest".
 pub(crate) const STABLE_ENDPOINT: &str =
@@ -40,6 +41,8 @@ pub(crate) const ERR_NETWORK: &str = "update.network";
 pub(crate) const ERR_BUSY: &str = "update.busy";
 pub(crate) const ERR_NO_UPDATE: &str = "update.noUpdate";
 pub(crate) const ERR_FAILED: &str = "update.failed";
+/// Microsoft Store build: the Store updates Valet.
+pub(crate) const ERR_PACKAGED: &str = "update.packaged";
 
 /// Event with `{ version }` when an automatic check finds an update.
 pub(crate) const EVENT_AVAILABLE: &str = "update-available";
@@ -109,22 +112,44 @@ pub(crate) struct UpdateInfo {
     /// RFC 3339, as published in the release manifest (`pub_date`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) date: Option<String>,
+    /// The same manifest `pub_date` (`docs/LICENSING.md`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) pub_date: Option<String>,
+    /// On Pro: whether the license's `updates_until` covers the new build
+    /// (its `pub_date`). Left out (null) when not Pro or without a date.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) covered_by_license: Option<bool>,
+}
+
+/// Whether `plan`'s license covers a build published at `pub_date` (RFC
+/// 3339). `None` when not Pro or the date does not parse.
+pub(crate) fn covered_by_license(plan: &PlanTier, pub_date: Option<&str>) -> Option<bool> {
+    let PlanTier::Pro { updates_until, .. } = plan else {
+        return None;
+    };
+    let published = chrono::DateTime::parse_from_rfc3339(pub_date?).ok()?;
+    Some(covers(*updates_until, published.timestamp()))
 }
 
 impl UpdateInfo {
     fn from_update(update: Option<&Update>) -> Self {
         match update {
             None => Self::default(),
-            Some(u) => Self {
-                available: true,
-                version: Some(u.version.clone()),
-                notes: u.body.clone().filter(|n| !n.trim().is_empty()),
-                date: u
+            Some(u) => {
+                let date = u
                     .raw_json
                     .get("pub_date")
                     .and_then(|d| d.as_str())
-                    .map(str::to_owned),
-            },
+                    .map(str::to_owned);
+                Self {
+                    available: true,
+                    version: Some(u.version.clone()),
+                    notes: u.body.clone().filter(|n| !n.trim().is_empty()),
+                    pub_date: date.clone(),
+                    date,
+                    covered_by_license: None,
+                }
+            }
         }
     }
 }
@@ -224,25 +249,43 @@ pub(crate) fn get_app_version(app: AppHandle) -> String {
     app.package_info().version.to_string()
 }
 
-/// Checks for an update on the user's channel. Errors: `update.notConfigured`,
-/// `update.network`, `update.failed`.
+/// `update.packaged` in the Microsoft Store build.
+fn refuse_packaged<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
+    if app.state::<AppState>().license.packaged {
+        Err(ERR_PACKAGED.to_string())
+    } else {
+        Ok(())
+    }
+}
+
+/// Checks for an update on the user's channel. With an update, adds
+/// `covered_by_license` on Pro. Errors: `update.packaged`,
+/// `update.notConfigured`, `update.network`, `update.failed`.
 #[tauri::command]
 pub(crate) async fn check_for_update(app: AppHandle) -> Result<UpdateInfo, String> {
+    refuse_packaged(&app)?;
     let slot = app.try_state::<UpdateSlot>();
     let slot = require_slot(slot.as_deref())?;
-    check_and_store(&app, slot).await
+    let mut info = check_and_store(&app, slot).await?;
+    if info.available {
+        let db = crate::licensing::connect(&app).await?;
+        let plan = crate::licensing::sync_plan(&app, &db).await?.status.plan;
+        info.covered_by_license = covered_by_license(&plan, info.pub_date.as_deref());
+    }
+    Ok(info)
 }
 
 /// Downloads, verifies and installs the update the last check found, then
 /// restarts Valet. On Windows the plugin starts the NSIS installer (passive
 /// mode, restarts the app) and exits this process.
 ///
-/// Errors: `update.notConfigured`; `update.busy` while a batch runs (the
+/// Errors: `update.packaged`, `update.notConfigured`; `update.busy` while a batch runs (the
 /// file-operations lock stays held until the process exits, so no batch
 /// starts during the install); `update.noUpdate` when no check found one;
 /// `update.network`, `update.failed`.
 #[tauri::command]
 pub(crate) async fn install_update(app: AppHandle) -> Result<(), String> {
+    refuse_packaged(&app)?;
     let slot = app.try_state::<UpdateSlot>();
     let slot = require_slot(slot.as_deref())?;
     let state = app.state::<AppState>();
@@ -428,6 +471,56 @@ mod tests {
     fn update_info_without_update_has_only_available() {
         let json = serde_json::to_value(UpdateInfo::from_update(None)).unwrap();
         assert_eq!(json, serde_json::json!({ "available": false }));
+    }
+
+    #[test]
+    fn coverage_is_reported_only_on_pro() {
+        let pro = PlanTier::Pro {
+            license_id: "l".into(),
+            email: "e".into(),
+            // 2026-10-29T00:00:00Z
+            updates_until: 1_793_232_000,
+        };
+        assert_eq!(
+            covered_by_license(&pro, Some("2026-10-29T00:00:00Z")),
+            Some(true)
+        );
+        assert_eq!(
+            covered_by_license(&pro, Some("2026-10-29T00:00:01Z")),
+            Some(false)
+        );
+        assert_eq!(
+            covered_by_license(&pro, Some("2026-10-28T12:00:00.5+02:00")),
+            Some(true)
+        );
+        assert_eq!(covered_by_license(&pro, Some("yesterday")), None);
+        assert_eq!(covered_by_license(&pro, None), None);
+        assert_eq!(
+            covered_by_license(&PlanTier::Free, Some("2020-01-01T00:00:00Z")),
+            None
+        );
+        assert_eq!(
+            covered_by_license(
+                &PlanTier::Trial { ends_at: 1 },
+                Some("2020-01-01T00:00:00Z")
+            ),
+            None
+        );
+        let info = UpdateInfo {
+            available: true,
+            version: Some("1.0.1".into()),
+            date: Some("2026-10-29T00:00:00Z".into()),
+            pub_date: Some("2026-10-29T00:00:00Z".into()),
+            covered_by_license: Some(false),
+            ..Default::default()
+        };
+        assert_eq!(
+            serde_json::to_value(info).unwrap(),
+            serde_json::json!({
+                "available": true, "version": "1.0.1", "date": "2026-10-29T00:00:00Z",
+                "pub_date": "2026-10-29T00:00:00Z", "covered_by_license": false
+            })
+        );
     }
 
     #[test]
