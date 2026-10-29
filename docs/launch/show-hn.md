@@ -1,5 +1,18 @@
 # Show HN
 
+**CONDITION (Vlad, 2026-10-29): post nothing until both are true.**
+
+1. The updater has been tested from `1.0.0-beta.1` to `1.0.0-beta.2` on a Windows virtual machine, and it worked.
+2. Vlad has used Valet daily for 7 days.
+
+Until then this file is a draft and nothing is announced anywhere.
+
+Fixed facts for the post:
+
+- Domain: `valetapp.ro`. Site: https://valetapp.ro (English: https://valetapp.ro/en/). Privacy page: https://valetapp.ro/en/privacy.html. These addresses work only after the site in `site/` is online on the domain; check them before posting.
+- Support: GitHub Issues, https://github.com/OsztrovszkyVlad/Valet/issues. There is no support email address; do not add one.
+- Selling: Pro can be bought only once the merchant webhook has passed a sandbox purchase and refund. If selling is not open on the day you post, change every sentence about the Pro price so that it says "buying is not open yet". If it is open, the refund policy is 14 days from purchase, and the license is revoked on refund.
+
 **DRAFT — Vlad decides.** Nothing here is posted. Fill in the `[brackets]`. Before posting, read the current Show HN rules (not checked when this draft was written). As far as I know, people must be able to try what is shown without signing up; the free tier needs no account, and the installer is on GitHub. Check that this still holds when you post.
 
 ---
@@ -9,7 +22,7 @@
 - `Show HN: Valet – rules-based file organizer for Windows, with preview and undo`
 - `Show HN: Valet – Rust and Tauri file organizer for Windows (MIT)`
 
-**URL:** the GitHub repository, `https://github.com/OsztrovszkyVlad/Valet`, or the site: [SITE LINK]. Pick one; the repository is the safer one for this audience.
+**URL:** the GitHub repository, `https://github.com/OsztrovszkyVlad/Valet`, or the site: https://valetapp.ro. Pick one; the repository is the safer one for this audience.
 
 **First comment (post it right after submitting):**
 
@@ -30,7 +43,7 @@ Limits you will want to know about:
 - Beta. The installer is not code-signed, so SmartScreen warns.
 - Not tested: real OneDrive/Dropbox placeholders, USB drives, network shares, power loss.
 - No rename or tag action yet. No AI.
-- The update check (GitHub, static JSON) runs automatically and has no off switch yet. A license check runs only if you import a Pro license. No file names or paths are sent. `docs/PRIVACY.md` has the details.
+- The update check (GitHub, static JSON) runs automatically; a checkbox in Settings switches the automatic check off, and it never installs without a click. A license check runs only if you import a Pro license. No file names or paths are sent. `docs/PRIVACY.md` has the details.
 - The code is MIT. The Pro limits are enforced by the program itself, and the source is public, so anyone can build a copy without them. I'm fine with that. Pro is 29 EUR, one-time, with 12 months of updates; the free tier is 3 own rules and 2 watched folders. [Vlad: confirm you want this sentence.]
 
 Download: [GITHUB RELEASES LINK]

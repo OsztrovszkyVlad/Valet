@@ -1,5 +1,18 @@
 # Reddit r/software announcement
 
+**CONDITION (Vlad, 2026-10-29): post nothing until both are true.**
+
+1. The updater has been tested from `1.0.0-beta.1` to `1.0.0-beta.2` on a Windows virtual machine, and it worked.
+2. Vlad has used Valet daily for 7 days.
+
+Until then this file is a draft and nothing is announced anywhere.
+
+Fixed facts for the post:
+
+- Domain: `valetapp.ro`. Site: https://valetapp.ro (English: https://valetapp.ro/en/). Privacy page: https://valetapp.ro/en/privacy.html. These addresses work only after the site in `site/` is online on the domain; check them before posting.
+- Support: GitHub Issues, https://github.com/OsztrovszkyVlad/Valet/issues. There is no support email address; do not add one.
+- Selling: Pro can be bought only once the merchant webhook has passed a sandbox purchase and refund. If selling is not open on the day you post, change every sentence about the Pro price so that it says "buying is not open yet". If it is open, the refund policy is 14 days from purchase, and the license is revoked on refund.
+
 **DRAFT — Vlad decides.** Nothing here is posted. Edit freely. Fill in the `[brackets]`. Before posting: check the current rules of the subreddit on self-promotion and on flair (not checked when this draft was written), and post only after a beta release is published on GitHub and the download link below works.
 
 Facts in this draft come from `README.md`, `docs/LICENSING.md`, `docs/PRIVACY.md`, `docs/SAFETY.md` and `docs/PLAN.md` section 3.1. If any of them changes before posting, change the draft.
@@ -35,16 +48,16 @@ Things you should know before installing:
 
 - It is a beta. Don't point it at folders whose contents you can't lose. Use the preview.
 - The installer is not code-signed yet, so Windows SmartScreen will warn. "More info", then "Run anyway". I have not got a signing certificate yet.
-- Network: Valet checks GitHub for a new version (30 seconds after start, then every 24 hours; you can't switch this off yet, but it never installs without your click), and, only if you import a Pro license, it checks the license (license id, a one-way hash of the machine id, and the app version). No file names or paths are sent. Details: [PRIVACY LINK]
+- Network: Valet checks GitHub for a new version (30 seconds after start, then every 24 hours; you can switch the automatic check off in Settings, and it never installs without your click), and, only if you import a Pro license, it checks the license (license id, a one-way hash of the machine id, and the app version). No file names or paths are sent. Details: https://valetapp.ro/en/privacy.html
 - There are no crash reports. If it crashes, a line goes to a local log file and nowhere else.
 - Tested so far: unit and property tests, a test that kills the process in the middle of a batch and checks each file exists exactly once after recovery (on Linux, with a fake Recycle Bin), and Windows tests in CI. Not tested: real OneDrive/Dropbox placeholders, USB drives and network shares, power loss. The list of what is and isn't covered is in the repository: `docs/SAFETY.md`.
 - Windows 10 22H2 and Windows 11, 64-bit. The Microsoft Store listing is in preparation and is not live.
 
 Download: [GITHUB RELEASES LINK]
 Source (MIT): https://github.com/OsztrovszkyVlad/Valet
-Site: [SITE LINK]
+Site: https://valetapp.ro
 
-If something goes wrong, I want to know: [HOW TO REPORT: GitHub issues link or email]. If a file seems to be missing, check the Recycle Bin and the History screen first; the log is at `%LOCALAPPDATA%\ro.valetapp.desktop\logs\valet.log`.
+If something goes wrong, I want to know: https://github.com/OsztrovszkyVlad/Valet/issues. If a file seems to be missing, check the Recycle Bin and the History screen first; the log is at `%LOCALAPPDATA%\ro.valetapp.desktop\logs\valet.log`.
 
 Questions I'd like answers to: which rules would you write first, and what in the preview screen was unclear?
 

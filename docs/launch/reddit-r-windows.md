@@ -1,5 +1,18 @@
 # Reddit r/windows announcement
 
+**CONDITION (Vlad, 2026-10-29): post nothing until both are true.**
+
+1. The updater has been tested from `1.0.0-beta.1` to `1.0.0-beta.2` on a Windows virtual machine, and it worked.
+2. Vlad has used Valet daily for 7 days.
+
+Until then this file is a draft and nothing is announced anywhere.
+
+Fixed facts for the post:
+
+- Domain: `valetapp.ro`. Site: https://valetapp.ro (English: https://valetapp.ro/en/). Privacy page: https://valetapp.ro/en/privacy.html. These addresses work only after the site in `site/` is online on the domain; check them before posting.
+- Support: GitHub Issues, https://github.com/OsztrovszkyVlad/Valet/issues. There is no support email address; do not add one.
+- Selling: Pro can be bought only once the merchant webhook has passed a sandbox purchase and refund. If selling is not open on the day you post, change every sentence about the Pro price so that it says "buying is not open yet". If it is open, the refund policy is 14 days from purchase, and the license is revoked on refund.
+
 **DRAFT — Vlad decides.** Nothing here is posted. Fill in the `[brackets]`. Before posting: read the current rules of the subreddit (not checked when this draft was written). Some subreddits restrict posts about your own software or limit them to certain days or threads; if r/windows does, use the allowed place or skip it.
 
 ---
@@ -26,7 +39,7 @@ How it behaves on the machine:
 
 - Per-user installer, no administrator rights. Runs in the tray, closing the window hides it. Start with Windows is optional, off until you turn it on.
 - Windows 10 22H2 and Windows 11, 64-bit. It uses WebView2; the installer downloads it if it is missing.
-- Network: an update check against GitHub (a static JSON file), and a license check only if you import a Pro license. No file names or paths leave the computer. [PRIVACY LINK]
+- Network: an update check against GitHub (a static JSON file), and a license check only if you import a Pro license. No file names or paths leave the computer. https://valetapp.ro/en/privacy.html
 - No telemetry, no crash reporting, no account, no ads.
 
 Honest state of the beta:
@@ -39,6 +52,6 @@ Free plan: 8 ready-made rules, 3 own rules, 2 folders, 7 days of history, undo o
 
 Download: [GITHUB RELEASES LINK]
 Source (MIT): https://github.com/OsztrovszkyVlad/Valet
-Report a problem: [LINK OR EMAIL]
+Report a problem: https://github.com/OsztrovszkyVlad/Valet/issues
 
 What I most want to hear: any file that ended up somewhere you did not expect, and any screen you did not understand.

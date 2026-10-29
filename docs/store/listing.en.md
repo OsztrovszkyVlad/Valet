@@ -36,7 +36,7 @@ No account, no ads, no telemetry. Updates come through the Store; the Store vers
 
 Free: all eight ready-made rules, 3 own rules, 2 watched folders, 7 days of history, undo of the latest batch. Pro: no limits, undo of any batch, export and import of rules; 29 EUR with VAT included, once, with 12 months of updates, bought outside the Store. A 14-day Pro trial needs no card.
 
-[VLAD: buying Pro is not open yet (the current builds have no license server). Do not submit the listing with the price before buying works, or remove the sentence with the price.]
+[VLAD: the sentence with the price above ("Pro: ... 29 EUR ...") is true only when buying works. Decision of 2026-10-29: selling opens only after the merchant's webhook has passed a sandbox purchase and a sandbox refund end to end (`docs/LICENSING.md`, "License service"); until then the site says buying is not open. If you submit the listing before selling opens, remove the sentence with the price and put this in its place: "Pro: no limits, undo of any batch, export and import of rules. Buying Pro is not open yet. The 14-day Pro trial needs no card." If selling is open at submission, keep the sentence, and add the 14-day refund if you want to mention it.]
 
 Romanian and English. Windows 10 22H2 and Windows 11, 64-bit. Valet is in beta: do not point it at folders whose contents you cannot lose, and use the preview.
 
@@ -79,7 +79,15 @@ First version in the Microsoft Store.
 
 ## Privacy policy URL
 
-[PRIVACY POLICY URL: the address of `privacy.html` on the Valet site, in English: `.../en/privacy.html`. The domain is not bought yet (`docs/PLAN.md` section 8), so there is no address. The Store needs one because the app uses the internet.]
+https://valetapp.ro/en/privacy.html
+
+The Store needs one because the app uses the internet. The page is in the repository (`site/en/privacy.html`); the address answers only after the site is deployed on `valetapp.ro`. [VLAD: put the site online on the domain before submitting, and open the address from Partner Center to check it.]
+
+## Support URL
+
+https://github.com/OsztrovszkyVlad/Valet/issues
+
+For now support is GitHub Issues only (decision of 2026-10-29); there is no support email address. For licenses, the app shows a "License code (for support)" in Settings, Valet Pro.
 
 ## Screenshots
 
@@ -134,11 +142,11 @@ Expected result, not verified: the lowest age rating (suitable for all ages).
 ## Open questions for Vlad
 
 1. Name: trademark check and reservation of "Valet" before submission.
-2. Privacy policy URL: needs the domain.
+2. Privacy policy URL: `https://valetapp.ro/en/privacy.html` is decided; the site must be online on the domain before submission.
 3. The Store policy on external purchases (section above).
 4. Whether "hazel for windows" stays as a search term.
 5. The age rating answers marked `[VLAD: check]`.
 6. A test license for the certification testers.
 7. Screenshots from Windows in `docs/screenshots/`.
 8. The MSIX package is built in CI (`packaging/msix/README.md`) but was not submitted in Partner Center and was not tried in a Store install; the package identity comes from Partner Center.
-9. Buying Pro is not open (there is no license server); decide what the listing says about the price until then.
+9. Buying Pro: it opens after the merchant webhook passes its sandbox test (payment and refund). At submission, pick the variant of the "Description" text that matches the state at that time.

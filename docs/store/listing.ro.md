@@ -36,7 +36,7 @@ Fără cont, fără reclame, fără telemetrie. Actualizările vin prin Store; v
 
 Gratuit: toate cele opt reguli gata făcute, 3 reguli proprii, 2 foldere urmărite, istoric de 7 zile, anularea ultimului lot. Pro: fără limite, anularea oricărui lot, export și import de reguli; 29 € cu TVA inclus, o singură dată, cu actualizări 12 luni, cumpărat în afara Store. Proba de 14 zile de Pro nu cere card.
 
-[VLAD: cumpărarea Pro nu e deschisă încă (nu există server de licențe în build-urile de acum). Nu trimite listarea cu prețul înainte să funcționeze cumpărarea, sau scoate fraza cu prețul.]
+[VLAD: propoziția cu prețul de mai sus („Pro: ... 29 € ...”) e adevărată doar când cumpărarea funcționează. Decizia din 2026-10-29: vânzarea se deschide abia după ce webhook-ul comerciantului a trecut o cumpărare și o rambursare de probă cap-coadă (`docs/LICENSING.md`, „License service”); până atunci site-ul spune că cumpărarea nu e deschisă. Dacă trimiți listarea înainte să se deschidă vânzarea, scoate propoziția cu prețul și pune în loc: „Pro: fără limite, anularea oricărui lot, export și import de reguli. Cumpărarea Pro nu e deschisă încă. Proba de 14 zile de Pro nu cere card.” Dacă vânzarea e deschisă la trimitere, păstrează propoziția, cu rambursarea în 14 zile dacă vrei s-o pomenești.]
 
 Română și engleză. Windows 10 22H2 și Windows 11, pe 64 de biți. Valet e în beta: nu îl îndrepta spre foldere ale căror conținut nu îl poți pierde și folosește previzualizarea.
 
@@ -79,7 +79,15 @@ Prima versiune în Microsoft Store.
 
 ## Adresa politicii de confidențialitate
 
-[ADRESA POLITICII DE CONFIDENȚIALITATE: adresa lui `privacy.html` de pe site-ul Valet, în română. Domeniul nu e cumpărat încă (`docs/PLAN.md` secțiunea 8), deci nu există adresă. Store o cere pentru că aplicația folosește internetul.]
+https://valetapp.ro/privacy.html
+
+Store o cere pentru că aplicația folosește internetul. Pagina există în depozit (`site/privacy.html`); adresa răspunde doar după ce site-ul e pus pe `valetapp.ro`. [VLAD: pune site-ul online pe domeniu înainte de trimitere și deschide adresa din Partner Center ca s-o verifici.]
+
+## Adresa de asistență
+
+https://github.com/OsztrovszkyVlad/Valet/issues
+
+Deocamdată asistența e doar GitHub Issues (decizia din 2026-10-29); nu există o adresă de email de asistență. Pentru licențe, aplicația arată în Setări, Valet Pro un „Cod licență (pentru asistență)”.
 
 ## Capturi de ecran
 
@@ -134,11 +142,11 @@ Rezultat așteptat, neverificat: cea mai joasă clasă de vârstă (potrivit pen
 ## Întrebări deschise pentru Vlad
 
 1. Numele: verificarea mărcii și rezervarea „Valet” înainte de trimitere.
-2. Adresa politicii de confidențialitate: cere domeniul.
+2. Adresa politicii de confidențialitate: `https://valetapp.ro/privacy.html` e hotărâtă; site-ul trebuie să fie online pe domeniu înainte de trimitere.
 3. Politica Store despre achiziții externe (secțiunea de mai sus).
 4. Dacă „hazel for windows” rămâne termen de căutare.
 5. Răspunsurile de vârstă marcate `[VLAD: verifică]`.
 6. O licență de test pentru testerii de certificare.
 7. Capturi de pe Windows în `docs/screenshots/`.
 8. Pachetul MSIX se construiește în CI (`packaging/msix/README.md`), dar nu a fost trimis în Partner Center și nu a fost încercat într-o instalare din Store; identitatea pachetului vine din Partner Center.
-9. Cumpărarea Pro nu e deschisă (nu există server de licențe); decide ce spune listarea despre preț până atunci.
+9. Cumpărarea Pro: se deschide după testul de probă al webhook-ului comerciantului (plată și rambursare). La trimitere, alege varianta de text din secțiunea „Descriere” care se potrivește cu starea de atunci.

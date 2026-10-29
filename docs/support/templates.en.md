@@ -9,13 +9,14 @@ Rules for every reply:
 - Never ask for the contents of a file. Names and paths can be sensitive too: ask for them only when needed, and let the person look at what they send first.
 - The log can hold file paths when the detailed log was on. Say so every time you ask for it.
 - Do not promise a fix date.
+- The support channel is GitHub Issues (https://github.com/OsztrovszkyVlad/Valet/issues). There is no support email address. The pages are public: do not ask for, and do not leave in them, email addresses, license files, logs that were not read, or the person's files. If someone pastes them, ask them to edit the message.
 
 Where things are (as in `docs/PRIVACY.md`):
 
 - Log file: `%LOCALAPPDATA%\ro.valetapp.desktop\logs\valet.log` (older ones are `valet_<date and time>.log` in the same folder, at most 5 files).
 - Detailed log: Settings, Support, "Detailed log (for troubleshooting)". It takes effect at once, without a restart. It is off by default.
 - Data folder: `%APPDATA%\ro.valetapp.desktop` (database with the journal, settings, license files; removed licenses are in the subfolder `license-removed`). In the Microsoft Store version the data is in a folder of the package, under `%LOCALAPPDATA%\Packages\`, and the logs are in `%LOCALAPPDATA%\ro.valetapp.desktop\logs` only in the usual variant (not checked in the Store version).
-- Plan and license: Settings, Valet Pro.
+- Plan and license: Settings, Valet Pro. It also shows "License code (for support)". With this code, plus an order lookup in the merchant account (the order number is in the merchant's confirmation email), support finds a license. No link between email and license is kept.
 - Version: Settings, About.
 
 ---
@@ -105,19 +106,32 @@ Notes: renaming files by a template is the first feature planned after launch. T
 
 ## 4. Refund request
 
+Policy (decided by Vlad, 2026-10-29): refund within 14 days of purchase, through the merchant that processed the payment; the license is revoked on refund. Buying is not open yet, so this template is not sent until it opens.
+
 ```
 Hi {name},
 
-[VLAD DECIDES: refund policy. Fill in before the first sale: the number of days, who handles the refund
-(the payment provider or Vlad), and what happens to the license after a refund.
-Nothing in the repository sets this yet. Do not send this template until it is filled in.]
+Yes, you can get your money back within 14 days of purchase. The refund goes through the merchant that processed
+the payment (the order number is in the confirmation email you got from it), not directly through Valet.
 
-To look at your order I need the email address used for the purchase and, if you have it, the order number.
+What happens after the refund:
+- The license is revoked. Valet learns about it at the next license check (at most once every 30 days);
+  if you want it at once, open Settings, Valet Pro and press "Check license now".
+- Valet goes back to the 14-day trial, if it has not ended, or to the Free plan.
+  Nothing is lost: your rules, folders, history and settings stay. Whatever goes over the Free plan limits
+  is switched off, not deleted, and comes back if you move to Pro again.
+- The license file stays on the computer, so Settings can show why it is no longer active.
+
+Please do not put your email address, the license file or the order number on this page: GitHub Issues is public.
 
 Vlad
 ```
 
-Internal note: the license service has `services/license/revoke.mjs`, which withdraws a license (after a revoke, Valet refuses it with "The license was revoked."). Whether a refund revokes the license, and when, is Vlad's decision, together with the policy above.
+Internal notes:
+
+- The license service withdraws a license with `services/license/revoke.mjs` and, when the merchant webhook is ready, on the merchant's refund event (`docs/LICENSING.md`, "License service"). After a revoke, Valet refuses it with "The license was revoked."
+- How to find the license: the person gives you the first 8 characters of "License code" (Settings, Valet Pro); the server keeps the merchant order ids, not the email.
+- [VLAD: once the merchant is chosen, add the exact steps for the buyer (a link or a button at the merchant), or say whether you trigger the refund from the merchant account. Not decided, because it depends on the merchant.]
 
 ---
 
@@ -133,8 +147,9 @@ Common causes:
   open Valet on that computer, go to Settings, Valet Pro, press "Remove the license from this computer",
   and import the license again here. Removing it frees that computer's place. Uninstalling Valet does not free it.
   If the old computer is gone (broken, formatted), or the license was removed without internet,
-  write back with the email address used for the purchase. I can clear the license's list of active computers
-  on the server. After that you import the license on the new computer (Settings, Valet Pro, "I have a license").
+  reply here with the first 8 characters of "License code (for support)" (Settings, Valet Pro). Do not put
+  your email address or the license file on the page: GitHub Issues is public. I can clear the license's list
+  of active computers on the server. After that you import the license on the new computer (Settings, Valet Pro, "I have a license").
   The reset clears only the list of active computers; the license stays as it is.
 - No internet at the moment of import. Importing needs one connection to the license server.
   After that, Valet checks again at most once every 30 days. If the connection fails later,
@@ -157,7 +172,7 @@ Vlad
 Internal notes for this case:
 
 - Vlad does the reset, on the server: `node services/license/reset.mjs --license <id> --store <file>` (or with the variable `VALET_LICENSE_STORE`). The command clears the active machines of the license; the machine history and the license record stay (`services/license/reset.mjs`, `docs/LICENSING.md`, "License service"). The user cannot do it.
-- The command needs the license id (a UUID), which the user can read in Settings → Valet Pro ("License code (for support)"). It is also found in the sales records, by email, or in the person's `.valet-license` file (the `license_id` field in `payload`). Which sales records exist is not decided: the merchant webhook is not built. [VLAD: decide where the email to id link is kept.]
+- The command needs the license id (a UUID), which the user can read in Settings → Valet Pro ("License code (for support)"). No link between email and license is kept (Vlad's decision, 2026-10-29). The license is found by the code in Settings or by the order number in the merchant account: the server keeps the order ids and the license id, not the email. The full code should not be put on a public page: anyone who has it can take an activation slot (the activate request needs only the license id and the machine id). Ask for the first 8 characters and look up the full id in the server's store. [VLAD: confirm that 8 characters are enough to find the license in the store; not verified.]
 - Do not ask for the `.valet-license` file if the email is enough. The file has the id, the email and the license data, not the person's files.
 - Tell the person not to use the license on the old computer if they repair it later: it would take a place again.
 
