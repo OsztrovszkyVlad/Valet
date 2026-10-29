@@ -294,6 +294,9 @@ Write-Note ("database created {0:o}, file ID {1}" -f $dbCreated, $dbId)
 
 # --- 3. Auto-start value as the app writes it -------------------------------------
 Set-Phase 'uninstall'
+# Fresh runner images may not have the Run key; the app creates it too
+# (RegCreateKeyExW). No -Force on an existing key: that would drop its values.
+if (-not (Test-Path -LiteralPath $RunKey)) { $null = New-Item -Path $RunKey }
 Set-ItemProperty -LiteralPath $RunKey -Name $ProductName -Value "`"$exe`" --minimized"
 Write-Note "HKCU Run '$ProductName' set to `"$exe`" --minimized before uninstalling"
 
