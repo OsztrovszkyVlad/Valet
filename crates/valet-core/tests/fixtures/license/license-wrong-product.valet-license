@@ -1,0 +1,4 @@
+{
+  "payload": "{\"v\":1,\"kind\":\"license\",\"license_id\":\"6f1c2a3b-4d5e-4f60-8a71-92b3c4d5e6f7\",\"product\":\"valet-lite\",\"issued_at\":1790000000,\"updates_until\":1821536000,\"max_activations\":3,\"email\":\"test@example.com\"}",
+  "signature": "untrusted comment: signature from Valet TEST key\nRUQiAvAxCK84QgE9D8R66EFeLqlwO8A/EVpOibJa3zutXBgyHYY1zGhWwPXId+CSrWjNfw7METFMaas4f6zX92IoLap0f1WQNw4=\ntrusted comment: timestamp:1793000000\tfile:payload\thashed\nFLaLceu3NuoCNLv8RJu9b1grObaA7nL+do0Im46xq3ygEeHbsvF6gWzZcNTp+KLVL76/wAuO1yWgyRZfCktFCQ==\n"
+}

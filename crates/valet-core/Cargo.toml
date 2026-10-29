@@ -15,6 +15,7 @@ uuid = { version = "1", features = ["v4","v5","serde"] }
 walkdir = "2"
 blake3 = "1"
 regex = "1"
+minisign-verify = "0.3"
 
 [features]
 # Exposes platform::testing::FakePlatform to integration tests and other crates' tests.

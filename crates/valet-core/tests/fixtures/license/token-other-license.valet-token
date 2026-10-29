@@ -1,0 +1,4 @@
+{
+  "payload": "{\"v\":1,\"kind\":\"activation\",\"license_id\":\"0a1b2c3d-4e5f-4a6b-9c7d-8e9fa0b1c2d3\",\"machine\":\"0123456789abcdef0123456789abcdef\",\"checked_at\":1793913600}",
+  "signature": "untrusted comment: signature from Valet TEST key\nRUQiAvAxCK84QvCm/PfCdjFbM+mf5Tff5F6iBQ9hz8VochvGmsOoyeHEWoPaz1VO1bk3RLxS7XQ0T5WxdQEFppOaLcNyH61YJwE=\ntrusted comment: timestamp:1793000000\tfile:payload\thashed\nEv9cCXLHSEWx+Gj5nVh9JEA5RE1bF1sryfKbBfO/CbhVLQemhIjG65McJE8dZFVYmIQiu79Iz8YAP+zd0Tb6AQ==\n"
+}

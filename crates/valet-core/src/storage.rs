@@ -141,7 +141,63 @@ impl Db {
             .await?;
         Ok(res.rows_affected() > 0)
     }
+
+    /// The `meta` value under `key`, if any.
+    pub async fn meta_get(&self, key: &str) -> Result<Option<String>> {
+        Ok(
+            sqlx::query_scalar::<_, String>(r#"SELECT value FROM meta WHERE key = ?1"#)
+                .bind(key)
+                .fetch_optional(&self.pool)
+                .await?,
+        )
+    }
+
+    /// Sets the `meta` value under `key`.
+    pub async fn meta_set(&self, key: &str, value: &str) -> Result<()> {
+        sqlx::query(
+            r#"INSERT INTO meta(key, value) VALUES(?1, ?2)
+               ON CONFLICT(key) DO UPDATE SET value = excluded.value"#,
+        )
+        .bind(key)
+        .bind(value)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// `meta.trial_started_at` (Unix seconds): stores `now` the first time,
+    /// then always returns the stored value (`docs/LICENSING.md`, Trial).
+    /// A stored value that is not an integer is an error.
+    pub async fn ensure_trial_started(&self, now: i64) -> Result<i64> {
+        sqlx::query(r#"INSERT OR IGNORE INTO meta(key, value) VALUES(?1, ?2)"#)
+            .bind(META_TRIAL_STARTED_AT)
+            .bind(now.to_string())
+            .execute(&self.pool)
+            .await?;
+        let stored = self
+            .meta_get(META_TRIAL_STARTED_AT)
+            .await?
+            .unwrap_or_default();
+        stored
+            .trim()
+            .parse()
+            .map_err(|_| anyhow::anyhow!("meta.{META_TRIAL_STARTED_AT} is not an integer"))
+    }
+
+    /// `meta.plan_choice_pending = 1`: after falling back to Free the UI
+    /// should let the user pick the rules and folders that stay active.
+    pub async fn plan_choice_pending(&self) -> Result<bool> {
+        Ok(self.meta_get(META_PLAN_CHOICE_PENDING).await?.as_deref() == Some("1"))
+    }
+
+    pub async fn set_plan_choice_pending(&self, pending: bool) -> Result<()> {
+        self.meta_set(META_PLAN_CHOICE_PENDING, if pending { "1" } else { "0" })
+            .await
+    }
 }
+
+pub const META_TRIAL_STARTED_AT: &str = "trial_started_at";
+pub const META_PLAN_CHOICE_PENDING: &str = "plan_choice_pending";
 
 fn upsert_file_query(f: &FileRow) -> Query<'_, Sqlite, SqliteArguments<'_>> {
     sqlx::query(
@@ -355,6 +411,43 @@ mod tests {
         assert_eq!(n, 0);
         db.pool.close().await;
         fresh.pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn trial_start_is_stored_once_and_survives_reopen() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("valet.sqlite3");
+        let db = Db::connect(&path).await.unwrap();
+        assert_eq!(db.meta_get(META_TRIAL_STARTED_AT).await.unwrap(), None);
+        assert_eq!(db.ensure_trial_started(1_000).await.unwrap(), 1_000);
+        assert_eq!(db.ensure_trial_started(5_000).await.unwrap(), 1_000);
+        db.pool.close().await;
+        let db = Db::connect(&path).await.unwrap();
+        assert_eq!(db.ensure_trial_started(9_000).await.unwrap(), 1_000);
+        db.meta_set(META_TRIAL_STARTED_AT, "x").await.unwrap();
+        assert!(db.ensure_trial_started(9_000).await.is_err());
+        db.pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn plan_choice_pending_defaults_to_false_and_round_trips() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Db::connect(&tmp.path().join("valet.sqlite3"))
+            .await
+            .unwrap();
+        assert!(!db.plan_choice_pending().await.unwrap());
+        db.set_plan_choice_pending(true).await.unwrap();
+        assert!(db.plan_choice_pending().await.unwrap());
+        assert_eq!(
+            db.meta_get(META_PLAN_CHOICE_PENDING)
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("1")
+        );
+        db.set_plan_choice_pending(false).await.unwrap();
+        assert!(!db.plan_choice_pending().await.unwrap());
+        db.pool.close().await;
     }
 
     #[tokio::test]
