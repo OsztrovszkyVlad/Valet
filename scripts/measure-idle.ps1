@@ -2,6 +2,8 @@
 .SYNOPSIS
 Measures Valet startup time and idle CPU / memory (docs/PLAN.md 2.6:
 startup < 2 s, idle RAM < 150 MB, idle CPU < 1%). Report only: exits 0.
+The RAM budget applies to the private bytes of the app process tree;
+the working set is reported separately, without a budget.
 
 .DESCRIPTION
 1. Starts the built app with APPDATA pointing to a new temp folder.
@@ -11,6 +13,9 @@ startup < 2 s, idle RAM < 150 MB, idle CPU < 1%). Report only: exits 0.
 3. Waits until the app process has been up -SettleSeconds.
 4. Every second for -Seconds: CPU% and memory of the process tree
    (app.exe and all descendants, i.e. the WebView2 processes).
+   Memory is the sum over the tree of private bytes
+   (Process.PrivateMemorySize64, compared with the 150 MB budget) and of
+   the working set (Process.WorkingSet64, reported only).
    CPU% is of the whole machine (all logical processors), the unit of
    the 1% budget; "% of one core" is printed as well.
 5. Prints averages and maxima, emits `::notice::` lines under GitHub
@@ -236,8 +241,8 @@ $privMax = ($privSamples | Measure-Object -Maximum).Maximum
 
 Write-Result ("idle CPU over {0} s (app + {1} child processes): avg {2:N2}%, max {3:N2}% of {4} logical processors ({5}); avg {6:N1}% of one core" -f `
         $cpuSamples.Count, ($maxProcs - 1), $cpuAvg, $cpuMax, $cpus, (Format-Budget $cpuAvg 1), ($cpuAvg * $cpus))
-Write-Result ("idle working set (app tree): avg {0:N1} MB, max {1:N1} MB ({2})" -f $wsAvg, $wsMax, (Format-Budget $wsMax 150))
-Write-Result ("idle private bytes (app tree): avg {0:N1} MB, max {1:N1} MB" -f $privAvg, $privMax)
+Write-Result ("idle private bytes (app tree): avg {0:N1} MB ({1}), max {2:N1} MB" -f $privAvg, (Format-Budget $privAvg 150), $privMax)
+Write-Result ("idle working set (app tree): avg {0:N1} MB (reported, no budget), max {1:N1} MB" -f $wsAvg, $wsMax)
 if ($configUsed) {
     Write-Result "config: fresh folder created under the temp APPDATA"
 }
