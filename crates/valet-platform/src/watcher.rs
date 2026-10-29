@@ -11,8 +11,7 @@ use notify::{
 };
 use notify_debouncer_mini::{Config, DebounceEventResult, Debouncer, new_debouncer_opt};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, Mutex, PoisonError, mpsc};
 use std::time::Duration;
 
 /// Quiet period before a batch of changes is delivered.
@@ -25,20 +24,51 @@ pub const DEBOUNCE: Duration = Duration::from_secs(2);
 pub struct WatchCancel {
     stop_tx: Option<mpsc::Sender<()>>,
     thread: Option<std::thread::JoinHandle<()>>,
-    active: Arc<AtomicBool>,
+    gate: Arc<Gate>,
 }
 
 impl WatchCancel {
-    /// Stops watching and waits for the watcher thread to exit. After this
-    /// returns no new callback starts; one already running may still finish.
+    /// Stops watching. Once this returns the callback is never called again:
+    /// it waits for a callback already running to finish, and batches still
+    /// queued in the debouncer are dropped. Must not be called from inside the
+    /// callback (it would wait for itself).
     pub fn cancel(mut self) {
-        self.active.store(false, Ordering::SeqCst);
+        // Close first: the debouncer's own thread is not joined when the
+        // debouncer is dropped, so it may still hand over a pending batch.
+        self.gate.close();
         if let Some(tx) = self.stop_tx.take() {
             let _ = tx.send(());
         }
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
+    }
+}
+
+/// Lets callbacks run only until [`Gate::close`]. The lock is held for the
+/// whole callback, so `close` waits for a running callback and any later
+/// [`Gate::run`] sees the gate closed. An atomic flag checked before the call
+/// would leave a window between the check and the call.
+struct Gate {
+    open: Mutex<bool>,
+}
+
+impl Gate {
+    fn new() -> Self {
+        Self {
+            open: Mutex::new(true),
+        }
+    }
+
+    fn run(&self, f: impl FnOnce()) {
+        let open = self.open.lock().unwrap_or_else(PoisonError::into_inner);
+        if *open {
+            f();
+        }
+    }
+
+    fn close(&self) {
+        *self.open.lock().unwrap_or_else(PoisonError::into_inner) = false;
     }
 }
 
@@ -51,17 +81,17 @@ pub async fn watch_paths<F>(paths: Vec<PathBuf>, on_events: F) -> Result<WatchCa
 where
     F: Fn(Vec<PathBuf>) + Send + Sync + 'static,
 {
-    let active = Arc::new(AtomicBool::new(true));
+    let gate = Arc::new(Gate::new());
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel::<Result<()>>();
     let (stop_tx, stop_rx) = mpsc::channel::<()>();
-    let thread_active = Arc::clone(&active);
+    let thread_gate = Arc::clone(&gate);
 
     // Setting up recursive watches can walk large trees (inotify), so it runs
     // on its own thread instead of blocking the async executor.
     let thread = std::thread::Builder::new()
         .name("valet-watcher".into())
         .spawn(move || {
-            let debouncer = match start(&paths, on_events, thread_active) {
+            let debouncer = match start(&paths, on_events, thread_gate) {
                 Ok(d) => {
                     let _ = ready_tx.send(Ok(()));
                     d
@@ -87,24 +117,15 @@ where
     Ok(WatchCancel {
         stop_tx: Some(stop_tx),
         thread: Some(thread),
-        active,
+        gate,
     })
 }
 
-fn start<F>(
-    paths: &[PathBuf],
-    on_events: F,
-    active: Arc<AtomicBool>,
-) -> Result<Debouncer<RescanWatcher>>
+fn start<F>(paths: &[PathBuf], on_events: F, gate: Arc<Gate>) -> Result<Debouncer<RescanWatcher>>
 where
     F: Fn(Vec<PathBuf>) + Send + Sync + 'static,
 {
-    let roots = paths.to_vec();
-    let handler = move |res: DebounceEventResult| {
-        if active.load(Ordering::SeqCst) {
-            deliver(res, &roots, &on_events);
-        }
-    };
+    let handler = make_handler(paths.to_vec(), on_events, gate);
     let config = Config::default().with_timeout(DEBOUNCE);
     let mut debouncer =
         new_debouncer_opt::<_, RescanWatcher>(config, handler).context("create file watcher")?;
@@ -115,6 +136,18 @@ where
             .with_context(|| format!("watch {}", p.display()))?;
     }
     Ok(debouncer)
+}
+
+/// The debouncer's event handler: delivers a batch only while `gate` is open.
+fn make_handler<F>(
+    roots: Vec<PathBuf>,
+    on_events: F,
+    gate: Arc<Gate>,
+) -> impl FnMut(DebounceEventResult) + Send + 'static
+where
+    F: Fn(Vec<PathBuf>) + Send + Sync + 'static,
+{
+    move |res: DebounceEventResult| gate.run(|| deliver(res, &roots, &on_events))
 }
 
 /// Turns one debouncer result into one callback call.
@@ -204,7 +237,73 @@ impl Watcher for RescanWatcher {
 mod tests {
     use super::*;
     use notify::event::Flag;
+    use notify_debouncer_mini::{DebouncedEvent, DebouncedEventKind};
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Instant;
+
+    fn batch(path: &str) -> DebounceEventResult {
+        Ok(vec![DebouncedEvent {
+            path: PathBuf::from(path),
+            kind: DebouncedEventKind::Any,
+        }])
+    }
+
+    #[test]
+    fn pending_batch_after_cancel_is_dropped() {
+        let gate = Arc::new(Gate::new());
+        let (tx, rx) = mpsc::channel();
+        let tx = Mutex::new(tx);
+        let mut handler = make_handler(
+            vec![PathBuf::from("/r")],
+            move |b| {
+                tx.lock().unwrap().send(b).unwrap();
+            },
+            Arc::clone(&gate),
+        );
+
+        handler(batch("/r/before"));
+        assert_eq!(rx.try_recv().unwrap(), vec![PathBuf::from("/r/before")]);
+
+        // What cancel() does first; the debouncer thread may still hold a
+        // batch (or an error that would trigger a rescan) and hand it over.
+        gate.close();
+        handler(batch("/r/after"));
+        handler(Err(notify::Error::generic("overflow")));
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn close_waits_for_running_callback() {
+        let gate = Arc::new(Gate::new());
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel::<()>();
+        let (entered_tx, release_rx) = (Mutex::new(entered_tx), Mutex::new(release_rx));
+        let mut handler = make_handler(
+            vec![],
+            move |_| {
+                entered_tx.lock().unwrap().send(()).unwrap();
+                release_rx.lock().unwrap().recv().unwrap();
+            },
+            Arc::clone(&gate),
+        );
+        let worker = std::thread::spawn(move || handler(batch("/r/f")));
+        entered_rx.recv().unwrap();
+
+        let (closed_tx, closed_rx) = mpsc::channel();
+        let closer_gate = Arc::clone(&gate);
+        let closer = std::thread::spawn(move || {
+            closer_gate.close();
+            closed_tx.send(()).unwrap();
+        });
+        assert!(
+            closed_rx.recv_timeout(Duration::from_millis(200)).is_err(),
+            "close returned while the callback was running"
+        );
+        release_tx.send(()).unwrap();
+        closed_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        worker.join().unwrap();
+        closer.join().unwrap();
+    }
 
     #[test]
     fn rescan_event_becomes_one_event_per_root() {
@@ -238,11 +337,11 @@ mod tests {
         assert_eq!(got.into_inner().unwrap(), vec![roots]);
     }
 
-    fn wait_for(rx: &mpsc::Receiver<Vec<PathBuf>>, name: &str, limit: Duration) -> bool {
+    fn wait_for(rx: &mpsc::Receiver<(bool, Vec<PathBuf>)>, name: &str, limit: Duration) -> bool {
         let deadline = Instant::now() + limit;
         while let Some(left) = deadline.checked_duration_since(Instant::now()) {
             match rx.recv_timeout(left) {
-                Ok(batch) if batch.iter().any(|p| p.ends_with(name)) => return true,
+                Ok((_, batch)) if batch.iter().any(|p| p.ends_with(name)) => return true,
                 Ok(_) => {}
                 Err(_) => return false,
             }
@@ -255,8 +354,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (tx, rx) = mpsc::channel();
         let tx = Mutex::new(tx);
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let seen_cancelled = Arc::clone(&cancelled);
         let handle = watch_paths(vec![dir.path().to_path_buf()], move |batch| {
-            let _ = tx.lock().unwrap().send(batch);
+            // Tag each batch with whether cancel() had already returned.
+            let after = seen_cancelled.load(Ordering::SeqCst);
+            let _ = tx.lock().unwrap().send((after, batch));
         })
         .await
         .unwrap();
@@ -265,13 +368,19 @@ mod tests {
         assert!(wait_for(&rx, "first.txt", Duration::from_secs(10)));
 
         handle.cancel();
+        cancelled.store(true, Ordering::SeqCst);
         std::fs::write(dir.path().join("second.txt"), b"2").unwrap();
         // Stopped means the debouncer thread exited and dropped the callback,
-        // which closes the channel. No batch may arrive before that.
-        match rx.recv_timeout(DEBOUNCE + Duration::from_secs(3)) {
-            Ok(batch) => panic!("callback after cancel: {batch:?}"),
-            Err(mpsc::RecvTimeoutError::Disconnected) => {}
-            Err(mpsc::RecvTimeoutError::Timeout) => panic!("watcher still alive after cancel"),
+        // which closes the channel. Batches delivered before cancel() returned
+        // (one write can yield two debounced batches) are fine; none may be
+        // delivered after.
+        loop {
+            match rx.recv_timeout(DEBOUNCE + Duration::from_secs(3)) {
+                Ok((false, _)) => {}
+                Ok((true, batch)) => panic!("callback after cancel: {batch:?}"),
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                Err(mpsc::RecvTimeoutError::Timeout) => panic!("watcher still alive after cancel"),
+            }
         }
     }
 
