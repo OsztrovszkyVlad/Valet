@@ -220,7 +220,7 @@ Regula de aur: valet-core compilează și se testează pe Linux în CI, fără n
 
 ### 4.5 Jurnale, erori, telemetrie
 
-- Loguri locale: `%LOCALAPPDATA%\Valet\logs`, rotație 5 × 2 MB, nivel implicit INFO fără căi complete (doar nume de fișier trunchiat și hash de folder); DEBUG activabil din setări pentru suport.
+- Loguri locale: `%LOCALAPPDATA%\ro.valetapp.desktop\logs\valet.log` (folderul de log al aplicației Tauri; `%LOCALAPPDATA%\Valet` e folderul de instalare NSIS), rotație 5 × 2 MB, nivel implicit INFO fără căi complete (doar nume de fișier trunchiat și hash de folder); DEBUG activabil din setări pentru suport.
 - Raportare de erori: Sentry (crate `sentry` în Rust, SDK în frontend) **doar opt-in**, cu un ecran care arată exact ce se trimite; scrub de căi; fără conținut de fișiere.
 - Panică în Rust = niciodată crash fără jurnal: hook de panică scrie în log și marchează operațiile `in_progress`.
 
