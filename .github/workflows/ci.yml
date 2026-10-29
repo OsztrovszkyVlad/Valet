@@ -347,15 +347,68 @@ jobs:
         if: ${{ !cancelled() }}
         shell: bash
         run: bash scripts/ci-test.sh -p valet-platform --features valet-core -- --nocapture
-      # Report only: startup and idle numbers (PLAN.md 2.6) as notice
-      # annotations. `tauri/custom-protocol` makes the binary serve the
-      # embedded dist/ (as `tauri build` does) instead of the dev server URL.
-      - name: Build app (release) for idle measurement
-        if: ${{ !cancelled() }}
-        continue-on-error: true
-        run: cargo build --release -p app --features tauri/custom-protocol
-      - name: Measure startup and idle (report only)
-        if: ${{ !cancelled() }}
+
+  # The NSIS installer built like the release dry run (release.yml: tauri-action
+  # runs `pnpm tauri build` in apps/desktop; beforeBuildCommand builds the
+  # frontend; no updater config, no signing key), then installed, started,
+  # uninstalled and reinstalled silently by scripts/installer-smoke.ps1.
+  # Blocking. The startup and idle numbers (PLAN.md 2.6) are measured on the
+  # installed Valet.exe afterwards (report only).
+  installer:
+    name: installer (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust toolchain from rust-toolchain.toml
+        shell: bash
+        run: rustup toolchain install || rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: installer
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: apps/desktop/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+      - name: Install frontend dependencies
+        working-directory: apps/desktop
+        run: pnpm install --frozen-lockfile
+      - name: Build the NSIS installer (pnpm tauri build)
+        id: build
+        shell: pwsh
+        working-directory: apps/desktop
+        run: |
+          $sw = [Diagnostics.Stopwatch]::StartNew()
+          pnpm tauri build
+          if ($LASTEXITCODE -ne 0) {
+            Write-Output "::error title=installer::pnpm tauri build exit code $LASTEXITCODE"
+            exit 1
+          }
+          $exe = @(Get-ChildItem -Path ../../target/release/bundle/nsis -Filter '*-setup.exe')
+          if ($exe.Count -ne 1) {
+            Write-Output "::error title=installer::expected one *-setup.exe in target/release/bundle/nsis, found $($exe.Count)"
+            exit 1
+          }
+          $f = $exe[0]
+          $sha = (Get-FileHash $f.FullName -Algorithm SHA256).Hash.ToLower()
+          Write-Output ("::notice title=installer::built {0} in {1:N0} s: {2:N2} MB ({3} bytes) sha256 {4}" -f $f.Name, $sw.Elapsed.TotalSeconds, ($f.Length / 1MB), $f.Length, $sha)
+          "setup=$($f.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+      - name: Install, start, uninstall, reinstall (silent, per user)
+        id: smoke
+        shell: pwsh
+        run: ./scripts/installer-smoke.ps1 "${{ steps.build.outputs.setup }}"
+      - name: Measure startup and idle on the installed Valet.exe (report only)
+        if: ${{ !cancelled() && steps.smoke.outputs.exe != '' }}
         continue-on-error: true
         shell: pwsh
-        run: ./scripts/measure-idle.ps1 -AppPath target/release/app.exe
+        run: ./scripts/measure-idle.ps1 -AppPath "${{ steps.smoke.outputs.exe }}"
+      - name: Upload the installer
+        if: ${{ !cancelled() && steps.build.outputs.setup != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: valet-installer-ci
+          path: ${{ steps.build.outputs.setup }}
+          retention-days: 7
