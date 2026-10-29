@@ -253,6 +253,29 @@ Serverul nu păstrează emailul.
 
 `build.rs` citește deja variabila. Cu rândul adăugat, data de build devine data commit-ului.
 
+## Completare 2: decizii noi (29 octombrie)
+
+| Decizie | Ce s-a făcut | Commit |
+|---|---|---|
+| 1. Chargeback-urile și disputele revocă licența și o marchează „disputed”; nu se reactivează prin reset, doar manual | Paddle `action = chargeback`, Stripe `charge.dispute.created` (plus o întrebare de clarificare care devine dispută). `reset.mjs` refuză licențele cu dispută. `undispute.mjs --confirm` e calea manuală. O dispută câștigată doar se notează în istoric. | `31b0636` |
+| 2. `resend.mjs` și `reissue.mjs` | `resend` citește din nou emailul de la comerciant și semnează aceeași licență: fișierul e identic octet cu octet dacă emailul nu s-a schimbat. `reissue` revocă licența veche (motiv `reissued`), emite una nouă pe aceeași comandă, cu același `updates_until`, și trimite emailul. Ambele cer numărul comenzii. | `31b0636` |
+| 3. Numele comerciantului lângă „Cumpără Pro” | Placeholder-ul `<Paddle/Stripe>` nu era completat, iar tu ai ales „din fișier”. Când `crates/valet-core/license/merchant.txt` conține `Paddle` sau `Stripe`, Setări → Valet Pro arată „Plata se face prin …, care emite factura și se ocupă de TVA.” (ro și en). Fișierul e gol acum. | `8249dd0` |
+| 4. Iconița vine separat | — | — |
+
+**Reparat pe drum:**
+- O revocare din linia de comandă putea fi suprascrisă de o activare scrisă de server în același moment. Acum scrierile din store trec printr-un lacăt pe fișier, iar un test cu două procese confirmă că nu se pierde nimic.
+- Retrimiterea unui webhook după un `reissue` ar fi dat eroare. E reparată.
+
+**Teste:** `node --test` în `services/license` trece 118/118. `cargo test --workspace` trece 565/0. vitest trece 243.
+
+**Ce am găsit pe `origin/main` la sfârșitul sarcinii:**
+- `release.yml` nu are rândul `SOURCE_DATE_EPOCH`;
+- `pubkey.txt` și `api.txt` au 0 octeți.
+
+Mesajul tău spunea că sunt adăugate. Probabil push-ul nu a ajuns. Până ajung, licențele rămân inactive, iar data de build e momentul compilării.
+
+**Sandbox:** nu a trecut încă (răspunsul tău), deci vânzarea rămâne închisă și `checkout.txt` e gol.
+
 ## Probleme cunoscute
 
 1. **Licențele nu sunt active în niciun build.** `pubkey.txt` și `api.txt` sunt goale pe `origin/main`, iar tu ai spus că le împingi. `checkout.txt` rămâne gol până trece testul în sandbox.
@@ -267,10 +290,7 @@ Serverul nu păstrează emailul.
 6. **Scoaterea licenței fără internet** lasă locul ocupat până la `reset.mjs --order`.
 7. **Numerele de comandă vor apărea în GitHub Issues, care e public.** Nu e verificat ce permite un număr de comandă singur la comerciant.
 8. **Ce afișează chitanța:** nu e confirmat că chitanța Stripe sau Paddle arată id-ul pe care îl caută `lookup.mjs` (`txn_…`, `cs_…`, `pi_…`). E pe lista de verificat în sandbox.
-9. **Cazuri fără rezolvare pe server:**
-   - chargeback-urile și disputele nu revocă licența (contractul vorbește doar de rambursări);
-   - nu există o comandă pentru retrimiterea unui email pierdut;
-   - nu există o comandă pentru înlocuirea unei licențe scurse.
+9. **Evenimentele de dispută sunt scrise din cunoștințe:** Paddle `chargeback`/`chargeback_reverse` și câmpurile disputelor Stripe. Sunt pe lista de verificat în sandbox. Nu e sigur că sandbox-ul Paddle poate simula un chargeback.
 10. **Imaginea `node:22-alpine` nu e fixată pe digest.**
 11. **Fără ecranul „Ce trimitem” și fără Sentry:** amânate după beta, cum ai decis.
 12. **Iconița e tot placeholder-ul.** Lipsește `resources.pri`.
@@ -280,21 +300,20 @@ Serverul nu păstrează emailul.
 ## Decizii necesare de la Vlad
 
 1. **Comerciantul**, după răspunsul scris despre PFA: setezi `VALET_MERCHANT=paddle` sau `stripe`, apoi treci lista de verificat în sandbox.
-2. **Rândul `SOURCE_DATE_EPOCH`** din `release.yml`: îl adaugi tu (vezi mai sus).
+2. **Push-ul:** rândul `SOURCE_DATE_EPOCH` din `release.yml`, plus `pubkey.txt` și `api.txt`. La sfârșitul sarcinii nu erau pe `origin/main`.
 3. **Cheile și deploy-ul** (pașii exacți sunt în `services/license/README.md`):
    - `keygen.mjs`, apoi comiți `pubkey.txt`;
    - Resend: domeniul `valetapp.ro` cu DKIM/SPF, cheie API;
    - Fly: volumul, secretele, `fly deploy`, certificatul pentru `license.valetapp.ro`;
    - comiți `api.txt`.
-4. **Chargeback-uri și dispute:** revocă licența sau nu?
-5. **Email pierdut sau licență scursă:** vrei comenzi `resend.mjs --order` și `reissue.mjs --order`?
+4. **Stripe (dacă îl alegi):** o cheie restricționată cu drept de citire pe Checkout Sessions și Charges, pusă în `VALET_STRIPE_API_KEY`, plus evenimentele `charge.dispute.created`, `charge.dispute.updated` și `charge.dispute.closed`.
+5. **`merchant.txt`:** îl comiți cu `Paddle` sau `Stripe` înainte de Store.
 6. **Partner Center:**
    - rezervi numele „Valet” și setezi variabilele `VALET_MSIX_*`;
    - la fiecare trimitere, bifezi folosirea unui sistem de plată terț (10.8.2);
    - folosești textul pentru certificare din `docs/STORE.md`;
    - verifici marca în EUIPO.
-7. **Iconița finală** (PNG de 1024×1024) înainte de Store. Nu era în mesajul tău.
-8. **Numele comerciantului lângă butonul „Cumpără Pro”** (10.8.2): îl adaug după ce alegi comerciantul.
+7. **Iconița finală** (PNG de 1024×1024) înainte de Store: ai spus că vine separat.
 
 ## Checklist manual pentru Vlad
 
@@ -314,6 +333,7 @@ Serverul nu păstrează emailul.
   - [ ] licența pe 2 calculatoare, al patrulea refuzat;
   - [ ] rambursarea revocă licența;
   - [ ] `lookup.mjs --order` găsește licența după numărul de pe chitanță.
+- [ ] Pe server: `lookup.mjs`, `resend.mjs`, `reissue.mjs --confirm` și `undispute.mjs --confirm` pe o comandă din sandbox. După o dispută simulată, `reset.mjs` refuză.
 - [ ] Release `v1.0.0-beta.1`, apoi `v1.0.0-beta.2`, upgrade din updater pe VM, apoi 7 zile de folosire zilnică. Abia după aceea anunțurile.
 
 ## Propunere pentru faza următoare
