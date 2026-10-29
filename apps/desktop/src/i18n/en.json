@@ -215,7 +215,7 @@
     "channelStable": "Stable",
     "channelBeta": "Beta",
     "channelHelp": "Beta gets new versions earlier, before they are marked stable.",
-    "updatePrivacy": "Valet connects to the internet for updates only when you click “Check now” and once a day, for the automatic check. No file names or paths are sent.",
+    "updatePrivacy": "Valet connects to the internet for updates only when you click “Check now” and for the automatic check (at startup, then every 24 hours). No file names or paths are sent.",
     "checkNow": "Check now",
     "checking": "Checking...",
     "upToDate": "You have the newest version.",

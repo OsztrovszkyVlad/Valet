@@ -215,7 +215,7 @@
     "channelStable": "Stabil",
     "channelBeta": "Beta",
     "channelHelp": "Beta primește versiunile noi mai devreme, înainte să fie marcate stabile.",
-    "updatePrivacy": "Valet se conectează la internet pentru actualizări doar când apeși „Verifică acum” și o dată pe zi, la verificarea automată. Nu trimite nume sau căi de fișiere.",
+    "updatePrivacy": "Valet se conectează la internet pentru actualizări doar când apeși „Verifică acum” și la verificarea automată (la pornire, apoi o dată la 24 de ore). Nu trimite nume sau căi de fișiere.",
     "checkNow": "Verifică acum",
     "checking": "Se verifică...",
     "upToDate": "Ai cea mai nouă versiune.",

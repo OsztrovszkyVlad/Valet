@@ -7,17 +7,9 @@ GitHub Actions.
 
 ## 0. Before the first release (one time)
 
-### 0.1 Activate the release workflow
+### 0.1 The release workflow
 
-The workflow is in `.github/workflows/release.yml`. It has not run yet. Its
-place is `.github/workflows/release.yml`, a path the project hooks protect
-(only Vlad changes it), so the agents could not put it there. To activate it:
-
-```
-git mv .github/workflows/release.yml .github/workflows/release.yml
-git commit -m "Add the release workflow"
-git push origin main
-```
+The workflow is `.github/workflows/release.yml` (activated with Vlad's approval on 2026-10-29). The project hooks protect this path, so changes to it go through Vlad. Two `workflow_dispatch` dry runs built the NSIS installer successfully (runs 40857121076 and 40860957894; the second one already produces `Valet.exe`). To run a dry run again: Actions → Release → Run workflow (`dry_run` = true), or `gh workflow run release.yml -f dry_run=true`.
 
 Then run the dry run and check that it is green before pushing any tag:
 GitHub, Actions, Release, Run workflow, branch `main`, `dry_run` checked (the
@@ -206,8 +198,9 @@ or delete the bad pre-release, then release `-beta.N+1` with the fix.
   internet only in that case).
 - The uninstaller offers "Delete the application data" (unticked by default).
   Ticking it removes `%APPDATA%\ro.valetapp.desktop`, which holds the
-  settings, the rules and the operation journal, so History and undo are gone
-  after a reinstall. Files Valet moved stay where they are.
+  settings, the rules and the operation journal, and
+  `%LOCALAPPDATA%\ro.valetapp.desktop`, which holds the logs, so History and
+  undo are gone after a reinstall. Files Valet moved stay where they are.
 - The Romanian installer texts that Tauri does not translate are in
   `packaging/nsis/Romanian.nsh`.
 

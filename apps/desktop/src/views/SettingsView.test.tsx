@@ -377,7 +377,7 @@ describe('SettingsView updates', () => {
         await renderLoaded();
         const section = updatesSection();
         expect(within(section).getByText('Versiunea instalată: 0.3.0')).toBeTruthy();
-        expect(within(section).getByText(/doar când apeși „Verifică acum” și o dată pe zi/)).toBeTruthy();
+        expect(within(section).getByText(/doar când apeși „Verifică acum” și la verificarea automată/)).toBeTruthy();
         expect((within(section).getByLabelText('Canal de actualizare') as HTMLSelectElement).value).toBe('stable');
         expect(within(section).getByRole('option', { name: 'Stabil' })).toBeTruthy();
         expect(within(section).getByRole('option', { name: 'Beta' })).toBeTruthy();
