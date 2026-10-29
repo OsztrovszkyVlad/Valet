@@ -4,9 +4,11 @@
 //   node services/license/reset.mjs --license <uuid> [--store path.json]
 //   node services/license/reset.mjs --order <txn_…|cs_…|pi_…> [--store path.json]
 // Support uses --order (the order id from the buyer's receipt), never asks for the license id.
+// A disputed license is refused (only undispute.mjs ends a dispute). A revoked license keeps
+// its revocation: reset only clears machines.
 
 import { parseArgs } from 'node:util';
-import { createJsonFileStore, resetActiveMachines } from './lib/store.mjs';
+import { createJsonFileStore, resetActiveMachines, updateRecord } from './lib/store.mjs';
 import { nowSeconds } from './lib/license.mjs';
 import { resolveLicenseId } from './lib/support.mjs';
 
@@ -35,8 +37,15 @@ try {
 } catch (err) {
   fail(err.message);
 }
-const record = await store.get(id);
-if (!record) fail('license not found in the store');
-const cleared = resetActiveMachines(record, nowSeconds());
-if (cleared > 0) await store.put(id, record);
-process.stderr.write(`reset: license ${id}, ${cleared} active machine(s) cleared\n`);
+const t = nowSeconds();
+const result = await updateRecord(store, id, (record) => {
+  if (!record) return { missing: true };
+  if (record.disputed) return { disputed: true };
+  return { cleared: resetActiveMachines(record, t), revoked: record.revoked === true, reason: record.revoked_reason };
+});
+if (result.missing) fail('license not found in the store');
+if (result.disputed) {
+  fail(`license ${id} is disputed (chargeback) and stays revoked; reset refused, nothing changed. Only undispute.mjs --confirm ends a dispute.`);
+}
+process.stderr.write(`reset: license ${id}, ${result.cleared} active machine(s) cleared\n`);
+if (result.revoked) process.stderr.write(`reset: the license stays revoked (${result.reason ?? 'by hand'}); reset does not change that\n`);

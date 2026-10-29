@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createJsonFileStore, registerLicense } from '../lib/store.mjs';
+import { createJsonFileStore, createMemoryStore, registerLicense, updateRecord } from '../lib/store.mjs';
 import { buildLicensePayload } from '../lib/license.mjs';
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'valet-license-store-'));
@@ -102,4 +102,44 @@ test('json store: written as root, the file keeps the owner of its directory', {
   await createJsonFileStore(file).put('a', {});
   assert.equal(fs.statSync(file).uid, 65534);
   assert.equal(fs.statSync(file).gid, 65534);
+});
+
+test('update: changes are written, unchanged or missing records are not', async () => {
+  for (const [name, store] of [
+    ['json', createJsonFileStore(path.join(tmp(), 's.json'))],
+    ['memory', createMemoryStore()],
+  ]) {
+    assert.equal(await store.update('none', (r) => (r === null ? 'missing' : 'found')), 'missing', name);
+    assert.equal(await store.get('none'), null, `${name}: nothing created`);
+    await store.put('a', { n: 1 });
+    assert.equal(await store.update('a', (r) => { r.n += 1; return r.n; }), 2, name);
+    assert.deepEqual(await store.get('a'), { n: 2 }, name);
+    assert.equal(await store.update('a', () => 'read only'), 'read only', name);
+    assert.deepEqual(await store.get('a'), { n: 2 }, name);
+  }
+  // A store with only get and put still works through updateRecord.
+  const plain = createMemoryStore();
+  delete plain.update;
+  await plain.put('a', { n: 1 });
+  await updateRecord(plain, 'a', (r) => { r.n = 5; });
+  assert.deepEqual(await plain.get('a'), { n: 5 });
+});
+
+test('json store: update from two processes at once loses no change', async () => {
+  const { spawn } = await import('node:child_process');
+  const file = path.join(tmp(), 's.json');
+  const store = createJsonFileStore(file);
+  await store.put('c', { n: 0 });
+  const storeUrl = new URL('../lib/store.mjs', import.meta.url).href;
+  const script =
+    `const { createJsonFileStore } = await import(${JSON.stringify(storeUrl)});` +
+    `const s = createJsonFileStore(${JSON.stringify(file)});` +
+    'for (let i = 0; i < 25; i++) await s.update("c", (r) => { r.n += 1; });';
+  const runOne = () =>
+    new Promise((resolve, reject) => {
+      const c = spawn(process.execPath, ['--input-type=module', '-e', script], { stdio: 'inherit' });
+      c.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`exit ${code}`))));
+    });
+  await Promise.all([runOne(), runOne()]);
+  assert.deepEqual(await store.get('c'), { n: 50 });
 });

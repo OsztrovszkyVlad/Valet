@@ -12,19 +12,24 @@ Suggested API base for `crates/valet-core/license/api.txt` (Vlad commits it): `h
 |---|---|
 | `lib/signing.mjs` | Minisign signatures in the prehashed `ED` format (BLAKE2b-512, Ed25519), the public key line, verification, loading the key from the environment. |
 | `lib/license.mjs` | License payload, activation token payload, the `{payload, signature}` envelope. |
-| `lib/store.mjs` | Storage interface (`get`, `put`, `getOrder`, `putOrder`), JSON-file and in-memory implementations, support reset. |
+| `lib/store.mjs` | Storage interface (`get`, `put`, `getOrder`, `putOrder`, optional `update`), JSON-file and in-memory implementations, support reset, record history. |
 | `lib/handler.mjs` | `createHandler({store, key, webhook, rateLimiter, …})` returns a plain `(req, res)` function for `node:http`. |
-| `lib/webhook.mjs` | Paddle and Stripe signature checks, event interpretation, purchase and refund processing. |
+| `lib/webhook.mjs` | Paddle and Stripe signature checks, event interpretation, purchase, refund and dispute processing. |
+| `lib/merchant.mjs` | Merchant API reads: Paddle customer and transaction, Stripe checkout session and charge. |
+| `lib/actions.mjs` | Resend, reissue and undispute, used by the CLIs of the same names. |
 | `lib/mail.mjs` | The license email (ro + en) and the Resend call. |
 | `lib/ratelimit.mjs` | Token bucket per client address for the activation routes. |
 | `lib/backup.mjs` | Daily dated copy of the store, last 30 kept. |
 | `lib/config.mjs` | Reads and checks the server environment. |
-| `lib/support.mjs` | Merchant order id → license id, record summary for the CLIs. |
+| `lib/support.mjs` | Merchant order id → order entry and license id, record summary for the CLIs. |
 | `server.mjs` | The server (local and on Fly). |
 | `issue.mjs` | Issues a license by hand and registers it in the store. |
 | `lookup.mjs` | Support: shows the license behind a merchant order id. |
-| `reset.mjs` | Support: clears the active machines of a license (`--order` or `--license`). |
-| `revoke.mjs` | Marks a license as revoked (`--order` or `--license`). |
+| `reset.mjs` | Support: clears the active machines of a license (`--order` or `--license`). Refuses a disputed license. |
+| `revoke.mjs` | Marks a license as revoked by hand (`--order` or `--license`). |
+| `resend.mjs` | Support: sends the license of an order again (`--order`). |
+| `reissue.mjs` | Support: replaces a leaked license under the same order (`--order`, `--confirm`). |
+| `undispute.mjs` | Ends a dispute by hand: clears `disputed` and the dispute revocation (`--order` or `--license`, `--confirm`). |
 | `keygen.mjs` | Prints a new key pair to stdout. |
 | `Dockerfile`, `.dockerignore`, `fly.toml` | Fly.io image and app config. |
 | `test/` | `node --test` suites; `test/fixtures/` holds webhook payloads in the documented shapes. |
@@ -34,7 +39,7 @@ The signing module is named `signing.mjs`, not `minisign.mjs`: the repository's 
 
 ## Environment
 
-`server.mjs` refuses to start when a variable needed for the configured merchant is missing or malformed. The error lists the variable names, never the values.
+`server.mjs` refuses to start when a variable needed for the configured merchant is missing or malformed. The error lists the variable names, never the values. `resend.mjs` and `reissue.mjs` need the signing key, `VALET_RESEND_API_KEY`, `VALET_MAIL_FROM` and the API key of the order's merchant (`VALET_PADDLE_API_KEY` with `VALET_PADDLE_SANDBOX`, or `VALET_STRIPE_API_KEY`); they check them the same way.
 
 | Variable | Needed | Content |
 |---|---|---|
@@ -45,9 +50,10 @@ The signing module is named `signing.mjs`, not `minisign.mjs`: the repository's 
 | `VALET_RESEND_API_KEY` | paddle, stripe | Resend API key with sending access. Secret. |
 | `VALET_MAIL_FROM` | paddle, stripe | Sender, e.g. `Valet <licente@valetapp.ro>`, on a domain verified in Resend. |
 | `VALET_MAIL_REPLY_TO` | optional | Reply-To address. |
-| `VALET_PADDLE_API_KEY` | paddle | Paddle API key with read access to customers. Secret. |
+| `VALET_PADDLE_API_KEY` | paddle | Paddle API key with read access to customers (and to transactions: `resend.mjs`/`reissue.mjs` for orders recorded before customer ids were stored). Secret. |
 | `VALET_PADDLE_PRICE_ID` | paddle | `pri_…` of the Valet Pro price. Other prices are ignored. |
 | `VALET_PADDLE_SANDBOX` | optional | `1`: call `https://sandbox-api.paddle.com` instead of `https://api.paddle.com`. |
+| `VALET_STRIPE_API_KEY` | stripe: `resend.mjs`, `reissue.mjs`; optional for the server | Stripe restricted key (`rk_live_…`), read access to Checkout Sessions (the CLIs read the buyer email) and to Charges (the server reads the payment intent of a dispute that carries only a charge id). Secret. |
 | `VALET_TRUST_FLY` | optional | `1`: rate limit by the `Fly-Client-IP` header (set in `fly.toml`). Without it the socket address is used. Set it only behind Fly's proxy. |
 | `VALET_RATE_LIMIT_PER_MIN` | optional | Activation requests per minute per client, also the burst size. Default 30. |
 | `VALET_LICENSE_STORE` | optional | Store path when `--store` is not given. |
@@ -124,17 +130,25 @@ The JSON file is `{"version": 1, "licenses": {"<license_id>": record}, "orders":
   "max_activations": 3,
   "issued_at": 1793000000,
   "updates_until": 1824536000,
-  "revoked": false,
+  "revoked": true,
+  "revoked_at": 1795000000,
+  "revoked_reason": "dispute",
+  "disputed": true,
   "emailed_at": 1793000002,
   "machines": {
     "<machine>": { "first_seen": 1793000100, "last_seen": 1795000000, "active": true, "deactivated_at": null }
-  }
+  },
+  "history": [{ "at": 1795000000, "action": "dispute" }]
 }
 ```
 
-Orders map merchant ids to licenses: keys `paddle:txn_…`, `stripe:cs_…`, `stripe:pi_…`; value `{"license_id": "…", "created_at": …}`, or `{"license_id": null, "refunded_at": …}` when a refund arrived before any purchase event for that order.
+Orders map merchant ids to licenses: keys `paddle:txn_…`, `stripe:cs_…`, `stripe:pi_…`; value `{"license_id": "…", "created_at": …, "order_keys": [...], "customer_id": "ctm_…", "history": [...]}`, or `{"license_id": null, "refunded_at": …}` / `{"license_id": null, "disputed_at": …}` when a refund or dispute arrived before any purchase event for that order. `order_keys` lists every key of the purchase (Stripe: session and payment intent), `customer_id` is Paddle's customer id (the email is read from it when needed, never stored), `history` holds `{at, action: "reissue", from, to}` after a reissue.
 
-Nothing is ever removed. Deactivation sets `active: false` and `deactivated_at`. A reset does the same for every active machine and appends `{at, cleared}` to `resets`. Revocation sets `revoked: true`, `revoked_at` and, from a webhook, `revoked_reason: "refund"`. `emailed_at` is set once Resend accepted the license email. The email address is not stored on the server, nor is any manual email → license list kept anywhere; the license file and the merchant have the address.
+Nothing is ever removed. Deactivation sets `active: false` and `deactivated_at`. A reset does the same for every active machine and appends `{at, cleared}` to `resets`. Revocation sets `revoked: true`, `revoked_at` and `revoked_reason`: `refund` (webhook), `dispute` (webhook), `reissued` (`reissue.mjs`), or none (`revoke.mjs`). `disputed: true` marks a chargeback or dispute; only `undispute.mjs` sets it back to `false`. `emailed_at` is set once Resend accepted the first license email. `history` lists `{at, action, …}`: `revoke` (with `reason`), `dispute`, `dispute_reversed`, `dispute_lost`, `undispute` (with `by` when given), `resend`, `reissued` (with `to`, on the old license), `issued` (with `reissue_of`, on the new one). The email address is not stored on the server, nor is any manual email → license list kept anywhere; the license file and the merchant have the address.
+
+Format changes are additive: every field above that the previous version didn't write (`order_keys`, `customer_id`, order and record `history`, `disputed`, `disputed_at`, the `dispute`/`reissued` reasons) is optional, and a store written by the previous version works as is (tested in `test/support-actions.test.mjs`). An older image run on a newer store ignores these fields; it would still answer 410 for revoked licenses.
+
+CLI changes to a record run under the store's file lock as one read-modify-write (`update`), and so does the server's activation write, so a revocation by a CLI and an activation at the same moment don't overwrite each other.
 
 Writes go to a temp file in the same directory, are fsynced, then renamed over the store file. Each write holds `store.json.lock` (created exclusively) while it re-reads the file, changes one entry and renames, so the server and a support CLI run at the same time don't lose each other's entries; a lock older than 30 s (a crashed writer) is taken over. When a CLI runs as root (`fly ssh console`), the file it writes gets the owner of `/data`, so the server can still read it. A store file that can't be parsed is never overwritten.
 
@@ -147,7 +161,7 @@ Order of work for every delivery:
 1. Read the raw body, at most 64 KB (413 above that).
 2. Check the signature on the raw bytes, before parsing: HMAC-SHA256, hex, constant-time compare, timestamp within 5 minutes of the server clock (both directions). Any of several `h1=` / `v1=` values may match (the merchant's secret rotation); `VALET_WEBHOOK_SECRET` may hold two secrets (ours). Failure: 400 `bad_signature`, nothing changes.
 3. Parse the JSON (400 `bad_request`) and interpret the event. A signed event of a handled type with a missing or malformed field answers 400 `bad_event`, so it shows as failed in the merchant's dashboard.
-4. Purchase, refund, or ignore. Deliveries are processed one at a time; at most 4 are accepted at once (503 `busy`, `Retry-After: 10` above that; the merchant retries).
+4. Purchase, refund, dispute, dispute information, or ignore. Deliveries are processed one at a time; at most 4 are accepted at once (503 `busy`, `Retry-After: 10` above that; the merchant retries).
 
 | | Paddle Billing | Stripe |
 |---|---|---|
@@ -156,7 +170,9 @@ Order of work for every delivery:
 | Buyer email | `GET {api}/customers/{data.customer_id}`, `Authorization: Bearer VALET_PADDLE_API_KEY`, field `data.email` | `data.object.customer_details.email` |
 | Order keys | `paddle:<data.id>` (`txn_…`) | `stripe:<session id>` (`cs_…`) and `stripe:<payment_intent>` (`pi_…`) |
 | Refund | `adjustment.created` / `adjustment.updated` with `data.action` = `refund` and `data.status` = `approved`; found by `data.transaction_id` | `charge.refunded` with `amount_refunded` > 0; found by `data.object.payment_intent` |
-| Ignored (200) | other event types, other prices, adjustments that aren't approved refunds | other event types, unpaid sessions, sessions without `metadata.product = "valet-pro"` |
+| Dispute (revoke + `disputed`) | `adjustment.created` / `adjustment.updated` with `data.action` = `chargeback` and `data.status` not `rejected`/`reversed`; found by `data.transaction_id` | `charge.dispute.created` with `status` `needs_response`, `under_review` or `lost`; `charge.dispute.updated` only when `previous_attributes.status` starts with `warning_` (an inquiry escalated); found by `data.object.payment_intent`, or by `data.object.charge` → `GET /v1/charges/{ch}` → `payment_intent` when the dispute has no payment intent |
+| Dispute information (history entry, no change) | `data.action` = `chargeback_reverse` → `dispute_reversed` | `charge.dispute.closed` with `status` = `won` → `dispute_reversed`, `lost` → `dispute_lost` |
+| Ignored (200) | other event types, other prices, other adjustments, `chargeback_warning` | other event types, unpaid sessions, sessions without `metadata.product = "valet-pro"`, inquiries (`status` `warning_*`), other dispute updates, `warning_closed` |
 
 Purchase:
 
@@ -166,9 +182,9 @@ Purchase:
 4. Send the email through Resend: the `.valet-license` file attached as `valet-pro.valet-license` (base64), a plain-text body in Romanian then English saying where to import it (Valet → Setări → Valet Pro → Am o licență), the activation limit, the updates date, and that support needs the order number from the receipt, never the license file. If Resend fails or times out (8 s): 502 `email_failed`; the merchant redelivers and step 3 sends the same license.
 5. Set `emailed_at`, answer 200.
 
-Refund: the mapped license gets `revoked: true`; activate and validate answer 410 from then on. A refund for an unknown order records a refund-only entry, so a purchase event that arrives later for the same order issues nothing. Repeated refunds answer 200 and change nothing.
+Refund: the mapped license gets `revoked: true`, `revoked_reason: "refund"`; activate and validate answer 410 from then on. A refund for an unknown order records a refund-only entry, so a purchase event that arrives later for the same order issues nothing. Repeated refunds answer 200 and change nothing.
 
-Paddle chargebacks (`action = chargeback`) and Stripe disputes are not handled: the contract names refunds only (open decision for Vlad).
+Dispute (Vlad, 2026-10-29): the mapped license gets `revoked: true`, `revoked_reason: "dispute"` (a license already revoked by a refund keeps its reason) and `disputed: true`; activate and validate answer 410. A dispute for an unknown order records a dispute-only entry (`disputed_at`). Repeats answer 200 and change nothing. A warning (Paddle `chargeback_warning`, Stripe inquiry) changes nothing. A reversed or won dispute adds a history entry and leaves the license revoked: a disputed license comes back only through `undispute.mjs --confirm`, after Vlad has checked the merchant dashboard. `reset.mjs`, `resend.mjs` and `reissue.mjs` refuse a disputed license. When a Stripe dispute carries only a charge id and `VALET_STRIPE_API_KEY` is not set (or the charge read fails), the answer is 502 `merchant_api` and Stripe retries.
 
 ### Merchant setup
 
@@ -176,15 +192,17 @@ Paddle (sandbox first: sandbox-vendors.paddle.com; then the same in the live acc
 
 1. Catalog → Products: "Valet Pro" with a one-time price. Its `pri_…` id → `VALET_PADDLE_PRICE_ID`.
 2. Developer tools → Notifications → New destination: URL `https://license.valetapp.ro/v1/webhook/paddle`, type webhook, events `transaction.completed`, `adjustment.created`, `adjustment.updated`. Its secret key → `VALET_WEBHOOK_SECRET`.
-3. Developer tools → Authentication → API key with read permission on customers → `VALET_PADDLE_API_KEY`.
+3. Developer tools → Authentication → API key with read permission on customers and transactions → `VALET_PADDLE_API_KEY`.
 4. Sandbox: `VALET_PADDLE_SANDBOX=1`. Live: remove it (`fly secrets unset VALET_PADDLE_SANDBOX`).
+5. Chargebacks need no extra event: they arrive as `adjustment.created` / `adjustment.updated` (already subscribed in step 2).
 
 Stripe (test mode first, then live with new secrets):
 
 1. Product "Valet Pro" with a one-time price; a Payment Link for it (or Checkout Sessions created in code).
 2. Required: metadata `product` = `valet-pro` on the Payment Link (copied to the Checkout Sessions it creates) or on each Checkout Session. Without it the service ignores the purchase.
-3. Developers → Webhooks → Add endpoint `https://license.valetapp.ro/v1/webhook/stripe`, events `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `charge.refunded`. Its signing secret → `VALET_WEBHOOK_SECRET`.
+3. Developers → Webhooks → Add endpoint `https://license.valetapp.ro/v1/webhook/stripe`, events `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `charge.refunded`, `charge.dispute.created`, and also `charge.dispute.updated` (an inquiry that escalates to a dispute) and `charge.dispute.closed` (won or lost, recorded in the history). Its signing secret → `VALET_WEBHOOK_SECRET`. An endpoint created before this version needs the three dispute events added.
 4. Optional: success URL `https://valetapp.ro/multumim?order={CHECKOUT_SESSION_ID}` so the thank-you page can show the buyer the `cs_…` order id that support asks for.
+5. Developers → API keys → Create restricted key: Checkout Sessions read, Charges read, nothing else → `VALET_STRIPE_API_KEY`.
 
 Resend:
 
@@ -207,6 +225,12 @@ Paddle:
 - [ ] A full refund of that transaction: `adjustment.created` (usually `status: pending_approval`, ignored), then `adjustment.updated` with `action: refund`, `status: approved`, `transaction_id: txn_…` → `outcome":"revoked"`. "Verifică licența acum" in Valet then shows the license as revoked.
 - [ ] Note what a partial refund looks like (`type: partial`); it revokes too.
 - [ ] The buyer's receipt or invoice email shows the `txn_…` id (support needs it). If it shows only an invoice number, tell the PM: `lookup.mjs` needs another key.
+- [ ] `lookup.mjs --order txn_…` after the purchase; the store file's order entry holds `customer_id: "ctm_…"` (`fly ssh console -C "cat /data/store.json"`, read it there, don't copy it out).
+- [ ] `resend.mjs --order txn_…`: the email arrives again; the attachment is byte-identical to the first one (`cmp` the two files). `GET /customers/{ctm_…}` must answer 200 with the key.
+- [ ] `GET https://sandbox-api.paddle.com/transactions/{txn_…}` with the API key answers 200 with `data.customer_id` (used only for orders recorded before this version; a 403 means the key lacks transaction read).
+- [ ] Chargeback, implemented from knowledge, not from the docs: Paddle sends `adjustment.created` (and/or `adjustment.updated`) with `data.action = "chargeback"`, `data.transaction_id = txn_…`, and a `data.status` other than `rejected`/`reversed` (expected `approved`). Paddle's sandbox may not simulate chargebacks; if it doesn't, post the fixture shape (`test/disputes.test.mjs`, `paddleAdjustment('chargeback')`) by hand: `curl` with a `Paddle-Signature` computed with the sandbox secret, or ask Paddle support for a test chargeback. Expected log `outcome":"disputed"`, and `lookup.mjs` shows `revoked: yes, … (dispute)` and `disputed: yes`.
+- [ ] From knowledge too: `chargeback_warning` is a separate `action` value (ignored) and a reversal arrives as `action = "chargeback_reverse"` (history entry `dispute_reversed`). Note any other action value Paddle sends for chargebacks.
+- [ ] `reissue.mjs --order txn_…` (without, then with `--confirm`): a new email arrives with a different license id and the same "updates until" date; the old file then shows as revoked in Valet ("Verifică licența acum"), the new one activates.
 
 Stripe:
 
@@ -218,11 +242,19 @@ Stripe:
 - [ ] Refund in the dashboard: `charge.refunded` with `data.object.payment_intent` equal to the session's `pi_…` and `amount_refunded` > 0 → `revoked`.
 - [ ] If a delayed payment method is enabled: `checkout.session.completed` with `payment_status: unpaid` is ignored and `checkout.session.async_payment_succeeded` issues.
 - [ ] Which id the buyer sees (receipt email, thank-you page). Stripe receipts show a receipt number, not `cs_…`/`pi_…`; use the success-URL step above or tell the PM.
+- [ ] The order entries (`stripe:cs_…`, `stripe:pi_…`) hold `order_keys` with both keys.
+- [ ] `resend.mjs --order cs_…` and `--order pi_…`: `GET https://api.stripe.com/v1/checkout/sessions/{cs_…}` with the restricted key answers 200 with `customer_details.email` and `payment_intent`; the email arrives; the attachment is byte-identical to the first one.
+- [ ] Dispute, implemented from knowledge (the test card numbers and the `winning_evidence` text below are from knowledge too; check them in Stripe's testing docs): test card 4000 0000 0000 0259 creates a dispute. Expected `charge.dispute.created` whose `data.object` has `status: "needs_response"`, `payment_intent: "pi_…"` (a string) and `charge: "ch_…"` → `outcome":"disputed"`; `lookup.mjs` shows `disputed: yes`. If `payment_intent` is null, the service reads `GET /v1/charges/{ch_…}` (needs Charges read on the restricted key).
+- [ ] Inquiry, from knowledge: test card 4000 0000 0000 1976 creates an inquiry: `charge.dispute.created` with `status: "warning_needs_response"` → `ignored_dispute_inquiry`, license unchanged. Check what Stripe sends when an inquiry escalates: the service expects `charge.dispute.updated` with `data.previous_attributes.status` = `warning_…` and a new `status` of `needs_response`/`under_review`; if Stripe instead sends a new `charge.dispute.created`, that is handled as well.
+- [ ] Winning the test dispute (submit evidence with the text `winning_evidence`): `charge.dispute.closed` with `status: "won"` → `outcome":"dispute_reversed"`, the license stays revoked until `undispute.mjs --order … --confirm`.
+- [ ] `reissue.mjs --order cs_…` as for Paddle; both `cs_…` and `pi_…` entries point to the new license afterwards.
 
 Both:
 
 - [ ] Resend failure path: set a wrong `VALET_RESEND_API_KEY` (`fly secrets set`), buy once: 502 `email_failed` in the merchant log; restore the key; the merchant's retry (or a manual resend) sends the email; `lookup.mjs --order …` shows one license with `emailed`.
 - [ ] `fly logs` contains no email address, license id, order id or IP address.
+- [ ] Fly secrets are visible to `fly ssh console` commands: `resend.mjs` without a needed variable names it ("missing: …"); if it reports the signing key or Resend key as missing although `fly secrets list` shows them, tell the PM.
+- [ ] `reset.mjs` on the disputed license refuses ("reset refused, nothing changed"); `undispute.mjs --order … --confirm --by vlad` makes it active again and `lookup.mjs` shows the `undispute` history line.
 
 ## Rate limiting
 
@@ -274,6 +306,7 @@ fly secrets import          # paste NAME=value lines, then Ctrl-D (nothing lands
 #   VALET_PADDLE_API_KEY=…           (paddle only)
 #   VALET_PADDLE_PRICE_ID=pri_…      (paddle only)
 #   VALET_PADDLE_SANDBOX=1           (paddle sandbox only)
+#   VALET_STRIPE_API_KEY=rk_…        (stripe only: resend, reissue, disputes without a payment intent)
 fly deploy --ha=false
 fly scale count 1
 fly certs add license.valetapp.ro
@@ -297,20 +330,29 @@ Switching merchant later: set the other merchant's variables and `VALET_MERCHANT
 
 Support runs on public GitHub Issues. The license id alone is enough to activate, so:
 
-- Ask for the order number from the payment receipt (Paddle `txn_…`, Stripe `cs_…` or `pi_…`). Never ask for, and never post, the license code or the license file. If a user posts one, edit it out of the issue (reissuing a leaked license is not automated yet).
+- Ask for the order number from the payment receipt (Paddle `txn_…`, Stripe `cs_…` or `pi_…`). Never ask for, and never post, the license code or the license file. If a user posts one, edit it out of the issue and run `reissue.mjs` for that order.
 - Never post the output of `lookup.mjs` in an issue; summarize it ("2 of 3 activations in use, last seen …").
 
 ```sh
 fly ssh console -C "node /app/lookup.mjs --order txn_01… --store /data/store.json"
 fly ssh console -C "node /app/reset.mjs  --order txn_01… --store /data/store.json"   # old PC gone: frees its slots
 fly ssh console -C "node /app/revoke.mjs --order cs_test_… --store /data/store.json" # e.g. a refund made outside the webhook
+fly ssh console -C "node /app/resend.mjs --order txn_01… --store /data/store.json"   # lost license email
+fly ssh console -C "node /app/reissue.mjs --order txn_01… --store /data/store.json"  # leaked license: shows what it would do
+fly ssh console -C "node /app/reissue.mjs --order txn_01… --confirm --store /data/store.json"
+fly ssh console -C "node /app/undispute.mjs --order txn_01… --store /data/store.json"            # shows what it would do
+fly ssh console -C "node /app/undispute.mjs --order txn_01… --confirm --by vlad --store /data/store.json"
 ```
 
-`lookup.mjs` prints the license id, issue date, `updates_until`, revoked flag, whether the email went out, the active machine count and each machine's first/last-seen dates (no machine ids, no email: the store has none). `reset.mjs` and `revoke.mjs` take `--order` or `--license` (not both). A buyer who lost the license email is not handled by a command yet: the server has no email address, and a redelivered purchase sends nothing once `emailed_at` is set (open decision).
+`lookup.mjs` prints the license id, issue date, `updates_until`, revoked flag and reason, disputed flag, whether the email went out, the active machine count, each machine's first/last-seen dates, the license history and the order's reissues (no machine ids, no email: the store has none). `reset.mjs`, `revoke.mjs` and `undispute.mjs` take `--order` or `--license` (not both); `resend.mjs` and `reissue.mjs` take `--order` only, because they need the merchant to read the email. Exit codes: 0 done, 1 merchant API or Resend failure, 2 refused or bad arguments (nothing changed).
+
+- **Lost license email**: `resend.mjs --order <id>`. It reads the email from the merchant (Paddle: the customer id stored with the order, or the transaction for orders recorded before this version; Stripe: the checkout session, so a `pi_…` order recorded before this version needs the `cs_…` id), signs the same license again (same id, same dates) and sends it. With an unchanged email the file is byte-identical to the original. If the buyer changed their email at the merchant, the new file differs only in the `email` field and goes to the new address. Refused for revoked and disputed licenses. It also completes a purchase whose webhook email kept failing (sets `emailed_at`).
+- **Leaked license**: `reissue.mjs --order <id> --confirm`. It registers a new license (new id, same `updates_until`, 3 activations), maps every key of the order to it (the old id stays in the order's `history`), revokes the old one (`revoked_reason: "reissued"`, not disputed) and emails the new file. Without `--confirm` it only prints what it would do. Refused for revoked and disputed licenses. If the email fails (exit 1), the new license stays mapped: run `resend.mjs --order <id>`. Activations of the old license stop at their next online check (410).
+- **Dispute settled for the buyer** (the merchant dashboard shows the dispute won or withdrawn and Vlad decides to restore the license): `undispute.mjs --order <id> --confirm [--by <name>]`. It sets `disputed: false`; when the dispute was the revocation reason it clears `revoked`, so the buyer's app gets Pro back at its next check. A license that was also refunded stays revoked. It appends `{at, action: "undispute", by}` to the history and sends no email. `--by` takes a short name (letters, digits, `.`, `_`, `-`), never an email.
 
 ## Logs
 
-One JSON line per request: `route` (one of the known paths, or `other`), `method`, `status`, `ms`, `error` (an exception class name) for 500, and for webhooks `event` (a known event type, or `other`) and `outcome` (`issued`, `resent`, `duplicate`, `revoked`, `email_failed`, `customer_lookup_failed`, `ignored_<reason>`, `bad_signature`, …). Backups log `{"backup": "created" | "exists" | "no_store" | "invalid_store" | "failed", "removed": n}`. No license ids, machine ids, order ids, emails, IP addresses, request bodies or unknown paths.
+One JSON line per request: `route` (one of the known paths, or `other`), `method`, `status`, `ms`, `error` (an exception class name) for 500, and for webhooks `event` (a known event type, or `other`) and `outcome` (`issued`, `resent`, `duplicate`, `revoked`, `disputed`, `dispute_reversed`, `dispute_lost`, `refund_without_license`, `dispute_without_license`, `email_failed`, `customer_lookup_failed`, `charge_lookup_failed`, `ignored_<reason>` such as `ignored_chargeback_warning` or `ignored_dispute_inquiry`, `bad_signature`, …). Backups log `{"backup": "created" | "exists" | "no_store" | "invalid_store" | "failed", "removed": n}`. No license ids, machine ids, order ids, emails, IP addresses, request bodies or unknown paths.
 
 ## Running locally
 
@@ -338,13 +380,12 @@ Tests: `node --test` in this directory (or `npm test`), or `node --test services
 
 - **Sandbox pass** of the chosen merchant (list above), then `checkout.txt` (Vlad).
 - **Renewals**: issuing a license with a later `updates_until` for an existing `license_id`.
-- **Chargebacks and disputes**: not revoked automatically (the contract covers refunds).
-- **Lost license email and leaked licenses**: no command to send the same license again or to replace a leaked one under the same order.
+- **Merchant dispute payloads**: the dispute fields were written from knowledge of the APIs (the docs were not reachable); the sandbox list above checks them.
 
 ## Security notes
 
-- The signing key, webhook secret, Resend key and Paddle API key live only in Fly secrets (and the signing key in Vlad's offline backup). They are never committed, never logged; configuration errors name variables, never values.
+- The signing key, webhook secret, Resend key, Paddle API key and Stripe restricted key live only in Fly secrets (and the signing key in Vlad's offline backup). They are never committed, never logged; configuration errors name variables, never values.
 - Webhook bodies are trusted only after the HMAC check; ids from them are checked against strict patterns before use (the Paddle customer id goes into a URL path).
 - TLS is terminated by Fly (`force_https`). The app only calls an `https://` base URL from `crates/valet-core/license/api.txt`.
-- The server holds license ids, `max_activations`, dates, machine ids (a one-way hash of the Windows MachineGuid) and merchant order ids. No names, emails, paths or IP addresses. Buyer emails pass through memory for one Resend request.
+- The server holds license ids, `max_activations`, dates, machine ids (a one-way hash of the Windows MachineGuid), merchant order ids and Paddle customer ids. No names, emails, paths or IP addresses. Buyer emails pass through memory for one Resend request (webhook, `resend.mjs`, `reissue.mjs`).
 - The TEST key in `test/signing.test.mjs` is public by design. Its public key line must never be placed in `pubkey.txt`. The secrets in the tests are fixed test strings without the real prefixes.

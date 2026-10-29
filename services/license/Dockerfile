@@ -5,7 +5,7 @@ FROM node:22-alpine
 ENV NODE_ENV=production
 WORKDIR /app
 
-COPY package.json server.mjs issue.mjs reset.mjs revoke.mjs lookup.mjs ./
+COPY package.json server.mjs issue.mjs reset.mjs revoke.mjs lookup.mjs resend.mjs reissue.mjs undispute.mjs ./
 COPY lib ./lib
 
 # The volume is mounted at /data owned by root, which hides any ownership set in the

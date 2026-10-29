@@ -33,25 +33,31 @@ function checkPositiveInt(value, name) {
   return value;
 }
 
-/** Builds the license payload object. Key order follows docs/LICENSING.md. */
+/**
+ * Builds the license payload object. Key order follows docs/LICENSING.md.
+ * `updatesUntil` (Unix seconds) replaces `issuedAt + days`: a reissued license keeps the
+ * old license's date, so the buyer neither loses nor gains update time.
+ */
 export function buildLicensePayload({
   email,
   days = DEFAULT_DAYS,
   maxActivations = DEFAULT_MAX_ACTIVATIONS,
   issuedAt = nowSeconds(),
   licenseId = crypto.randomUUID(),
+  updatesUntil,
 }) {
   if (!UUID_V4.test(licenseId)) throw new Error('license id must be a lowercase UUID v4');
   checkPositiveInt(days, 'days');
   checkPositiveInt(maxActivations, 'max activations');
   checkPositiveInt(issuedAt, 'issued_at');
+  if (updatesUntil !== undefined) checkPositiveInt(updatesUntil, 'updates_until');
   return {
     v: 1,
     kind: 'license',
     license_id: licenseId,
     product: PRODUCT,
     issued_at: issuedAt,
-    updates_until: issuedAt + days * DAY,
+    updates_until: updatesUntil ?? issuedAt + days * DAY,
     max_activations: maxActivations,
     email: checkEmail(email),
   };
@@ -81,6 +87,24 @@ export function signEnvelope(payloadObject, key, { now = nowSeconds() } = {}) {
 export function issueLicense(options, key) {
   const payload = buildLicensePayload(options);
   return { payload, envelope: signEnvelope(payload, key, { now: payload.issued_at }) };
+}
+
+/**
+ * Signs the license of a store record again for `email`: same id, dates and activation
+ * limit. Ed25519 signatures are deterministic and the trusted comment uses `issued_at`,
+ * so with the same email the file is byte-identical to the one sent at purchase.
+ */
+export function resignLicense(record, email, key) {
+  return issueLicense(
+    {
+      email,
+      licenseId: record.license_id,
+      issuedAt: record.issued_at,
+      updatesUntil: record.updates_until,
+      maxActivations: record.max_activations,
+    },
+    key,
+  );
 }
 
 /** Issues an activation token envelope. */

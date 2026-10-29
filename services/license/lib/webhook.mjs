@@ -3,7 +3,8 @@
 // Order of work for every delivery:
 //   1. signature on the raw body (HMAC-SHA256, constant-time compare, 5-minute tolerance,
 //      any of several signatures in the header may match: secret rotation);
-//   2. JSON parse and event interpretation (purchase, refund, or ignore);
+//   2. JSON parse and event interpretation (purchase, refund, dispute, dispute
+//      information, or ignore);
 //   3. state change, serialized for all webhook deliveries in this process.
 //
 // Idempotency: the store maps every merchant order id to the license id before the
@@ -12,18 +13,22 @@
 // redelivery changes nothing. A failed email answers 502 so the merchant redelivers.
 // The email address is never stored: it is read from the event (Stripe) or from the
 // Paddle customer API on every delivery that needs it.
+//
+// Disputes (Vlad, 2026-10-29): a final chargeback (Paddle adjustment `action = chargeback`)
+// or a Stripe dispute (`charge.dispute.created`, not an inquiry) revokes the license and
+// marks it `disputed`. Warnings and inquiries change nothing. A reversed or won dispute
+// is recorded in the license history and logged; it does not reactivate the license
+// (only `undispute.mjs` does, by hand).
 
 import crypto from 'node:crypto';
-import { issueLicense, PRODUCT } from './license.mjs';
-import { registerLicense } from './store.mjs';
+import { issueLicense, resignLicense, PRODUCT } from './license.mjs';
+import { registerLicense, updateRecord, addHistory } from './store.mjs';
 import { sendLicenseEmail, MailError } from './mail.mjs';
+import { paddleCustomerEmail, stripeChargePaymentIntent, MerchantApiError, EMAIL, STRIPE_CHARGE } from './merchant.mjs';
 
+export { PADDLE_API, PADDLE_SANDBOX_API } from './merchant.mjs';
 export const TOLERANCE_SECONDS = 300;
 export const MERCHANTS = ['paddle', 'stripe'];
-export const PADDLE_API = 'https://api.paddle.com';
-export const PADDLE_SANDBOX_API = 'https://sandbox-api.paddle.com';
-const DAY = 86_400;
-const FETCH_TIMEOUT_MS = 8_000;
 
 /** Event types that appear in logs by name; anything else is logged as "other". */
 export const KNOWN_EVENT_TYPES = new Set([
@@ -33,6 +38,9 @@ export const KNOWN_EVENT_TYPES = new Set([
   'checkout.session.completed',
   'checkout.session.async_payment_succeeded',
   'charge.refunded',
+  'charge.dispute.created',
+  'charge.dispute.updated',
+  'charge.dispute.closed',
 ]);
 
 // ---------------------------------------------------------------------------
@@ -96,7 +104,8 @@ export function verifyStripeSignature({ header, body, secrets, now }) {
 }
 
 // ---------------------------------------------------------------------------
-// Event interpretation: { kind: 'purchase' | 'refund' | 'ignore', type, orderKeys, … }
+// Event interpretation:
+//   { kind: 'purchase' | 'refund' | 'dispute' | 'dispute_info' | 'ignore', type, orderKeys, … }
 
 export class BadEvent extends Error {
   constructor(message) {
@@ -107,7 +116,6 @@ export class BadEvent extends Error {
 
 const PADDLE_ID = /^[a-z]{3}_[a-z0-9]{1,64}$/;
 const STRIPE_ID = /^[a-z]{2,8}_[A-Za-z0-9_]{1,250}$/;
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const ignore = (type, reason) => ({ kind: 'ignore', type, reason });
 
@@ -126,11 +134,26 @@ export function interpretPaddle(event, { priceId }) {
     return { kind: 'purchase', type, orderKeys: [`paddle:${d.id}`], customerId: d.customer_id };
   }
   if (type === 'adjustment.created' || type === 'adjustment.updated') {
-    if (d?.action !== 'refund' || d?.status !== 'approved') return ignore(type, 'not_approved_refund');
+    const action = d?.action;
+    let ev;
+    if (action === 'refund' && d?.status === 'approved') {
+      ev = { kind: 'refund', type };
+    } else if (action === 'chargeback') {
+      // Paddle creates chargeback adjustments itself; act on any status except a
+      // rejected or reversed one (the reversal also arrives as `chargeback_reverse`).
+      if (d.status === 'rejected' || d.status === 'reversed') return ignore(type, 'chargeback_status');
+      ev = { kind: 'dispute', type };
+    } else if (action === 'chargeback_reverse') {
+      ev = { kind: 'dispute_info', type, action: 'dispute_reversed' };
+    } else if (action === 'chargeback_warning') {
+      return ignore(type, 'chargeback_warning');
+    } else {
+      return ignore(type, 'not_approved_refund');
+    }
     if (typeof d.transaction_id !== 'string' || !PADDLE_ID.test(d.transaction_id)) {
       throw new BadEvent('transaction id');
     }
-    return { kind: 'refund', type, orderKeys: [`paddle:${d.transaction_id}`] };
+    return { ...ev, orderKeys: [`paddle:${d.transaction_id}`] };
   }
   return ignore(type, 'event_type');
 }
@@ -156,18 +179,36 @@ export function interpretStripe(event) {
     if (!(o.amount_refunded > 0) && o.refunded !== true) return ignore(type, 'nothing_refunded');
     return { kind: 'refund', type, orderKeys: [`stripe:${pi}`] };
   }
+  if (type === 'charge.dispute.created' || type === 'charge.dispute.updated' || type === 'charge.dispute.closed') {
+    if (!o || typeof o.status !== 'string') throw new BadEvent('dispute status');
+    const pi = typeof o.payment_intent === 'string' ? o.payment_intent : o.payment_intent?.id;
+    const charge = typeof o.charge === 'string' ? o.charge : o.charge?.id;
+    const target = {};
+    if (typeof pi === 'string' && STRIPE_ID.test(pi)) target.orderKeys = [`stripe:${pi}`];
+    else if (typeof charge === 'string' && STRIPE_CHARGE.test(charge)) target.chargeId = charge;
+    else throw new BadEvent('dispute payment');
+
+    if (type === 'charge.dispute.closed') {
+      if (o.status === 'won') return { kind: 'dispute_info', type, action: 'dispute_reversed', ...target };
+      if (o.status === 'lost') return { kind: 'dispute_info', type, action: 'dispute_lost', ...target };
+      return ignore(type, 'dispute_closed_status');
+    }
+    if (type === 'charge.dispute.updated') {
+      // Only the escalation of an inquiry into a dispute; other updates (evidence
+      // submitted, …) must not revoke again a license that undispute.mjs restored.
+      const before = event?.data?.previous_attributes?.status;
+      if (typeof before !== 'string' || !before.startsWith('warning_')) return ignore(type, 'dispute_update');
+    }
+    // Inquiries (`warning_needs_response`, `warning_under_review`, `warning_closed`) are not chargebacks.
+    if (o.status.startsWith('warning_')) return ignore(type, 'dispute_inquiry');
+    if (!['needs_response', 'under_review', 'lost'].includes(o.status)) return ignore(type, 'dispute_status');
+    return { kind: 'dispute', type, ...target };
+  }
   return ignore(type, 'event_type');
 }
 
 // ---------------------------------------------------------------------------
 // Processor
-
-class MerchantApiError extends Error {
-  constructor(message) {
-    super(message);
-    this.name = 'MerchantApiError';
-  }
-}
 
 /**
  * @param {object} o
@@ -180,9 +221,11 @@ class MerchantApiError extends Error {
  * @param {Function} [o.fetch]
  * @param {{apiKey: string, from: string, replyTo?: string}} o.mail Resend settings
  * @param {{apiKey: string, priceId: string, sandbox?: boolean}} [o.paddle]
+ * @param {{apiKey: string}} [o.stripe] Stripe API key (restricted, read): only needed for a
+ *   dispute whose object carries a charge id and no payment intent
  * @returns {(input: {body: Buffer, headers: object}) => Promise<{status, body, outcome, type?}>}
  */
-export function createWebhookProcessor({ merchant, secrets, store, key, withLicenseLock, now, fetch: fetchFn = fetch, mail, paddle }) {
+export function createWebhookProcessor({ merchant, secrets, store, key, withLicenseLock, now, fetch: fetchFn = fetch, mail, paddle, stripe }) {
   if (!MERCHANTS.includes(merchant)) throw new Error('merchant must be paddle or stripe');
   if (!Array.isArray(secrets) || secrets.length === 0 || secrets.some((s) => typeof s !== 'string' || !s)) {
     throw new Error('webhook secret missing');
@@ -198,33 +241,6 @@ export function createWebhookProcessor({ merchant, secrets, store, key, withLice
     const next = chain.then(fn, fn);
     chain = next.catch(() => {});
     return next;
-  }
-
-  async function paddleCustomerEmail(customerId) {
-    const base = paddle.sandbox ? PADDLE_SANDBOX_API : PADDLE_API;
-    let res;
-    try {
-      res = await fetchFn(`${base}/customers/${encodeURIComponent(customerId)}`, {
-        method: 'GET',
-        headers: { Authorization: `Bearer ${paddle.apiKey}`, Accept: 'application/json' },
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      });
-    } catch (err) {
-      throw new MerchantApiError(`paddle request failed (${err?.name ?? 'Error'})`);
-    }
-    if (!res.ok) {
-      await res.text().catch(() => {});
-      throw new MerchantApiError(`paddle answered ${res.status}`);
-    }
-    let json;
-    try {
-      json = await res.json();
-    } catch {
-      throw new MerchantApiError('paddle answer is not JSON');
-    }
-    const email = json?.data?.email;
-    if (typeof email !== 'string' || !EMAIL.test(email)) throw new MerchantApiError('paddle customer has no email');
-    return email;
   }
 
   async function findOrder(keys) {
@@ -249,27 +265,31 @@ export function createWebhookProcessor({ merchant, secrets, store, key, withLice
 
     let email;
     try {
-      email = ev.email ?? (await paddleCustomerEmail(ev.customerId));
+      email = ev.email ?? (await paddleCustomerEmail(fetchFn, paddle, ev.customerId));
     } catch (err) {
       if (err instanceof MerchantApiError) return { status: 502, body: { error: 'merchant_api' }, outcome: 'customer_lookup_failed' };
       throw err;
     }
 
+    // Every key of the purchase, and the Paddle customer id (never the email), so that
+    // resend.mjs and reissue.mjs can read the email from the merchant later.
+    const orderEntry = (licenseId) => ({
+      license_id: licenseId,
+      created_at: t,
+      order_keys: ev.orderKeys,
+      ...(ev.customerId ? { customer_id: ev.customerId } : {}),
+    });
     let issued;
     let outcome;
     if (!record) {
       issued = issueLicense({ email, issuedAt: t }, key);
       await registerLicense(store, issued.payload);
-      for (const k of ev.orderKeys) await store.putOrder(k, { license_id: issued.payload.license_id, created_at: t });
+      for (const k of ev.orderKeys) await store.putOrder(k, orderEntry(issued.payload.license_id));
       outcome = 'issued';
     } else {
-      const days = (record.updates_until - record.issued_at) / DAY;
-      issued = issueLicense(
-        { email, issuedAt: record.issued_at, days, maxActivations: record.max_activations, licenseId: record.license_id },
-        key,
-      );
+      issued = resignLicense(record, email, key);
       for (const k of ev.orderKeys) {
-        if (!(await store.getOrder(k))) await store.putOrder(k, { license_id: record.license_id, created_at: t });
+        if (!(await store.getOrder(k))) await store.putOrder(k, orderEntry(record.license_id));
       }
       outcome = 'resent';
     }
@@ -282,35 +302,77 @@ export function createWebhookProcessor({ merchant, secrets, store, key, withLice
     }
 
     const id = issued.payload.license_id;
-    await withLicenseLock(id, async () => {
-      const r = await store.get(id);
-      r.emailed_at = now();
-      await store.put(id, r);
-    });
+    const sentAt = now();
+    await withLicenseLock(id, () =>
+      updateRecord(store, id, (r) => {
+        if (r) r.emailed_at = sentAt;
+      }),
+    );
     return { status: 200, outcome };
   }
 
-  async function refund(ev) {
+  /** Charge id -> order keys, for a Stripe dispute that carries no payment intent. */
+  async function disputeOrderKeys(ev) {
+    if (ev.orderKeys) return ev.orderKeys;
+    if (!stripe?.apiKey) throw new MerchantApiError('stripe api key not configured');
+    return [`stripe:${await stripeChargePaymentIntent(fetchFn, stripe, ev.chargeId)}`];
+  }
+
+  // Refund and dispute: revoke the license behind the order. A dispute also sets
+  // `disputed`, also on a license already revoked by a refund.
+  async function revoke(ev, orderKeys) {
     const t = now();
-    const order = await findOrder(ev.orderKeys);
+    const reason = ev.kind === 'dispute' ? 'dispute' : 'refund';
+    const order = await findOrder(orderKeys);
     if (!order) {
-      // Refund before purchase (events can arrive out of order), or an order that never
-      // got a license (another product). Remember it so a later purchase event issues nothing.
-      for (const k of ev.orderKeys) await store.putOrder(k, { license_id: null, refunded_at: t });
-      return { status: 200, outcome: 'refund_without_license' };
+      // Refund or dispute before the purchase event (events can arrive out of order), or an
+      // order that never got a license (another product). Remember it so a later purchase
+      // event issues nothing.
+      const entry = reason === 'dispute' ? { license_id: null, disputed_at: t } : { license_id: null, refunded_at: t };
+      for (const k of orderKeys) await store.putOrder(k, entry);
+      return { status: 200, outcome: `${reason}_without_license` };
     }
     if (order.license_id === null) return { status: 200, outcome: 'duplicate' };
-    const changed = await withLicenseLock(order.license_id, async () => {
-      const r = await store.get(order.license_id);
-      if (!r) throw new Error('order points to a missing license');
-      if (r.revoked) return false;
-      r.revoked = true;
-      r.revoked_at = t;
-      r.revoked_reason = 'refund';
-      await store.put(order.license_id, r);
-      return true;
-    });
-    return { status: 200, outcome: changed ? 'revoked' : 'duplicate' };
+    const changed = await withLicenseLock(order.license_id, () =>
+      updateRecord(store, order.license_id, (r) => {
+        if (!r) throw new Error('order points to a missing license');
+        if (reason === 'dispute' ? r.disputed === true : r.revoked) return false;
+        if (!r.revoked) {
+          r.revoked = true;
+          r.revoked_at = t;
+          r.revoked_reason = reason;
+        }
+        if (reason === 'dispute') r.disputed = true;
+        addHistory(r, { at: t, action: reason === 'dispute' ? 'dispute' : 'revoke', ...(reason === 'refund' ? { reason } : {}) });
+        return true;
+      }),
+    );
+    return { status: 200, outcome: changed ? (reason === 'dispute' ? 'disputed' : 'revoked') : 'duplicate' };
+  }
+
+  // Reversed, won or lost dispute: history entry only. The license stays as it is.
+  async function disputeInfo(ev, orderKeys) {
+    const t = now();
+    const order = await findOrder(orderKeys);
+    if (!order || order.license_id === null) return { status: 200, outcome: `${ev.action}_without_license` };
+    await withLicenseLock(order.license_id, () =>
+      updateRecord(store, order.license_id, (r) => {
+        if (!r) throw new Error('order points to a missing license');
+        addHistory(r, { at: t, action: ev.action });
+      }),
+    );
+    return { status: 200, outcome: ev.action };
+  }
+
+  async function dispute(ev) {
+    let orderKeys;
+    try {
+      orderKeys = await disputeOrderKeys(ev);
+    } catch (err) {
+      if (err instanceof MerchantApiError) return { status: 502, body: { error: 'merchant_api' }, outcome: 'charge_lookup_failed' };
+      throw err;
+    }
+    return ev.kind === 'dispute' ? revoke(ev, orderKeys) : disputeInfo(ev, orderKeys);
   }
 
   const verify = merchant === 'paddle' ? verifyPaddleSignature : verifyStripeSignature;
@@ -335,7 +397,11 @@ export function createWebhookProcessor({ merchant, secrets, store, key, withLice
     }
     const type = KNOWN_EVENT_TYPES.has(ev.type) ? ev.type : 'other';
     if (ev.kind === 'ignore') return { status: 200, outcome: `ignored_${ev.reason}`, type };
-    const result = await serialized(() => (ev.kind === 'purchase' ? purchase(ev) : refund(ev)));
+    const result = await serialized(() => {
+      if (ev.kind === 'purchase') return purchase(ev);
+      if (ev.kind === 'refund') return revoke(ev, ev.orderKeys);
+      return dispute(ev);
+    });
     return { ...result, type };
   };
 }

@@ -186,7 +186,14 @@ describe('paddle webhook', () => {
       const ids = Object.keys(data.licenses);
       assert.equal(ids.length, 1);
       const id = ids[0];
-      assert.deepEqual(data.orders, { 'paddle:txn_01jbx3dq8w5h2k9m4n7p0r3t6v': { license_id: id, created_at: NOW } });
+      assert.deepEqual(data.orders, {
+        'paddle:txn_01jbx3dq8w5h2k9m4n7p0r3t6v': {
+          license_id: id,
+          created_at: NOW,
+          order_keys: ['paddle:txn_01jbx3dq8w5h2k9m4n7p0r3t6v'],
+          customer_id: 'ctm_01jbx3cz1a4s7d0f3g6h9j2k5l',
+        },
+      });
       assert.equal(data.licenses[id].emailed_at, NOW);
       assert.equal(data.licenses[id].max_activations, 3);
       assert.equal(data.licenses[id].updates_until - data.licenses[id].issued_at, 365 * 86_400);

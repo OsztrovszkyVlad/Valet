@@ -5,6 +5,8 @@
 //   put(licenseId, record) -> void      (insert or replace the record for that id)
 //   getOrder(orderKey) -> order | null   (merchant order map, used by the webhook)
 //   putOrder(orderKey, order) -> void
+//   update(licenseId, fn) -> fn's result (optional: read-modify-write of one record under
+//                                         the store's write lock; see updateRecord)
 //
 // There is no delete. Revocation is `revoked: true`; deactivation sets `active: false`
 // on the machine entry and keeps its history.
@@ -13,16 +15,23 @@
 //   {
 //     license_id, max_activations, issued_at, updates_until,
 //     revoked: false, revoked_at?,
+//     revoked_reason?: "refund" | "dispute" | "reissued",
+//     disputed?: true,                   (chargeback or dispute; cleared only by undispute.mjs)
 //     resets?: [{ at, cleared }],
 //     machines: { "<32 hex>": { first_seen, last_seen, active, deactivated_at } },
-//     emailed_at?: number,              (set by the webhook once Resend accepted the email)
-//     revoked_reason?: "refund"
+//     emailed_at?: number,              (set once Resend accepted the first license email)
+//     history?: [{ at, action, … }]     (revoke, dispute, dispute_reversed, dispute_lost,
+//                                         undispute, resend, reissued, issued)
 //   }
 // The email is not stored here; the license file and the merchant hold it.
 //
 // Order keys are "<merchant>:<merchant id>" (paddle:txn_…, stripe:cs_…, stripe:pi_…).
-// Order: { license_id, created_at } once a license was issued for it, or
-// { license_id: null, refunded_at } when a refund arrived before the purchase.
+// Order: { license_id, created_at, order_keys?, customer_id?, history? } once a license
+// was issued for it, or { license_id: null, refunded_at | disputed_at } when a refund or
+// dispute arrived before the purchase. `order_keys` lists every key of the same purchase
+// (Stripe: the session and the payment intent); `customer_id` is the Paddle `ctm_…` id
+// (never the email); `history` holds { at, action: "reissue", from, to } entries.
+// All of these fields are additive: entries written by older versions lack them.
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -49,6 +58,27 @@ export async function registerLicense(store, payload) {
     throw new Error('license id already registered');
   }
   await store.put(payload.license_id, newLicenseRecord(payload));
+}
+
+/** Appends an entry to the record's history (created on first use). */
+export function addHistory(record, entry) {
+  record.history = [...(record.history ?? []), entry];
+}
+
+/**
+ * Read-modify-write of one license record. `fn(record | null)` may change the record in
+ * place; it is written back only when its JSON changed. Returns what `fn` returns.
+ * Uses `store.update` when the store has it (the JSON store does this under its file
+ * lock, so a support CLI and the server don't overwrite each other's change), else
+ * `get` + `put`. `fn` must not call the network: it may run while the file is locked.
+ */
+export async function updateRecord(store, id, fn) {
+  if (typeof store.update === 'function') return store.update(id, fn);
+  const record = await store.get(id);
+  const before = JSON.stringify(record);
+  const result = await fn(record);
+  if (record !== null && JSON.stringify(record) !== before) await store.put(id, record);
+  return result;
 }
 
 /** Number of machines currently holding an activation. */
@@ -91,6 +121,13 @@ export function createMemoryStore() {
     },
     async putOrder(key, order) {
       orders.set(key, structuredClone(order));
+    },
+    async update(id, fn) {
+      const record = map.has(id) ? structuredClone(map.get(id)) : null;
+      const before = JSON.stringify(record);
+      const result = await fn(record);
+      if (record !== null && JSON.stringify(record) !== before) map.set(id, structuredClone(record));
+      return result;
     },
   };
 }
@@ -198,6 +235,21 @@ export function createJsonFileStore(filePath) {
           const data = await load();
           data.licenses[id] = record;
           await writeAtomic(data);
+        }),
+      );
+    },
+    update(id, fn) {
+      return serialized(() =>
+        withFileLock(async () => {
+          const data = await load();
+          const record = Object.hasOwn(data.licenses, id) ? data.licenses[id] : null;
+          const before = JSON.stringify(record);
+          const result = await fn(record);
+          if (record !== null && JSON.stringify(record) !== before) {
+            data.licenses[id] = record;
+            await writeAtomic(data);
+          }
+          return result;
         }),
       );
     },

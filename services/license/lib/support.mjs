@@ -19,6 +19,26 @@ export function orderKeyFor(orderId) {
   return null;
 }
 
+const ORDER_HELP = '--order must be a Paddle transaction id (txn_…) or a Stripe checkout session (cs_…) or payment intent (pi_…)';
+
+/** `paddle` or `stripe` for a store order key. */
+export const merchantOf = (orderKey) => orderKey.slice(0, orderKey.indexOf(':'));
+
+/**
+ * Resolves a merchant order id to `{ key, entry }` for an order that has a license.
+ * Throws an Error with a message for the terminal when it can't.
+ */
+export async function resolveOrder(store, orderId) {
+  const key = orderKeyFor(orderId);
+  if (!key) throw new Error(ORDER_HELP);
+  const entry = await store.getOrder(key);
+  if (!entry) throw new Error('order not found in the store (no webhook delivery recorded for it)');
+  if (entry.license_id === null) {
+    throw new Error('order has no license: a refund or dispute was recorded before any purchase event, or it is not a Valet Pro order');
+  }
+  return { key, entry };
+}
+
 /**
  * Resolves `--license` or `--order` to a license id. Throws an Error with a message for
  * the terminal (no email, nothing secret) when it can't.
@@ -31,14 +51,22 @@ export async function resolveLicenseId(store, { license, order }) {
     if (!UUID_V4.test(license)) throw new Error('--license must be a lowercase UUID v4');
     return license;
   }
-  const key = orderKeyFor(order);
-  if (!key) throw new Error('--order must be a Paddle transaction id (txn_…) or a Stripe checkout session (cs_…) or payment intent (pi_…)');
-  const entry = await store.getOrder(key);
-  if (!entry) throw new Error('order not found in the store (no webhook delivery recorded for it)');
-  if (entry.license_id === null) {
-    throw new Error('order has no license: a refund was recorded before any purchase event, or it is not a Valet Pro order');
-  }
-  return entry.license_id;
+  return (await resolveOrder(store, order)).entry.license_id;
+}
+
+/** One line per history entry: date, action and its details (license ids, no email). */
+function historyLine(h) {
+  const parts = [day(h.at), h.action];
+  if (h.reason) parts.push(`(${h.reason})`);
+  if (h.to) parts.push(`new license ${h.to}`);
+  if (h.reissue_of) parts.push(`replaces ${h.reissue_of}`);
+  if (h.by) parts.push(`by ${h.by}`);
+  return parts.join(' ');
+}
+
+/** Order history lines (reissues), for lookup. */
+export function describeOrder(entry) {
+  return (entry.history ?? []).map((h) => `order: ${day(h.at)} reissued, previous license ${h.from}`).join('\n');
 }
 
 const day = (s) => (typeof s === 'number' ? new Date(s * 1000).toISOString().slice(0, 10) : '-');
@@ -52,6 +80,7 @@ export function describeRecord(record) {
     `issued: ${day(record.issued_at)}`,
     `updates_until: ${day(record.updates_until)}`,
     `revoked: ${record.revoked ? `yes, ${day(record.revoked_at)}${record.revoked_reason ? ` (${record.revoked_reason})` : ''}` : 'no'}`,
+    `disputed: ${record.disputed ? 'yes' : 'no'}`,
     `emailed: ${record.emailed_at ? day(record.emailed_at) : 'no'}`,
     `active_machines: ${active.length} of ${record.max_activations}`,
   ];
@@ -62,5 +91,6 @@ export function describeRecord(record) {
       lines.push(`machine ${i + 1}: ${m.active ? 'active' : 'inactive'}, first seen ${day(m.first_seen)}, last seen ${day(m.last_seen)}`);
     });
   lines.push(`resets: ${(record.resets ?? []).length}`);
+  for (const h of record.history ?? []) lines.push(`history: ${historyLine(h)}`);
   return lines.join('\n');
 }

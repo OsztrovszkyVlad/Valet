@@ -14,7 +14,7 @@
 // Logs carry route, status, duration, and for webhooks the event type and outcome:
 // no license ids, machine ids, merchant ids, emails or IPs.
 
-import { activeMachineCount } from './store.mjs';
+import { activeMachineCount, updateRecord } from './store.mjs';
 import { issueActivationToken, nowSeconds, UUID_V4, MACHINE_ID } from './license.mjs';
 import { createWebhookProcessor, MERCHANTS } from './webhook.mjs';
 
@@ -139,7 +139,7 @@ function clientAddress(req, trustFly) {
 /**
  * Creates the request handler.
  * @param {object} options
- * @param {{get: Function, put: Function}} options.store activation storage
+ * @param {{get: Function, put: Function, update?: Function}} options.store activation storage
  * @param {{keyId: Buffer, privateKey: import('node:crypto').KeyObject}} options.key signing key
  * @param {() => number} [options.now] clock in Unix seconds
  * @param {(entry: object) => void} [options.log] log sink
@@ -182,26 +182,28 @@ export function createHandler({
   // in the active set re-activates it when a slot is free, else answers 409.
   async function activate({ licenseId, machine }) {
     return withLock(licenseId, async () => {
-      const record = await store.get(licenseId);
-      if (!record) return [404, { error: 'unknown' }];
-      if (record.revoked) return [410, { error: 'revoked' }];
       const t = now();
-      record.machines ??= {};
-      const entry = record.machines[machine];
-      if (entry?.active) {
-        entry.last_seen = t;
-      } else {
-        if (activeMachineCount(record) >= record.max_activations) {
-          return [409, { error: 'too_many' }];
+      const refused = await updateRecord(store, licenseId, (record) => {
+        if (!record) return [404, { error: 'unknown' }];
+        if (record.revoked) return [410, { error: 'revoked' }];
+        record.machines ??= {};
+        const entry = record.machines[machine];
+        if (entry?.active) {
+          entry.last_seen = t;
+        } else {
+          if (activeMachineCount(record) >= record.max_activations) {
+            return [409, { error: 'too_many' }];
+          }
+          record.machines[machine] = {
+            first_seen: entry?.first_seen ?? t,
+            last_seen: t,
+            active: true,
+            deactivated_at: entry?.deactivated_at ?? null,
+          };
         }
-        record.machines[machine] = {
-          first_seen: entry?.first_seen ?? t,
-          last_seen: t,
-          active: true,
-          deactivated_at: entry?.deactivated_at ?? null,
-        };
-      }
-      await store.put(licenseId, record);
+        return null;
+      });
+      if (refused) return refused;
       const token = issueActivationToken({ licenseId, machine, checkedAt: t }, key);
       return [200, { token }];
     });
@@ -209,17 +211,17 @@ export function createHandler({
 
   async function deactivate({ licenseId, machine }) {
     return withLock(licenseId, async () => {
-      const record = await store.get(licenseId);
-      if (!record) return [404, { error: 'unknown' }];
-      const entry = record.machines?.[machine];
-      if (entry?.active) {
-        const t = now();
-        entry.active = false;
-        entry.last_seen = t;
-        entry.deactivated_at = t;
-        await store.put(licenseId, record);
-      }
-      return [204, undefined];
+      const t = now();
+      return updateRecord(store, licenseId, (record) => {
+        if (!record) return [404, { error: 'unknown' }];
+        const entry = record.machines?.[machine];
+        if (entry?.active) {
+          entry.active = false;
+          entry.last_seen = t;
+          entry.deactivated_at = t;
+        }
+        return [204, undefined];
+      });
     });
   }
 

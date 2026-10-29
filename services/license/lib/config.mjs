@@ -4,7 +4,12 @@
 // paddle and stripe:   VALET_WEBHOOK_SECRET, VALET_RESEND_API_KEY, VALET_MAIL_FROM
 // paddle:              VALET_PADDLE_API_KEY, VALET_PADDLE_PRICE_ID
 // Optional:            VALET_PADDLE_SANDBOX=1, VALET_MAIL_REPLY_TO, VALET_TRUST_FLY=1,
-//                      VALET_RATE_LIMIT_PER_MIN (default 30)
+//                      VALET_RATE_LIMIT_PER_MIN (default 30),
+//                      VALET_STRIPE_API_KEY (stripe: disputes that carry only a charge id)
+//
+// resend.mjs and reissue.mjs (loadMailerConfig): the signing key, VALET_RESEND_API_KEY,
+// VALET_MAIL_FROM, and the merchant of the order: VALET_PADDLE_API_KEY (+ optional
+// VALET_PADDLE_SANDBOX) or VALET_STRIPE_API_KEY.
 //
 // VALET_MERCHANT=none runs the activation API without any webhook (local runs only).
 // VALET_WEBHOOK_SECRET may hold two secrets separated by a comma while rotating on our
@@ -27,14 +32,39 @@ export class ConfigError extends Error {
 }
 
 const set = (v) => typeof v === 'string' && v.trim() !== '';
+const MAIL_FROM = /^(?:[^<>]*<)?[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+>?$/;
 
-export function loadServerConfig(env = process.env) {
+function checker(env) {
   const missing = [];
   const invalid = [];
   const need = (name) => {
     if (!set(env[name])) missing.push(name);
     return set(env[name]) ? env[name].trim() : undefined;
   };
+  const optional = (name) => (set(env[name]) ? env[name].trim() : undefined);
+  return { missing, invalid, need, optional };
+}
+
+function mailSettings({ need, optional, invalid }) {
+  const apiKey = need('VALET_RESEND_API_KEY');
+  const from = need('VALET_MAIL_FROM');
+  if (from && !MAIL_FROM.test(from)) invalid.push('VALET_MAIL_FROM (Name <address@domain>)');
+  const replyTo = optional('VALET_MAIL_REPLY_TO');
+  return { apiKey, from, ...(replyTo ? { replyTo } : {}) };
+}
+
+function loadKey(env) {
+  try {
+    return loadSecretKeyFromEnv(env);
+  } catch (err) {
+    // The messages of loadSecretKeyFromEnv name the variable and never include the value.
+    throw new ConfigError([], [err.message]);
+  }
+}
+
+export function loadServerConfig(env = process.env) {
+  const c = checker(env);
+  const { missing, invalid, need } = c;
 
   need('VALET_LICENSE_SECRET_KEY');
   need('VALET_LICENSE_KEY_ID');
@@ -44,13 +74,14 @@ export function loadServerConfig(env = process.env) {
   let webhook = null;
   if (merchant === 'paddle' || merchant === 'stripe') {
     const secretText = need('VALET_WEBHOOK_SECRET');
-    const resendKey = need('VALET_RESEND_API_KEY');
-    const from = need('VALET_MAIL_FROM');
+    const mail = mailSettings(c);
     const secrets = secretText ? secretText.split(',').map((s) => s.trim()).filter(Boolean) : [];
     if (secretText && (secrets.length === 0 || secrets.length > 2)) invalid.push('VALET_WEBHOOK_SECRET (one secret, or two separated by a comma)');
-    if (from && !/^(?:[^<>]*<)?[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+>?$/.test(from)) invalid.push('VALET_MAIL_FROM (Name <address@domain>)');
-    const replyTo = set(env.VALET_MAIL_REPLY_TO) ? env.VALET_MAIL_REPLY_TO.trim() : undefined;
-    webhook = { merchant, secrets, mail: { apiKey: resendKey, from, ...(replyTo ? { replyTo } : {}) } };
+    webhook = { merchant, secrets, mail };
+    if (merchant === 'stripe') {
+      const apiKey = c.optional('VALET_STRIPE_API_KEY');
+      if (apiKey) webhook.stripe = { apiKey };
+    }
     if (merchant === 'paddle') {
       const apiKey = need('VALET_PADDLE_API_KEY');
       const priceId = need('VALET_PADDLE_PRICE_ID');
@@ -67,13 +98,7 @@ export function loadServerConfig(env = process.env) {
 
   if (missing.length || invalid.length) throw new ConfigError(missing, invalid);
 
-  let key;
-  try {
-    key = loadSecretKeyFromEnv(env);
-  } catch (err) {
-    // The messages of loadSecretKeyFromEnv name the variable and never include the value.
-    throw new ConfigError([], [err.message]);
-  }
+  const key = loadKey(env);
 
   return {
     key,
@@ -82,4 +107,26 @@ export function loadServerConfig(env = process.env) {
     trustFly: env.VALET_TRUST_FLY === '1',
     rateLimit: { capacity: perMinute, perMinute },
   };
+}
+
+/**
+ * Settings for resend.mjs and reissue.mjs: signing key, Resend, and the API key of the
+ * merchant that sold the order (`paddle` or `stripe`, from the order id's prefix).
+ */
+export function loadMailerConfig(env, merchant) {
+  const c = checker(env);
+  c.need('VALET_LICENSE_SECRET_KEY');
+  c.need('VALET_LICENSE_KEY_ID');
+  const mail = mailSettings(c);
+  const out = { mail };
+  if (merchant === 'paddle') {
+    out.paddle = { apiKey: c.need('VALET_PADDLE_API_KEY'), sandbox: env.VALET_PADDLE_SANDBOX === '1' };
+  } else if (merchant === 'stripe') {
+    out.stripe = { apiKey: c.need('VALET_STRIPE_API_KEY') };
+  } else {
+    throw new Error('merchant must be paddle or stripe');
+  }
+  if (c.missing.length || c.invalid.length) throw new ConfigError(c.missing, c.invalid);
+  out.key = loadKey(env);
+  return out;
 }
