@@ -1,0 +1,158 @@
+name: MSIX (Microsoft Store)
+
+# The Microsoft Store package of Valet (packaging/msix/README.md).
+# - push to main that touches packaging/msix/**, scripts/msix-* or this file,
+#   and workflow_dispatch with dry_run=true (default): dry run. Fake identity
+#   and pre-release versions are allowed (with a warning annotation).
+# - workflow_dispatch with dry_run=false: the package for Partner Center.
+#   Needs a v* tag ref of a stable version (x.y.z) and the Actions variables
+#   VALET_MSIX_IDENTITY_NAME, VALET_MSIX_PUBLISHER,
+#   VALET_MSIX_PUBLISHER_DISPLAY_NAME.
+# Every run: asserts there is no updater config, builds Valet.exe with
+# `pnpm tauri build --no-bundle` (the release workflow's installer build
+# merges the updater config, so its Valet.exe cannot go into the Store),
+# packs it with makeappx (unsigned), installs a signed copy with a throwaway
+# certificate made inside the job, starts it, removes it, and uploads the
+# UNSIGNED .msix as the artifact. No secrets are used.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (fake identity and pre-release allowed). false = Store package: needs a v* tag of a stable version and the VALET_MSIX_* variables."
+        type: boolean
+        default: true
+  push:
+    branches: [main]
+    paths:
+      - "packaging/msix/**"
+      - "scripts/msix-*"
+      - ".github/workflows/msix.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: msix-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  msix:
+    name: msix (build, pack, install smoke)
+    runs-on: windows-latest
+    env:
+      STORE: ${{ github.event_name == 'workflow_dispatch' && !inputs.dry_run }}
+      VALET_MSIX_IDENTITY_NAME: ${{ vars.VALET_MSIX_IDENTITY_NAME }}
+      VALET_MSIX_PUBLISHER: ${{ vars.VALET_MSIX_PUBLISHER }}
+      VALET_MSIX_PUBLISHER_DISPLAY_NAME: ${{ vars.VALET_MSIX_PUBLISHER_DISPLAY_NAME }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check the trigger
+        if: ${{ env.STORE == 'true' && (github.ref_type != 'tag' || !startsWith(github.ref_name, 'v')) }}
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          echo "::error title=msix::dry_run=false needs a v* tag ref (got $REF_TYPE '$REF_NAME'). Run it on the release tag, or with dry_run=true."
+          exit 1
+
+      # No caches: the Store package is built from a clean state, like release.yml.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Rust toolchain from rust-toolchain.toml
+        run: rustup toolchain install || rustup show
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          package_json_file: apps/desktop/package.json
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - name: Install frontend dependencies
+        working-directory: apps/desktop
+        run: pnpm install --frozen-lockfile
+
+      - name: Check the version (all files, and the tag when on a tag)
+        env:
+          TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: node scripts/check-version.mjs "$TAG"
+
+      # Fails before the build if the updater config would be merged, if a
+      # Store run lacks the identity variables or has a pre-release version.
+      - name: Identity, package version, no updater config
+        run: |
+          if [ "$STORE" = true ]; then
+            node scripts/msix-manifest.mjs --require-identity
+          else
+            node scripts/msix-manifest.mjs --allow-prerelease
+          fi
+
+      - name: Build Valet.exe (pnpm tauri build --no-bundle, no updater config)
+        id: build
+        shell: pwsh
+        working-directory: apps/desktop
+        run: |
+          $sw = [Diagnostics.Stopwatch]::StartNew()
+          pnpm tauri build --no-bundle
+          if ($LASTEXITCODE -ne 0) {
+            Write-Output "::error title=msix build::pnpm tauri build --no-bundle exit code $LASTEXITCODE"
+            exit 1
+          }
+          $exe = Join-Path (Resolve-Path ../..).Path 'target\release\Valet.exe'
+          if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
+            Write-Output "::error title=msix build::no $exe after the build"
+            exit 1
+          }
+          $f = Get-Item -LiteralPath $exe
+          Write-Output ("::notice title=msix build::Valet.exe built in {0:N0} s: {1:N2} MB" -f $sw.Elapsed.TotalSeconds, ($f.Length / 1MB))
+          "exe=$exe" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Pack (makeappx, unsigned)
+        id: pack
+        shell: pwsh
+        env:
+          EXE: ${{ steps.build.outputs.exe }}
+        run: |
+          $flags = @{}
+          if ($env:STORE -eq 'true') { $flags['RequireIdentity'] = $true } else { $flags['AllowPrerelease'] = $true }
+          ./scripts/msix-pack.ps1 -Exe $env:EXE -OutDir (Join-Path $env:RUNNER_TEMP 'msix') @flags
+          exit $LASTEXITCODE
+
+      - name: Install smoke (signed copy, throwaway certificate, AUMID start, remove)
+        id: smoke
+        shell: pwsh
+        env:
+          MSIX: ${{ steps.pack.outputs.msix }}
+          MANIFEST: ${{ steps.pack.outputs.manifest }}
+          SDK_BIN: ${{ steps.pack.outputs.sdk_bin }}
+        run: |
+          ./scripts/msix-smoke.ps1 -Package $env:MSIX -Manifest $env:MANIFEST -SignTool (Join-Path $env:SDK_BIN 'signtool.exe')
+          exit $LASTEXITCODE
+
+      - name: Upload the unsigned package
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: valet-${{ steps.pack.outputs.version }}-msix-x64${{ env.STORE != 'true' && '-dryrun' || '' }}
+          path: ${{ steps.pack.outputs.msix }}
+          if-no-files-found: error
+          retention-days: ${{ env.STORE == 'true' && 30 || 14 }}
+
+      - name: Report
+        env:
+          NAME: valet-${{ steps.pack.outputs.version }}-msix-x64${{ env.STORE != 'true' && '-dryrun' || '' }}
+        run: |
+          if [ "$STORE" = true ]; then
+            echo "::notice title=msix::Store package uploaded as artifact $NAME (unsigned; Partner Center signs it). Upload the .msix from it in Partner Center (packaging/msix/README.md)."
+          else
+            echo "::notice title=msix::dry run; artifact $NAME is not for the Store"
+          fi
