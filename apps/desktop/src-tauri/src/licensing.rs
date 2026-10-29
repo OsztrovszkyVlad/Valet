@@ -85,6 +85,16 @@ pub(crate) fn shipped_checkout_url() -> Option<&'static str> {
     .filter(|u| is_https_url(u))
 }
 
+/// The merchant named next to the buy button (`license/merchant.txt`,
+/// Store policy 10.8.2: identify the commerce transaction provider).
+/// Only the two merchants Vlad picks from; anything else counts as unset.
+pub(crate) fn shipped_merchant() -> Option<&'static str> {
+    non_empty(include_str!(
+        "../../../../crates/valet-core/license/merchant.txt"
+    ))
+    .filter(|m| matches!(*m, "Paddle" | "Stripe"))
+}
+
 /// What the licensing code needs from the outside world. Injected so tests
 /// use the TEST key, a fixed machine id and a local server.
 #[derive(Debug, Clone)]
@@ -94,6 +104,8 @@ pub(crate) struct LicenseEnv {
     pub(crate) machine_id: Option<String>,
     pub(crate) build_date: i64,
     pub(crate) checkout_url: Option<String>,
+    /// `merchant.txt`: "Paddle" or "Stripe".
+    pub(crate) merchant: Option<String>,
     /// Microsoft Store (MSIX) build.
     pub(crate) packaged: bool,
     /// False only in tests (plain HTTP to 127.0.0.1).
@@ -110,6 +122,7 @@ impl LicenseEnv {
             machine_id: valet_platform::machine_id(),
             build_date: build_date(),
             checkout_url: shipped_checkout_url().map(str::to_owned),
+            merchant: shipped_merchant().map(str::to_owned),
             packaged: valet_platform::is_packaged(),
             https_only: true,
         }
@@ -257,6 +270,7 @@ pub(crate) struct PlanView {
     pub(crate) limits: Limits,
     pub(crate) licensing_configured: bool,
     pub(crate) checkout_available: bool,
+    pub(crate) merchant: Option<String>,
     pub(crate) choice_pending: bool,
     pub(crate) license: Option<LicenseInfo>,
     pub(crate) trial_ends_at: Option<i64>,
@@ -280,6 +294,7 @@ pub(crate) fn plan_view(
         limits: Limits::for_plan(&status.plan),
         licensing_configured: env.configured(),
         checkout_available: env.checkout_url.is_some(),
+        merchant: env.merchant.clone(),
         choice_pending,
         license: status.license.clone(),
         trial_ends_at: status.trial_ends_at,
@@ -656,6 +671,7 @@ pub(crate) mod tests {
             machine_id: Some(MACHINE.into()),
             build_date: BUILD,
             checkout_url: None,
+            merchant: None,
             packaged: false,
             https_only: false,
         }
@@ -698,8 +714,9 @@ pub(crate) mod tests {
         ] {
             assert!(!is_https_url(bad), "{bad:?}");
         }
-        // checkout.txt is empty in the repository.
+        // checkout.txt and merchant.txt are empty in the repository.
         assert_eq!(shipped_checkout_url(), None);
+        assert_eq!(shipped_merchant(), None);
     }
 
     #[test]
@@ -715,6 +732,7 @@ pub(crate) mod tests {
     fn plan_view_json_shape() {
         let env = LicenseEnv {
             checkout_url: Some("https://valet.example/buy".into()),
+            merchant: Some("Paddle".into()),
             ..test_env(Some("https://license.example"))
         };
         let status = resolve_plan(&PlanInputs {
@@ -738,6 +756,7 @@ pub(crate) mod tests {
                             "undo_latest_only": false, "export_import": true },
                 "licensing_configured": true,
                 "checkout_available": true,
+                "merchant": "Paddle",
                 "choice_pending": false,
                 "license": { "license_id": LICENSE_ID, "email": "test@example.com",
                              "updates_until": 1_821_536_000 },
@@ -770,6 +789,7 @@ pub(crate) mod tests {
                             "undo_latest_only": true, "export_import": false },
                 "licensing_configured": false,
                 "checkout_available": false,
+                "merchant": null,
                 "choice_pending": true,
                 "license": null,
                 "trial_ends_at": NOW - 16 * DAY,

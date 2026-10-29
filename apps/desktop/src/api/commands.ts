@@ -595,6 +595,8 @@ export interface PlanView {
     licensing_configured: boolean;
     /** `checkout.txt` is set: buying is open. */
     checkout_available: boolean;
+    /** `merchant.txt`: who handles the payment ("Paddle" or "Stripe"), shown next to the buy button. */
+    merchant: string | null;
     /** Show the "pick what stays active" dialog. */
     choice_pending: boolean;
     /** The stored license, also when it does not give Pro (to explain why). */

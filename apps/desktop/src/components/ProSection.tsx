@@ -244,6 +244,11 @@ const ProSection: React.FC<ProSectionProps> = ({ plan, onPlanChange, sectionRef 
                     {t('pro.pasteToggle')}
                 </button>
             </div>
+            {tier.kind !== 'pro' && plan.merchant !== null && (
+                <p className="form-help" data-testid="pro-merchant">
+                    {t('pro.merchant', { merchant: plan.merchant })}
+                </p>
+            )}
             {tier.kind !== 'pro' && !plan.checkout_available && (
                 <p id={buyHelpId} className="form-help" data-testid="pro-buy-unavailable">
                     {t('pro.buyUnavailable')}

@@ -596,7 +596,8 @@
     "removeYes": "Remove license",
     "removing": "Removing the license...",
     "removed": "The license was removed from this computer.",
-    "licenseId": "License code: {{id}}. Don't post it publicly: anyone who has it can take one of the 3 activations. For support, use the order number from the merchant's email."
+    "licenseId": "License code: {{id}}. Don't post it publicly: anyone who has it can take one of the 3 activations. For support, use the order number from the merchant's email.",
+    "merchant": "Payment is handled by {{merchant}}, which issues the invoice and handles VAT."
   },
   "license": {
     "reason": {

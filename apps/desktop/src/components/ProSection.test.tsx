@@ -79,6 +79,16 @@ describe('ProSection', () => {
         expect(buy.getAttribute('aria-describedby')).toBe(screen.getByTestId('pro-buy-unavailable').id);
     });
 
+    it('names the merchant next to the buy button when merchant.txt is set', () => {
+        const { unmount } = render(<ProSection plan={freePlan()} onPlanChange={() => {}} />);
+        expect(screen.getByTestId('pro-merchant').textContent).toBe(
+            'Plata se face prin Paddle, care emite factura și se ocupă de TVA.',
+        );
+        unmount();
+        render(<ProSection plan={freePlan({ merchant: null })} onPlanChange={() => {}} />);
+        expect(screen.queryByTestId('pro-merchant')).toBeNull();
+    });
+
     it('opens the checkout page through the backend', async () => {
         answers.open_external = undefined;
         renderSection(freePlan());

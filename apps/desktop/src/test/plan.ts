@@ -18,6 +18,7 @@ export function freePlan(overrides: Partial<PlanView> = {}): PlanView {
         limits: FREE_LIMITS,
         licensing_configured: true,
         checkout_available: true,
+        merchant: 'Paddle',
         choice_pending: false,
         license: null,
         trial_ends_at: inDays(-1),

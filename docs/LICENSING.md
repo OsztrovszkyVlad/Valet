@@ -123,6 +123,7 @@ Errors are the usual `"code: detail"` strings or `{code, …}` objects that `par
            undo_latest_only: boolean, export_import: boolean},
   licensing_configured: boolean,    // pubkey.txt and api.txt both set
   checkout_available: boolean,      // checkout.txt set
+  merchant: "Paddle" | "Stripe" | null,  // merchant.txt; shown next to the buy button (Store policy 10.8.2)
   choice_pending: boolean,          // show the "pick what stays active" dialog
   license: {license_id, email, updates_until} | null,   // also when not Pro, to explain why
   trial_ends_at: number | null,
@@ -155,4 +156,4 @@ Changes to existing commands:
 
 Plan transitions run at startup, hourly, and after any command above that changes the plan: Free with more than 3 enabled own rules or more than 2 folders → `apply_free_limits`, `choice_pending = true`; Trial or Pro → `restore_after_upgrade`, `choice_pending = false`. Rules are written with `db.upsert_rule` (keeps `version`, so approvals survive the round trip).
 
-`checkout.txt` sits next to `pubkey.txt` and `api.txt`: the HTTPS checkout URL. Empty means buying isn't open yet.
+`checkout.txt` sits next to `pubkey.txt` and `api.txt`: the HTTPS checkout URL. Empty means buying isn't open yet. `merchant.txt` holds `Paddle` or `Stripe` (anything else counts as empty); the Pro section then says who handles the payment.

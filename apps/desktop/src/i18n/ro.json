@@ -602,7 +602,8 @@
     "removeYes": "Scoate licența",
     "removing": "Se scoate licența...",
     "removed": "Licența a fost scoasă de pe acest calculator.",
-    "licenseId": "Cod licență: {{id}}. Nu-l publica: oricine îl are poate ocupa una dintre cele 3 activări. Pentru asistență, folosește numărul comenzii din emailul de la comerciant."
+    "licenseId": "Cod licență: {{id}}. Nu-l publica: oricine îl are poate ocupa una dintre cele 3 activări. Pentru asistență, folosește numărul comenzii din emailul de la comerciant.",
+    "merchant": "Plata se face prin {{merchant}}, care emite factura și se ocupă de TVA."
   },
   "license": {
     "reason": {

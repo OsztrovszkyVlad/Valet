@@ -234,6 +234,7 @@ impl Service {
             machine_id: Some(machine.to_string()),
             build_date,
             checkout_url: None,
+            merchant: None,
             packaged: false,
             https_only: false,
         }
