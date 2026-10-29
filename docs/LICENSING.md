@@ -10,7 +10,7 @@ This is the contract between `valet-core` (verification and limits), the desktop
 | Own rules enabled at once | 3 | unlimited |
 | Watched folders active at once | 2 | unlimited |
 | History shown | batches from the last 7 days | all |
-| Undo | the most recent batch only | any batch in history |
+| Undo | the most recent `apply` batch only (undo and recovery batches don't count) | any batch in history |
 | Export and import of rules | no | yes |
 | Condition and action types | all | all |
 
@@ -129,16 +129,16 @@ Errors are the usual `"code: detail"` strings or `{code, …}` objects that `par
 | `check_license_now` | — | validate call, even before 30 days | `license.network`, then as above |
 | `remove_license` | — | deactivate (best effort; a network error doesn't block), then moves both files to `license-removed/<unix>-…` (never deleted) | — |
 | `apply_plan_choice` | `rule_ids: string[]`, `folders: string[]` | Free only: these own rules (≤ 3) enabled, the other own rules plan-disabled; these folders (≤ 2) moved to the front of `inbox_paths`; clears `choice_pending` | `plan.limit`, `plan.notFree` |
-| `export_rules_file` | — | Pro/Trial: native save dialog, writes the export; refuses an existing path | `plan.proOnly`, `export.exists`, `export.io` |
-| `import_rules_file` | — | Pro/Trial: native open dialog, imports as new disabled-for-auto-apply rules (they need a preview) | `plan.proOnly`, `import.*` |
+| `export_rules_file` | — | Pro/Trial: native save dialog, writes the export; refuses an existing path. Returns the written path, or `null` on cancel | `plan.proOnly`, `export.exists`, `export.io` |
+| `import_rules_file` | — | Pro/Trial: native open dialog, imports as new rules (auto-apply waits for a preview, as for any new rule). Returns the imported `Rule[]`, or `null` on cancel | `plan.proOnly`, `import.*` |
 | `open_external` (`platform.rs`) | `target: "checkout" \| "startup_settings"` | opens the checkout URL (`checkout.txt`) or `ms-settings:startupapps`; nothing else can be opened | `open.unavailable` |
 
 Changes to existing commands:
 - `upsert_rule`: `check_rule_change` (→ `plan.limit`); the UI can't add or change `presetId` or `planDisabled` (the stored values are kept).
 - `save_config`: `check_folders` (→ `plan.limit`).
 - `get_config`: adds `inactive_paths` (Free, beyond the first 2).
-- `list_batches`: Free hides batches older than 7 days and adds `hidden_older: boolean` to the response.
-- `undo_batch`: Free refuses anything but the latest batch (`plan.undoLatestOnly`).
+- `list_batches`: the response becomes `{batches: BatchInfo[], hidden_older: boolean, latest_apply_batch_id: string | null}`. Free hides batches older than 7 days. `latest_apply_batch_id` is the newest batch of kind `apply` (even if already undone), from the whole journal, not only the visible part.
+- `undo_batch`: Free refuses anything but `latest_apply_batch_id` (`plan.undoLatestOnly`). Undoing it once leaves it the latest apply batch, so older batches stay locked: no chain of undos on Free.
 - `check_for_update`: adds `pub_date` and `covered_by_license: boolean | null` (null when not Pro).
 - `configure_auto_start`, `check_for_update`, `install_update`: in the packaged build they return `autostart.packaged` / `update.packaged`.
 - `AppSettings` gains `auto_update_check: boolean` (default true). Off: no automatic checks; "Check now" still works.
