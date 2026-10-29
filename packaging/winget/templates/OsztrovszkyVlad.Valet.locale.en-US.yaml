@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.10.0.schema.json
+# Template filled by scripts/winget-manifest.mjs. Do not submit as is.
+
+PackageIdentifier: {{ID}}
+PackageVersion: {{VERSION}}
+PackageLocale: en-US
+Publisher: Osztrovszky Vlad
+PublisherUrl: https://github.com/OsztrovszkyVlad
+PublisherSupportUrl: https://github.com/OsztrovszkyVlad/Valet/issues
+Author: Osztrovszky Vlad
+PackageName: {{NAME}}
+PackageUrl: https://github.com/OsztrovszkyVlad/Valet
+License: MIT
+LicenseUrl: https://github.com/OsztrovszkyVlad/Valet/blob/main/LICENSE
+Copyright: Copyright (c) 2026 Osztrovszky Vlad
+ShortDescription: Rules-based file organizer for Windows.
+Description: |-
+  Valet sorts the files in the folders you choose by the rules you set: it moves or copies them to other folders, or sends them to the Recycle Bin.
+  It lists what each rule would do before anything runs, journals every operation, and every batch can be undone. Valet never deletes a file permanently.
+Tags:
+  - file-organizer
+  - files
+  - rules
+  - automation
+  - downloads
+ReleaseNotesUrl: {{RELEASE_NOTES_URL}}
+ManifestType: defaultLocale
+ManifestVersion: 1.10.0

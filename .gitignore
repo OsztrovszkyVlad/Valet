@@ -12,3 +12,6 @@ apps/desktop/src-tauri/target
 Thumbs.db
 
 .claude/state
+# Release (generated)
+apps/desktop/src-tauri/tauri.updater.conf.json
+packaging/winget/out/

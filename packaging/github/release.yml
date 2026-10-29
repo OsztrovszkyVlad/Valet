@@ -1,0 +1,261 @@
+name: Release
+
+# What triggers what (docs/RELEASE.md has the full procedure):
+# - push of a tag v*            -> build job: NSIS installer, draft GitHub
+#                                  release with the installer (and the
+#                                  updater files when the updater is set up).
+# - workflow_dispatch, dry_run  -> build job only: installer as a workflow
+#                                  artifact, no release, no tag.
+# - workflow_dispatch on a v* tag ref with dry_run=false
+#                               -> rebuilds the draft release of that tag
+#                                  (fails if the release is already published).
+# - release published (by Vlad) -> updater-channel job: copies the release's
+#                                  latest.json to latest-beta.json on the
+#                                  long-lived pre-release `updater-channel`.
+# - workflow_dispatch with beta_tag
+#                               -> updater-channel job only: points
+#                                  latest-beta.json at that release (rollback).
+# This workflow never creates a v* tag and never publishes a release.
+
+on:
+  push:
+    tags: ["v*"]
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build the installer only, no release. false is accepted only on a v* tag ref (rebuilds that tag's draft)."
+        type: boolean
+        default: true
+      beta_tag:
+        description: "Only repoint latest-beta.json to this published release (e.g. v1.0.0-beta.1). Builds nothing."
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: build (NSIS)
+    if: >-
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' && inputs.beta_tag == '')
+    runs-on: windows-latest
+    permissions:
+      contents: write # create the draft release and upload its assets
+    concurrency:
+      group: release-build-${{ github.ref }}
+      cancel-in-progress: false
+    env:
+      PUBLISH: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.dry_run) }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check the trigger
+        if: ${{ env.PUBLISH == 'true' && (github.ref_type != 'tag' || !startsWith(github.ref_name, 'v')) }}
+        run: |
+          echo "::error title=release::dry_run=false needs a v* tag ref (got ${{ github.ref_type }} '${{ github.ref_name }}'). Push a tag, or run with dry_run=true."
+          exit 1
+
+      # No caches in this workflow: release binaries are built from a clean state.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Rust toolchain from rust-toolchain.toml
+        run: rustup toolchain install || rustup show
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          package_json_file: apps/desktop/package.json
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - name: Install frontend dependencies
+        working-directory: apps/desktop
+        run: pnpm install --frozen-lockfile
+
+      - name: Check the version (tauri.conf.json, package.json, Cargo.toml, Cargo.lock, tag)
+        id: version
+        env:
+          TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: node scripts/check-version.mjs "$TAG"
+
+      - name: Release notes from CHANGELOG.md
+        id: notes
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if [ "$PUBLISH" = true ]; then
+            node scripts/release-notes.mjs "$VERSION" > "$RUNNER_TEMP/notes.md"
+          else
+            node scripts/release-notes.mjs "$VERSION" --allow-missing > "$RUNNER_TEMP/notes.md"
+          fi
+          {
+            echo "body<<VALET_NOTES_EOF"
+            cat "$RUNNER_TEMP/notes.md"
+            echo "VALET_NOTES_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      # Updater artifacts only when Vlad has set both the public key
+      # (Actions variable) and the private key (secret). tauri.conf.json has
+      # no updater section; the build merges the generated file instead.
+      - name: Updater config (when VALET_UPDATER_PUBKEY and TAURI_SIGNING_PRIVATE_KEY exist)
+        id: updater
+        env:
+          VALET_UPDATER_PUBKEY: ${{ vars.VALET_UPDATER_PUBKEY }}
+          HAS_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+        run: |
+          if [ -n "$VALET_UPDATER_PUBKEY" ] && [ "$HAS_PRIVATE_KEY" = true ]; then
+            node scripts/write-updater-config.mjs
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "args=--config src-tauri/tauri.updater.conf.json" >> "$GITHUB_OUTPUT"
+            echo "::notice title=updater::updater artifacts on (signed .sig files and latest.json)"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "args=" >> "$GITHUB_OUTPUT"
+            echo "::notice title=updater::updater artifacts off (VALET_UPDATER_PUBKEY variable or TAURI_SIGNING_PRIVATE_KEY secret not set)"
+          fi
+
+      - name: Build installer and upload to the draft release ${{ github.ref_name }}
+        id: publish
+        if: ${{ env.PUBLISH == 'true' }}
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ steps.updater.outputs.enabled == 'true' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ steps.updater.outputs.enabled == 'true' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+        with:
+          projectPath: apps/desktop
+          tauriScript: pnpm tauri
+          args: ${{ steps.updater.outputs.args }}
+          tagName: ${{ github.ref_name }}
+          releaseName: "Valet ${{ github.ref_name }}"
+          releaseBody: ${{ steps.notes.outputs.body }}
+          releaseDraft: true
+          prerelease: ${{ steps.version.outputs.prerelease }}
+          uploadUpdaterJson: ${{ steps.updater.outputs.enabled }}
+          updaterJsonPreferNsis: true
+
+      - name: Build installer (dry run, no release)
+        id: dryrun
+        if: ${{ env.PUBLISH != 'true' }}
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ steps.updater.outputs.enabled == 'true' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ steps.updater.outputs.enabled == 'true' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+        with:
+          projectPath: apps/desktop
+          tauriScript: pnpm tauri
+          args: ${{ steps.updater.outputs.args }}
+
+      # One notice per file so name, size and SHA-256 can be read through the
+      # checks API (the SHA-256 goes into the winget manifest).
+      - name: Report the installer
+        id: report
+        shell: pwsh
+        env:
+          ARTIFACT_PATHS: ${{ steps.publish.outputs.artifactPaths || steps.dryrun.outputs.artifactPaths }}
+        run: |
+          $paths = @($env:ARTIFACT_PATHS | ConvertFrom-Json)
+          if ($paths.Count -eq 0) {
+            Write-Output "::error title=installer::tauri-action reported no artifacts"
+            exit 1
+          }
+          $exe = @($paths | Where-Object { $_ -like '*-setup.exe' })
+          if ($exe.Count -eq 0) {
+            Write-Output "::error title=installer::no NSIS installer (*-setup.exe) among: $($paths -join ', ')"
+            exit 1
+          }
+          foreach ($p in $paths) {
+            $f = Get-Item $p
+            $sha = (Get-FileHash $f.FullName -Algorithm SHA256).Hash.ToLower()
+            $mb = [math]::Round($f.Length / 1MB, 2)
+            Write-Output "::notice title=installer::$($f.Name) $mb MB ($($f.Length) bytes) sha256 $sha"
+          }
+          "files<<VALET_FILES_EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          $paths | ForEach-Object { $_ -replace '\\', '/' } | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "VALET_FILES_EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Upload the installer as a workflow artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: valet-${{ steps.version.outputs.version }}-windows-x64
+          path: ${{ steps.report.outputs.files }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Report the release
+        if: ${{ env.PUBLISH == 'true' }}
+        env:
+          URL: ${{ steps.publish.outputs.releaseHtmlUrl }}
+        run: echo "::notice title=release::draft release ${{ github.ref_name }} updated, review and publish it at $URL"
+
+  # Beta update channel. GitHub's releases/latest skips pre-releases, so the
+  # stable endpoint needs nothing. The beta endpoint is the asset
+  # latest-beta.json on the pre-release `updater-channel` (tag created by this
+  # job on first use, never marked latest). It follows the newest published
+  # version, pre-release or stable; it never moves to a lower version unless
+  # repointed by hand with workflow_dispatch beta_tag.
+  updater-channel:
+    name: updater channel (latest-beta.json)
+    if: >-
+      (github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.beta_tag != '')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the updater-channel release and replace its asset
+    concurrency:
+      group: release-updater-channel
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      CHANNEL_TAG: updater-channel
+      SOURCE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.beta_tag }}
+      FORCE: ${{ github.event_name == 'workflow_dispatch' }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts
+
+      - name: Copy latest.json of ${{ env.SOURCE_TAG }} to latest-beta.json
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/channel"
+          mkdir -p "$work"
+          if ! gh release download "$SOURCE_TAG" --pattern latest.json --dir "$work"; then
+            echo "::warning title=updater channel::$SOURCE_TAG has no latest.json (built without the updater, or not published); latest-beta.json unchanged"
+            exit 0
+          fi
+          new=$(jq -r .version "$work/latest.json")
+
+          if ! gh release view "$CHANNEL_TAG" >/dev/null 2>&1; then
+            gh release create "$CHANNEL_TAG" --prerelease --latest=false --target "$DEFAULT_BRANCH" \
+              --title "Updater channel (do not delete)" \
+              --notes "Holds latest-beta.json for the beta update channel. Maintained by .github/workflows/release.yml. Not a version of Valet; see docs/RELEASE.md."
+          fi
+
+          cur=""
+          if gh release download "$CHANNEL_TAG" --pattern latest-beta.json --output "$work/current.json" 2>/dev/null; then
+            cur=$(jq -r .version "$work/current.json")
+          fi
+          if [ "$FORCE" != true ] && [ -n "$cur" ] && ! node scripts/version-gt.mjs "$new" "$cur"; then
+            echo "::notice title=updater channel::latest-beta.json stays at $cur ($SOURCE_TAG has $new, not higher)"
+            exit 0
+          fi
+
+          cp "$work/latest.json" "$work/latest-beta.json"
+          gh release upload "$CHANNEL_TAG" "$work/latest-beta.json" --clobber
+          echo "::notice title=updater channel::latest-beta.json now $new (from $SOURCE_TAG), was ${cur:-none}"

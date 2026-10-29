@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.locale.1.10.0.schema.json
+# Template filled by scripts/winget-manifest.mjs. Do not submit as is.
+
+PackageIdentifier: {{ID}}
+PackageVersion: {{VERSION}}
+PackageLocale: ro-RO
+Publisher: Osztrovszky Vlad
+PackageName: {{NAME}}
+License: MIT
+ShortDescription: Organizator de fișiere pe bază de reguli, pentru Windows.
+Description: |-
+  Valet sortează fișierele din folderele alese după regulile pe care le stabilești: le mută sau le copiază în alte foldere ori le trimite în Coșul de reciclare.
+  Arată ce ar face fiecare regulă înainte să ruleze ceva, trece fiecare operație în jurnal, iar fiecare lot poate fi anulat. Valet nu șterge niciodată definitiv un fișier.
+Tags:
+  - organizator-fisiere
+  - fisiere
+  - reguli
+  - automatizare
+ReleaseNotesUrl: {{RELEASE_NOTES_URL}}
+ManifestType: locale
+ManifestVersion: 1.10.0
