@@ -41,7 +41,10 @@ fn main() {
         // DEBUG lines may contain full paths; INFO by default in release
         // (`logging::set_debug_logging` follows the setting).
         .plugin(logging::plugin(&logging::log_settings()))
-        .plugin(tauri_plugin_notification::init());
+        .plugin(tauri_plugin_notification::init())
+        // Open/save dialogs, used only from Rust commands (license and rule
+        // files); no dialog permission is granted to the webview.
+        .plugin(tauri_plugin_dialog::init());
     if updater_configured {
         builder = builder
             .plugin(tauri_plugin_updater::Builder::new().build())

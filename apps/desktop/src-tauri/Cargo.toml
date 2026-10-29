@@ -41,3 +41,10 @@ uuid = { version = "1.0", features = ["v4", "serde"] }
 valet-core = { path = "../../../crates/valet-core" }
 valet-platform = { path = "../../../crates/valet-platform", features = ["valet-core"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+# License check only (docs/LICENSING.md, "Online check"). Same version and
+# TLS setup as the updater: rustls with the ring provider, no native-tls.
+reqwest = { version = "=0.13.5", default-features = false, features = ["json", "rustls-no-provider", "system-proxy"] }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+# Native open/save dialogs for license and rule files, opened from Rust
+# commands only (no JS binding).
+tauri-plugin-dialog = "2"
