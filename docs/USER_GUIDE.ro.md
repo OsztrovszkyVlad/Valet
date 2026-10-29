@@ -6,6 +6,8 @@ Valet pune ordine în fișierele de pe calculatorul tău, după reguli pe care l
 
 Valet e încă în faza de test. Nicio versiune nu a fost publicată încă. Când va exista una, instalatorul va fi pe pagina GitHub Releases ([secțiunea 17](#17-instalare-actualizări-și-dezinstalare) spune cum se instalează și de ce Windows avertizează); până atunci se pornește din codul sursă (vezi [README.md](../README.md)). Până nu ai încredere în el, lucrează pe foldere în care ai copii ale fișierelor.
 
+Valet are un plan Gratuit cu limite și un plan Pro. Primele 14 zile au toate funcțiile Pro. Licențele nu sunt încă active în versiunile de acum: cumpărarea și activarea unei licențe nu funcționează încă. Detalii în [secțiunea 18](#18-valet-pro-și-planul-gratuit).
+
 Capturile de ecran din ghid arată foldere de test, de aceea căile încep cu `/tmp/valet-e2e-…`. Au fost făcute din aplicația reală, pe Linux, de testul automat al interfeței. Pe Windows căile arată ca `C:\Users\nume\Descărcări`.
 
 ## Cuprins
@@ -27,6 +29,7 @@ Capturile de ecran din ghid arată foldere de test, de aceea căile încep cu `/
 15. [Unde sunt datele](#15-unde-sunt-datele)
 16. [Limite cunoscute](#16-limite-cunoscute)
 17. [Instalare, actualizări și dezinstalare](#17-instalare-actualizări-și-dezinstalare)
+18. [Valet Pro și planul Gratuit](#18-valet-pro-și-planul-gratuit)
 
 ## 1. Ce face Valet și ce nu face
 
@@ -39,6 +42,7 @@ Capturile de ecran din ghid arată foldere de test, de aceea căile încep cu `/
 - Poate anula un lot întreg.
 - Dacă aplicația sau calculatorul se oprește în mijlocul unui lot, la pornirea următoare verifică operațiile rămase neterminate.
 - Poate organiza singur fișierele noi, dar numai după ce ai aprobat o previzualizare (vezi [secțiunea 9](#9-organizarea-automată)).
+- Are un plan Gratuit, cu limite, și un plan Pro (vezi [secțiunea 18](#18-valet-pro-și-planul-gratuit)).
 
 **Ce nu face**
 
@@ -46,7 +50,7 @@ Capturile de ecran din ghid arată foldere de test, de aceea căile încep cu `/
 - Nu suprascrie fișiere. Dacă numele de la destinație e ocupat, fișierul primește `nume (2).ext`, apoi `nume (3).ext` și așa mai departe.
 - Nu redenumește fișiere și nu le etichetează. Aceste acțiuni nu există în versiunea de acum.
 - Nu se uită la conținutul fișierelor ca să le clasifice. Regulile se uită la nume, extensie, tip, mărime, date și cale. Singura citire de conținut e verificarea cu amprentă (hash) a fișierelor pe care le mută, le copiază sau le trimite la Coș, și compararea fișierelor de aceeași mărime pentru regulile de duplicate.
-- Pe internet merge doar ca să verifice dacă există o versiune nouă a lui Valet și, după ce îi dai voie, ca s-o descarce. Nu trimite nume de fișiere, căi sau conținut (vezi [secțiunea 14](#14-confidențialitate)).
+- Pe internet merge doar pentru două lucruri: ca să verifice dacă există o versiune nouă a lui Valet și, după ce îi dai voie, ca s-o descarce; și, numai dacă ai importat o licență Pro, ca să verifice licența. Nu trimite nume de fișiere, căi sau conținut (vezi [secțiunea 14](#14-confidențialitate)).
 - Nu atinge folderele de sistem, fișierele ascunse și fișierele OneDrive sau Dropbox nedescărcate (vezi [secțiunea 12](#12-ce-nu-atinge-valet-niciodată)).
 
 ## 2. Prima pornire
@@ -78,6 +82,8 @@ La prima pornire apare un ghid în 3 pași. Nimic nu se mută în timpul lui. Gh
 După „Continuă”, Valet salvează alegerile și rulează o previzualizare. O vezi în ecranul Previzualizare, cu o notă albastră „Pasul 3 din 3”. Nimic nu se mută până nu apeși „Organizează fișierele”.
 
 ![Previzualizarea de la pasul 3](images/preview.png)
+
+Proba Pro de 14 zile începe la prima pornire a lui Valet. Nu cere card și nu folosește internetul (vezi [secțiunea 18](#18-valet-pro-și-planul-gratuit)).
 
 ## 3. Previzualizarea
 
@@ -185,7 +191,7 @@ Pașii:
 
 Anularea merge pe lot întreg. Nu există anulare pentru un singur fișier. Dacă vrei un singur fișier înapoi, Istoricul îți arată unde a ajuns și îl poți muta tu.
 
-Orice lot de organizare terminat se poate anula și din Istoric, nu doar ultimul.
+Orice lot de organizare terminat se poate anula și din Istoric, nu doar ultimul. Asta e valabil în Pro și în proba de 14 zile. În planul Gratuit se poate anula doar cel mai nou lot de tip „Organizare”; despre cum se numără loturile, vezi [secțiunea 18](#18-valet-pro-și-planul-gratuit).
 
 ### Ce se întâmplă în fiecare caz
 
@@ -214,7 +220,7 @@ Fișierele trimise la Coș de Valet sunt în Coșul de reciclare Windows obișnu
 
 ## 6. Istoric
 
-Ecranul Istoric listează loturile, cele mai noi primele. Se văd cel mult 50. „Reîncarcă” reîncarcă lista.
+Ecranul Istoric listează loturile, cele mai noi primele. Se văd cel mult 50. „Reîncarcă” reîncarcă lista. În planul Gratuit se văd doar loturile din ultimele 7 zile, iar ecranul scrie „Planul Gratuit arată ultimele 7 zile. Istoricul complet rămâne salvat.” Nimic nu se șterge din jurnal din cauza planului.
 
 ![Istoricul](images/history.png)
 
@@ -384,6 +390,12 @@ Exemplele folosesc un folder adăugat de tine în Setări, ca să nu se bată ca
 
 O regulă nouă sau modificată primește o versiune nouă. Orice schimbare o schimbă, inclusiv bifa „Activă”. Până la o previzualizare aprobată, organizarea automată nu rulează operațiile ei (vezi [secțiunea 9](#9-organizarea-automată)). Ștergerea unei reguli îi șterge și aprobarea.
 
+### Planul și regulile
+
+- În planul Gratuit pot fi active cel mult 3 reguli proprii în același timp. Regulile din presetări nu se numără. Dacă bifezi „Activă” la a patra regulă proprie sau salvezi una nouă, activă, peste limită, Valet refuză cu „Gratuit permite 3 reguli proprii active. Dezactivează una sau treci la Pro.” Nu dezactivează nimic pe tăcute. Poți oricând opri, edita sau șterge o regulă.
+- Butoanele „Exportă regulile” și „Importă reguli” din ecranul Reguli sunt incluse în Pro și în probă. În planul Gratuit ecranul scrie „Exportul și importul de reguli sunt incluse în Pro și în probă.” Exportul scrie un fișier nou și refuză un fișier care există deja. Regulile importate sunt reguli noi; ca orice regulă nouă, rulează automat doar după o previzualizare aprobată.
+- Detalii și ce se întâmplă când treci pe Gratuit: [secțiunea 18](#18-valet-pro-și-planul-gratuit).
+
 ## 9. Organizarea automată
 
 Valet poate organiza singur fișierele noi din folderele urmărite. E oprită din oficiu.
@@ -450,24 +462,28 @@ Aprobarea ține de o regulă, la o versiune, și de folderele urmărite ale prev
 - În Setări, bifa „Pornește Valet odată cu Windows” adaugă o intrare în registrul utilizatorului curent (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`). Nu cere drepturi de administrator și nu atinge alte conturi.
 - Valet pornește cu argumentul `--minimized`, deci rămâne ascuns în zona de notificare.
 - Dacă dezactivezi intrarea din Managerul de activități, fila „Startup”, Setările arată bifa debifată. Dacă o bifezi din nou, intrarea se reactivează.
+- În versiunea din Microsoft Store nu există această bifă. Setările scriu „În versiunea din Microsoft Store, pornirea odată cu Windows se setează din setările Windows.” și au butonul „Deschide setările Windows”, care deschide lista Windows de aplicații la pornire. Acolo pornești sau oprești Valet (vezi [secțiunea 18](#18-valet-pro-și-planul-gratuit)).
 
 ## 11. Setări
 
 ![Setări](images/settings.png)
 
-Captura arată ecranul Setări așa cum era înainte să fie adăugate secțiunile Actualizări, Asistență și Despre (descrise mai jos). Ecranul are, de sus în jos: folderele urmărite, opțiunile generale (limba, notificarea, pornirea cu Windows, aplicarea automată), Actualizări, Asistență și Despre.
+Captura arată ecranul Setări așa cum era înainte să fie adăugate secțiunile Valet Pro, Actualizări, Asistență și Despre (descrise mai jos). Ecranul are, de sus în jos: folderele urmărite, opțiunile generale (limba, notificarea, pornirea cu Windows, aplicarea automată), Valet Pro, Actualizări, Asistență și Despre.
 
-- **Foldere urmărite:** lista folderelor. Scrii calea și apeși „Adaugă”, sau apeși „Elimină”. Valet refuză un disc întreg și un folder cu un nume exclus în cale (de exemplu `AppData`, `Program Files`, `.git`, `node_modules`). Un folder care nu există acum e primit (vezi „Foldere indisponibile”). Un folder adăugat nu se organizează automat până nu aprobi o previzualizare (vezi [secțiunea 9](#9-organizarea-automată)); o notă cu butonul „Deschide Previzualizarea” o spune.
+- **Foldere urmărite:** lista folderelor. Scrii calea și apeși „Adaugă”, sau apeși „Elimină”. Valet refuză un disc întreg și un folder cu un nume exclus în cale (de exemplu `AppData`, `Program Files`, `.git`, `node_modules`). Un folder care nu există acum e primit (vezi „Foldere indisponibile”). Un folder adăugat nu se organizează automat până nu aprobi o previzualizare (vezi [secțiunea 9](#9-organizarea-automată)); o notă cu butonul „Deschide Previzualizarea” o spune. În planul Gratuit pot fi active cel mult 2 foldere; al treilea nu se adaugă, cu mesajul „Gratuit permite 2 foldere urmărite active. Elimină unul sau treci la Pro.” (vezi [secțiunea 18](#18-valet-pro-și-planul-gratuit)).
 - **Foldere indisponibile:** un folder din listă care nu există în acest moment, de exemplu pentru că discul extern e scos, se salvează și apare cu textul „Indisponibil acum (de exemplu, disc deconectat). Se reia automat când apare.” Are butonul „Elimină”, ca orice folder. Cât lipsește, Valet nu-l urmărește și nu-l planifică; celelalte foldere merg ca de obicei, iar fișierele din el nu sunt atinse. Dacă lipsesc toate folderele, previzualizarea scrie „Niciun folder urmărit nu există pe disc. Adaugă unul în Setări.” O previzualizare manuală citește discul de fiecare dată, deci vede folderul imediat ce a apărut. Organizarea automată citește lista din nou înainte de fiecare verificare completă (la 10 minute), deci îl reia în cel mult 10 minute, fără repornire. Folderul își păstrează aprobările. S-a testat cu foldere simulate, nu cu un disc extern real.
 - **Foldere neurmărite:** aceleași verificări de disc întreg și de nume exclus se fac și când Valet citește `config.json`, deci și un folder adăugat acolo cu mâna e verificat. O intrare care e un disc întreg sau are un nume exclus în cale nu e urmărită și nu e planificată. Rămâne în fișier. Setările o listează cu „Nu e urmărit:” și motivul, fără buton „Elimină”, și arată „Elimină folderele neurmărite”. Cât timp o asemenea intrare e în listă, „Adaugă” și celelalte butoane „Elimină” sunt inactive; un singur buton le elimină pe toate odată.
 - **Limba:** Română sau English. Se schimbă imediat. Regulile și presetările deja instalate își păstrează numele și folderele.
 - **Notificare scurtă după un lot:** pornită din oficiu.
 - **Pornește Valet odată cu Windows:** vezi [secțiunea 10](#10-zona-de-notificare-și-pornirea-cu-windows).
 - **Aplicare automată în folderele urmărite:** vezi [secțiunea 9](#9-organizarea-automată).
-- **Actualizări:** arată „Versiunea instalată: …”, lista „Canal de actualizare” (Stabil sau Beta; „Beta primește versiunile noi mai devreme, înainte să fie marcate stabile.”) și butonul „Verifică acum”. Rezultatul e „Ai cea mai nouă versiune.” sau „Versiunea … e disponibilă.”, cu data publicării și „Ce s-a schimbat” (textul notelor de versiune, afișat ca text simplu). „Instalează și repornește” cere o confirmare („Valet se va reporni. Nicio operație nu e întreruptă: instalarea așteaptă lotul în curs.”); apoi apare progresul descărcării. Dacă un lot rulează, Valet scrie „Aștept să se termine lotul în curs.” și reîncearcă singur; „Renunță” oprește așteptarea. Dacă verificarea automată găsește o versiune, apare o notificare, un semn „Actualizare disponibilă” pe butonul Setări și, pe celelalte ecrane, o notă cu butonul „Vezi în Setări”. Valet instalează doar după ce apeși și confirmi. Mai multe în [secțiunea 17](#17-instalare-actualizări-și-dezinstalare).
+- **Valet Pro:** planul curent, tabelul „Ce include fiecare plan”, prețul, butoanele „Cumpără Pro”, „Am o licență” și „Am licența ca text”, iar când există o licență pe acest calculator, „Verifică licența acum” și „Scoate licența de pe acest calculator”. Tot ce face fiecare e în [secțiunea 18](#18-valet-pro-și-planul-gratuit). În partea de sus a ferestrei, un indicator mic arată „Gratuit” sau „Probă Pro: N zile”; un clic pe el deschide această secțiune. Pe Pro nu apare indicatorul.
+- **Actualizări:** arată „Versiunea instalată: …”, lista „Canal de actualizare” (Stabil sau Beta; „Beta primește versiunile noi mai devreme, înainte să fie marcate stabile.”), caseta „Verifică automat actualizările” și butonul „Verifică acum”. Rezultatul e „Ai cea mai nouă versiune.” sau „Versiunea … e disponibilă.”, cu data publicării și „Ce s-a schimbat” (textul notelor de versiune, afișat ca text simplu). „Instalează și repornește” cere o confirmare („Valet se va reporni. Nicio operație nu e întreruptă: instalarea așteaptă lotul în curs.”); apoi apare progresul descărcării. Dacă un lot rulează, Valet scrie „Aștept să se termine lotul în curs.” și reîncearcă singur; „Renunță” oprește așteptarea. Dacă verificarea automată găsește o versiune, apare o notificare, un semn „Actualizare disponibilă” pe butonul Setări și, pe celelalte ecrane, o notă cu butonul „Vezi în Setări”. Valet instalează doar după ce apeși și confirmi. Mai multe în [secțiunea 17](#17-instalare-actualizări-și-dezinstalare).
   - Dacă versiunea ta nu are actualizările configurate (cum e cazul la o pornire din codul sursă), „Verifică acum” răspunde „Actualizările nu sunt configurate în această versiune.”
   - Fără internet, răspunsul e „Serverul de actualizări nu a putut fi contactat. Verifică conexiunea la internet.”
-  - Verificarea automată nu se poate opri din Setări; se poate alege doar canalul.
+  - „Verifică automat actualizările” e bifată din oficiu. Textul de sub ea: „La pornire, apoi o dată la 24 de ore. „Verifică acum” funcționează oricum.” Debifată, Valet nu mai face nicio verificare automată și nu mai arată notificări de versiune nouă; „Verifică acum” merge ca înainte. Se aplică fără repornire (Valet citește setarea din oră în oră). Nu oprește verificarea licenței, care are loc doar dacă ai importat o licență Pro.
+  - Dacă o versiune nouă nu e acoperită de licența Pro (actualizările incluse s-au terminat înainte de data publicării ei), confirmarea de la „Instalează și repornește” scrie asta și spune că versiunea nouă va rula ca Gratuit. O poți instala oricum; versiunea de acum rămâne Pro. Vezi [secțiunea 18](#18-valet-pro-și-planul-gratuit).
+  - În versiunea din Microsoft Store, secțiunea arată doar versiunea instalată și textul „Actualizările vin din Microsoft Store.” Nu are canal, casetă sau buton de verificare.
 - **Asistență:** caseta „Jurnal detaliat (pentru depanare)”. Pornită, jurnalul scrie mai multe linii, care pot conține căi de fișiere; rămân pe calculatorul tău. Se aplică pe loc, fără repornire. Unde e jurnalul: [secțiunea 15](#15-unde-sunt-datele). Aplicația nu are un buton care să deschidă folderul de jurnal.
 - **Despre:** o linie cu versiunea, licența și adresa depozitului: „Valet … · Licență MIT · github.com/OsztrovszkyVlad/Valet”.
 
@@ -503,12 +519,13 @@ Cazul „disc fără Coș” s-a testat cu un Coș simulat. Nu s-a testat cu un 
 
 Pagina completă, cu ce conține o cerere și ce se păstrează unde: [PRIVACY.ro.md](PRIVACY.ro.md). Pe scurt:
 
-- Valet nu trimite fișierele tale pe internet. Singurul cod al lui Valet care se conectează la internet e cel de actualizare.
+- Valet nu trimite fișierele tale pe internet. Codul lui Valet care se conectează la internet are două părți: actualizarea și verificarea licenței.
 - Verificarea cere un fișier static (JSON) de pe una din două adrese GitHub, cea a canalului tău (Stabil sau Beta). Cererea nu conține nume de fișiere, căi, reguli sau conținut. GitHub vede ce vede orice server web: adresa ta IP, ora și programul care a cerut (`tauri-plugin-updater/2.14.1`). Versiunea instalată nu se trimite.
-- Se verifică la 30 de secunde după pornire, apoi o dată la 24 de ore cât rulează Valet, și când apeși „Verifică acum”. Verificarea automată nu instalează nimic și nu se poate opri din Setări.
+- Se verifică la 30 de secunde după pornire, apoi o dată la 24 de ore cât rulează Valet, și când apeși „Verifică acum”. Verificarea automată nu instalează nimic. O poți opri din Setări, Actualizări, cu caseta „Verifică automat actualizările”; „Verifică acum” merge și atunci.
 - Instalatorul unei versiuni noi se descarcă doar după ce apeși „Instalează și repornește” și confirmi. Semnătura lui e verificată cu o cheie publică din aplicație (o face pluginul de actualizare; Valet nu are un test pentru asta).
 - O versiune făcută fără cheile de actualizare, cum e orice pornire din codul sursă, nu face nicio verificare.
-- Nu există telemetrie, nu există rapoarte de erori (Sentry nu e integrat) și nu există verificare de licență. Dacă rapoartele de erori se adaugă, vor fi opt-in, cu un ecran „Ce trimitem”.
+- Verificarea licenței are loc doar dacă ai importat o licență Pro, într-o versiune care are un server de licențe configurat. Cererea conține trei lucruri: identificatorul licenței (un cod aleatoriu din fișierul licenței), un identificator al calculatorului (un hash într-un singur sens) și versiunea aplicației. La scoaterea licenței se trimit doar primele două. Nu se trimit adresa de email din licență, numele calculatorului, căi, nume de fișiere sau reguli. Planul Gratuit și proba de 14 zile nu fac nicio cerere de licență. Versiunile de acum nu au server de licențe configurat, deci nu fac nicio cerere de acest fel.
+- Nu există telemetrie și nu există rapoarte de erori (Sentry nu e integrat). Dacă rapoartele de erori se adaugă, vor fi opt-in, cu un ecran „Ce trimitem”.
 - Nume de fișiere, căi și conținut nu pleacă de pe calculator.
 - Jurnalul (Istoricul) păstrează căile întregi ale fișierelor, pe discul tău.
 - Nu s-a făcut o captură a traficului de rețea la rularea aplicației. Nu se poate spune sigur ce face WebView2 (o componentă Microsoft) sau ce fac pluginurile Tauri în afară de ce se vede în cod.
@@ -520,10 +537,14 @@ Pagina completă, cu ce conține o cerere și ce se păstrează unde: [PRIVACY.r
 
 - `valet.sqlite3`: regulile și jurnalul de operații;
 - `config.json`: folderele urmărite;
-- `app_settings.json`: limba, notificările, pornirea cu Windows, aplicarea automată, dacă ai terminat ghidul de prima pornire, dacă ai aprobat o previzualizare, canalul de actualizare și caseta „Jurnal detaliat”;
-- `approvals.json`: regulile aprobate, versiunea la care a fost aprobată fiecare și folderele urmărite ale previzualizării care a aprobat-o.
+- `app_settings.json`: limba, notificările, pornirea cu Windows, aplicarea automată, dacă ai terminat ghidul de prima pornire, dacă ai aprobat o previzualizare, canalul de actualizare, caseta „Verifică automat actualizările” și caseta „Jurnal detaliat”;
+- `approvals.json`: regulile aprobate, versiunea la care a fost aprobată fiecare și folderele urmărite ale previzualizării care a aprobat-o;
+- `license.valet-license` și `activation.valet-token`: doar după ce imporți o licență Pro. Primul e fișierul licenței (conține identificatorul licenței, adresa de email pe care a fost vândută și data până la care sunt incluse actualizările), al doilea e ultimul răspuns semnat al serverului de licențe;
+- `license-removed\`: apare când scoți sau înlocuiești o licență. Fișierele vechi se mută aici, cu numele `<număr>-license.valet-license` și `<număr>-activation.valet-token`. Valet nu le șterge.
 
-Valet nu șterge niciodată rânduri din jurnal. Jurnalul crește cu fiecare lot. Versiunile mai vechi păstrau și un tabel de statistici; a fost eliminat, iar Istoricul se vede în continuare din jurnal.
+Data la care a început proba de 14 zile e păstrată în `valet.sqlite3`.
+
+Valet nu șterge niciodată rânduri din jurnal, nici când planul Gratuit arată doar 7 zile. Jurnalul crește cu fiecare lot. Versiunile mai vechi păstrau și un tabel de statistici; a fost eliminat, iar Istoricul se vede în continuare din jurnal.
 
 **Jurnalele de rulare** sunt în `%LOCALAPPDATA%\ro.valetapp.desktop\logs`. Fișierul activ e `valet.log`. La 2 MB se închide și se redenumește `valet_<data și ora>.log`; se păstrează cel mult 5 fișiere (cel activ și 4 mai vechi), deci cel mult aproximativ 10 MB. Ca să le deschizi, scrie calea în bara de adrese din Explorer. Calea vine din Tauri și nu s-a verificat pe o instalare Windows.
 
@@ -534,6 +555,8 @@ Valet nu șterge niciodată rânduri din jurnal. Jurnalul crește cu fiecare lot
 ## 16. Limite cunoscute
 
 - Versiune de test. Nicio versiune nu a fost publicată, iar instalatorul nu e semnat (Windows SmartScreen avertizează, vezi [secțiunea 17](#17-instalare-actualizări-și-dezinstalare)).
+- Licențele nu sunt active în versiunile de acum: nu e configurat un server de licențe, deci cumpărarea și activarea nu funcționează. Limitele planului Gratuit și proba de 14 zile funcționează (testate cu teste automate; nu au fost încercate pe un calculator Windows real). Vezi [secțiunea 18](#18-valet-pro-și-planul-gratuit).
+- Versiunea din Microsoft Store nu e publicată, iar pachetul nu a fost încercat într-o instalare reală din Store.
 - Actualizarea nu a fost încă încercată pe un calculator Windows real: nu există o versiune publicată de la care să se actualizeze.
 - Acțiunile „redenumește” și „etichetează” din plan nu există.
 - Anularea merge pe lot întreg, nu pe fișier. Regulile nu se pot reordona din interfață.
@@ -547,18 +570,124 @@ Valet nu șterge niciodată rânduri din jurnal. Jurnalul crește cu fiecare lot
 **Instalare.** Nicio versiune nu a fost publicată încă. Când va exista una, instalatorul va fi pe pagina [GitHub Releases](https://github.com/OsztrovszkyVlad/Valet/releases), cu numele `Valet_<versiune>_x64-setup.exe`. Instalatorul e făcut să:
 
 - se instaleze doar pentru utilizatorul curent, fără drepturi de administrator, în `%LOCALAPPDATA%\Valet` (folderul implicit al șablonului Tauri; nu s-a verificat pe Windows);
-- ofere limba engleză sau română, un folder „Valet” în meniul Start și, opțional, o scurtătură pe desktop;
+- ofere limba engleză sau română, un folder „Valet” în meniul Start și, opțional, o scurtătură pe desktop. Scurtătura se oferă pe ultima pagină a unei instalări cu ferestre. O instalare silențioasă (`/S`, winget, scripturi) nu creează scurtătură pe desktop; o scurtătură care exista deja rămâne. O actualizare păstrează ce ai deja (`packaging/nsis/hooks.nsh`);
 - descarce Microsoft WebView2 dacă lipsește (singurul caz în care instalatorul are nevoie de internet).
 
 Instalatorul nu a fost rulat pe Windows în sesiunile care au scris acest ghid.
 
 **Avertismentul Windows SmartScreen.** Instalatorul și aplicația nu sunt semnate digital încă. Din cauza asta, Windows SmartScreen arată la rulare „Windows protected your PC” (în Windows cu limba română textul e tradus; nu s-a verificat cum). Ca să continui, apasă „More info”, apoi „Run anyway”. Avertismentul apare pentru programe nesemnate și puțin descărcate; nu e rezultatul unei analize a lui Valet. Un certificat de semnare gratuit pentru proiecte open-source (SignPath Foundation sau Certum Open Source) nu a fost obținut încă. Dacă vrei să verifici fișierul descărcat, rularea „Release” din GitHub Actions listează suma SHA-256 a instalatorului; o compari cu rezultatul comenzii `Get-FileHash Valet_<versiune>_x64-setup.exe -Algorithm SHA256`.
 
-**Actualizări.** În Setări, Actualizări, alegi canalul (Stabil sau Beta) și apeși „Verifică acum”, sau aștepți verificarea automată (vezi [secțiunea 14](#14-confidențialitate)). Dacă există o versiune nouă, apeși „Instalează și repornește” și confirmi. Dacă un lot de operații rulează, instalarea așteaptă să se termine. Valet se repornește singur; regulile, istoricul și setările rămân. Actualizările există doar în versiunile făcute cu cheile de semnare ale actualizatorului; o versiune fără ele răspunde „Actualizările nu sunt configurate în această versiune.”, iar atunci instalezi manual instalatorul nou. Nu instala o versiune mai veche peste una mai nouă: versiunea veche s-ar putea să nu poată deschide baza de date pe care a migrat-o cea nouă (nu s-a testat).
+**Actualizări.** În Setări, Actualizări, alegi canalul (Stabil sau Beta) și apeși „Verifică acum”, sau aștepți verificarea automată (vezi [secțiunea 14](#14-confidențialitate)). Dacă există o versiune nouă, apeși „Instalează și repornește” și confirmi. Dacă un lot de operații rulează, instalarea așteaptă să se termine. Valet se repornește singur; regulile, istoricul și setările rămân. Actualizările există doar în versiunile făcute cu cheile de semnare ale actualizatorului; o versiune fără ele răspunde „Actualizările nu sunt configurate în această versiune.”, iar atunci instalezi manual instalatorul nou. Dacă ai debifat „Verifică automat actualizările”, nu se face nicio verificare automată; „Verifică acum” merge oricum. Nu instala o versiune mai veche peste una mai nouă: versiunea veche s-ar putea să nu poată deschide baza de date pe care a migrat-o cea nouă (nu s-a testat).
 
 **Dezinstalare.** Din Windows, Setări, Aplicații, Valet, Dezinstalează (sau cu dezinstalatorul din folderul de instalare).
 
 - Datele tale rămân din oficiu: setările, regulile, aprobările și jurnalul, deci Istoricul și anularea merg și după o reinstalare.
 - Dezinstalatorul are o casetă „Șterge datele aplicației”, nebifată la început. Bifată, șterge `%APPDATA%\ro.valetapp.desktop` (inclusiv jurnalul de operații, deci Istoricul și anularea dispar) și `%LOCALAPPDATA%\ro.valetapp.desktop` (jurnalele de rulare). Asta s-a citit din șablonul Tauri; nu s-a rulat o dezinstalare pe Windows.
 - Intrarea „Pornește Valet odată cu Windows” se șterge la dezinstalare.
+- Fișierele licenței sunt în același folder de date, deci rămân din oficiu și dispar dacă bifezi caseta. Dezinstalatorul nu contactează serverul de licențe și nu eliberează activarea: dacă vrei să folosești licența pe alt calculator, scoate-o din Setări înainte (vezi [secțiunea 18](#18-valet-pro-și-planul-gratuit)).
 - Fișierele pe care Valet le-a mutat sau copiat rămân unde sunt, iar cele din Coșul de reciclare rămân în Coș. Dezinstalarea nu anulează nimic. Dacă vrei să anulezi un lot, fă-o din Istoric înainte de dezinstalare.
+
+**Versiunea din Microsoft Store.** Un pachet în Microsoft Store e în pregătire și nu e disponibil încă. Diferențele, după `packaging/msix/README.md`, secțiunea 5 (nu s-au verificat într-o instalare reală din Store):
+
+- Actualizările vin din Store. Valet nu face nicio verificare de versiune și nu are canal de actualizare.
+- Pornirea cu Windows se setează din setările Windows, nu dintr-o bifă a lui Valet (vezi [secțiunea 10](#10-zona-de-notificare-și-pornirea-cu-windows)).
+- Datele sunt într-un folder al pachetului, sub `%LOCALAPPDATA%\Packages\<numele pachetului>\LocalCache`, nu în `%APPDATA%\ro.valetapp.desktop`.
+- **Dezinstalarea aplicației din Store șterge acel folder: regulile, setările, fișierele licenței și jurnalul, deci Istoricul și anularea dispar.** Nu există o casetă „Șterge datele aplicației” ca la instalatorul obișnuit. Dacă vrei să anulezi un lot, fă-o din Istoric înainte. Dacă vrei să folosești licența pe alt calculator, scoate-o din Setări înainte (vezi [secțiunea 18](#18-valet-pro-și-planul-gratuit)). Fișierele pe care Valet le-a mutat rămân unde sunt.
+- Instalatorul nu există în această variantă, deci nu există nici scurtătura de desktop, nici avertismentul SmartScreen: pachetul e semnat de Store.
+- Licența Pro se importă la fel ca în varianta obișnuită.
+
+## 18. Valet Pro și planul Gratuit
+
+Valet are trei stări: **probă Pro** (primele 14 zile), **Gratuit** și **Pro**. Starea de acum se vede în Setări, secțiunea „Valet Pro”, și într-un indicator mic sus („Gratuit” sau „Probă Pro: N zile”; pe Pro nu apare nimic).
+
+**Ce funcționează acum.** Licențele nu sunt încă active în versiunile de acum: nu e configurat un server de licențe (fișierele `crates/valet-core/license/api.txt`, `pubkey.txt` și `checkout.txt` din depozit au 0 octeți). De aceea cumpărarea și activarea unei licențe nu funcționează. Secțiunea „Valet Pro” scrie „Licențele nu sunt încă active în această versiune. Planurile Gratuit și Probă funcționează normal.”, butonul „Cumpără Pro” e inactiv, cu textul „Cumpărarea nu e deschisă încă.”, iar butoanele de import al licenței sunt inactive. Proba de 14 zile și planul Gratuit funcționează normal. Restul secțiunii descrie cum e făcută partea de licență, ca să știi la ce să te aștepte când va fi activă; partea de licență s-a testat cu teste automate și un server de probă pe calculatorul de dezvoltare, nu cu un server real.
+
+### Ce include fiecare plan
+
+| | Gratuit | Pro și proba de 14 zile |
+|---|---|---|
+| Cele 8 presetări | da, nu se numără la limită | da |
+| Reguli proprii active în același timp | 3 | nelimitat |
+| Foldere urmărite active în același timp | 2 | nelimitat |
+| Istoric afișat | loturile din ultimele 7 zile | tot istoricul |
+| Anulare | doar cel mai nou lot de organizare | orice lot din istoric |
+| Export și import de reguli | nu | da |
+| Tipuri de condiții și acțiuni | toate | toate |
+
+- „Regulă proprie” e o regulă care nu vine dintr-o presetare. Regulile presetărilor nu se numără.
+- Limitele se verifică în program, nu doar în interfață. Interfața le arată.
+- Nu se șterge nimic din cauza unei limite: nici reguli, nici foldere, nici rânduri din jurnal.
+
+### Proba de 14 zile
+
+- Începe la prima pornire a unei versiuni cu această funcție. Cine vine dintr-o versiune de test mai veche începe proba la prima pornire după actualizare.
+- Are toate funcțiile Pro. Nu cere card și nu folosește internetul: data de început e păstrată doar pe calculatorul tău.
+- Zilele rămase se văd în indicatorul de sus și în Setări, Valet Pro.
+
+### Când treci pe Gratuit
+
+Valet trece pe Gratuit când proba s-a terminat și nu ai o licență Pro valabilă pe acest calculator, sau când licența nu mai e valabilă (vezi mai jos). Se verifică la pornire și din oră în oră.
+
+- Dacă ai cel mult 3 reguli proprii active și cel mult 2 foldere, nu se schimbă nimic.
+- Dacă ai mai multe, apare dialogul „Alege ce rămâne activ în planul Gratuit”. Textul lui: „Nimic nu se șterge: regulile și folderele pe care nu le alegi rămân salvate, dezactivate, și revin cu Pro.” Bifezi cel mult 3 reguli proprii și 2 foldere, apoi apeși „Salvează alegerea”. Presetările nu se numără și rămân cum sunt.
+- „Decid mai târziu” (sau tasta Esc) închide dialogul fără să alegi. Până alegi, rămân active primele 3 reguli proprii, în ordinea din lista Reguli, și primele 2 foldere din lista Setări. Dialogul reapare la următoarea pornire.
+- Regulile nealese sunt oprite și au eticheta „dezactivată de planul Gratuit”. Rămân salvate.
+- Folderele nealese rămân în lista din Setări, cu textul „Inactiv în planul Gratuit. Nu e urmărit și nu se organizează.” Valet nu le urmărește și nu le planifică, ca pe un folder indisponibil. Aprobările lor se păstrează.
+- Pe Gratuit, bifarea unei reguli proprii peste limită sau adăugarea unui folder peste limită e refuzată cu un mesaj (vezi [secțiunea 8](#8-reguli-proprii) și [secțiunea 11](#11-setări)). Poți oricând opri, edita sau șterge reguli și elimina foldere.
+- Când treci din nou pe Pro sau pe probă, regulile oprite de plan se pornesc la loc și toate folderele devin active. Regulile pe care le-ai oprit tu rămân oprite.
+- Istoricul arată doar loturile din ultimele 7 zile; restul rămâne în jurnal și reapare pe Pro (vezi [secțiunea 6](#6-istoric)).
+
+### Anularea pe planul Gratuit
+
+- Se poate anula doar cel mai nou lot de tip „Organizare” (inclusiv unul „organizat automat”), chiar dacă a fost deja anulat.
+- Loturile de tip „Anulare” și „Recuperare după oprire” nu se numără ca „cel mai nou lot”.
+- După ce anulezi acel lot, el rămâne cel mai nou lot de organizare. Loturile mai vechi rămân blocate: nu poți anula lot după lot. Mesajul: „Planul Gratuit anulează doar ultimul lot. Anularea loturilor mai vechi e inclusă în Pro.”
+- Cel mai nou lot se caută în tot jurnalul, nu doar în cele 7 zile afișate.
+- Dacă ai nevoie de un fișier dintr-un lot mai vechi, Istoricul (în limita celor 7 zile) arată unde a ajuns, iar fișierele de la Coșul de reciclare se pot restaura și cu mâna (vezi [secțiunea 5](#5-anularea-unui-lot)).
+
+### Importul unei licențe
+
+1. În Setări, secțiunea „Valet Pro”, apasă „Am o licență” și alege fișierul cu extensia `.valet-license` pe care l-ai primit după cumpărare. Sau apasă „Am licența ca text”, lipește tot conținutul licenței, de la prima acoladă la ultima, și apasă „Activează licența”.
+2. Valet verifică semnătura licenței. Apoi se conectează la serverul de licențe și activează licența pentru acest calculator. La acest pas ai nevoie de internet.
+3. Dacă merge, vezi „Licența e activă pe acest calculator.” și planul „Pro, licență pe adresa ta de email”, cu „Actualizări incluse până la” o dată. Adresa de email rămâne pe calculator și nu se trimite serverului.
+
+O licență poate fi activă pe cel mult 3 calculatoare. Valet păstrează fișierul licenței și răspunsul serverului în folderul de date (vezi [secțiunea 15](#15-unde-sunt-datele)). La o eroare, nimic nu se schimbă pe disc. Mesajele posibile:
+
+| Mesaj | Ce înseamnă |
+|---|---|
+| Licența nu e validă: semnătura nu se potrivește. Verifică dacă ai copiat tot textul. | Fișierul sau textul a fost schimbat sau tăiat. Folosește fișierul original. |
+| Licența nu e pentru Valet Pro. | Fișierul e semnat, dar pentru alt produs. |
+| Licența nu acoperă această versiune: actualizările incluse s-au terminat înainte de publicarea ei. | Vezi „Actualizările incluse” mai jos. |
+| Serverul de licențe nu a putut fi contactat. Verifică conexiunea la internet și încearcă din nou. | Fără internet sau serverul nu răspunde. |
+| Serverul de licențe nu cunoaște această licență. | Identificatorul licenței nu există pe server. |
+| Licența e deja activă pe 3 calculatoare. Scoate-o de pe unul dintre ele din Setări, apoi încearcă din nou. | Toate cele 3 locuri sunt ocupate. |
+| Licența a fost revocată. | Serverul a retras licența. |
+| Identificatorul acestui calculator nu a putut fi citit, așa că licența nu poate fi activată. | Valet n-a putut citi identificatorul Windows al calculatorului. |
+| Fișierul licenței nu a putut fi citit sau salvat. Detaliile sunt în jurnal. | Eroare de disc la citire sau la salvare. |
+| Licențele nu sunt încă active în această versiune. | Versiunea nu are server de licențe configurat (cazul de acum). |
+
+### Actualizările incluse
+
+Pro include actualizările timp de 12 luni de la cumpărare. Data apare ca „Actualizări incluse până la …”. Licența acoperă versiunile publicate până la acea dată. O versiune publicată după ea rulează ca Gratuit și Setările spun data. Versiunile publicate până la acea dată rămân Pro, iar o versiune pe care o ai deja nu se oprește. Înainte să instalezi o actualizare, Valet compară data ei de publicare cu data licenței; dacă nu e acoperită, confirmarea spune că versiunea nouă va rula ca Gratuit. O poți instala oricum. Prețul reînnoirii actualizărilor (15 € pe an, opțional) e în planul produsului; nu există încă un mod de a o cumpăra din aplicație.
+
+### Verificarea licenței și lucrul fără internet
+
+- După activare, Valet cere serverului un răspuns nou doar când ultimul răspuns reușit are 30 de zile sau mai mult. Se uită la pornire și din oră în oră, iar o cerere pleacă cel mult o dată la 24 de ore. Planul Gratuit și proba nu fac nicio cerere de licență.
+- „Verifică licența acum” face verificarea pe loc, chiar înainte de 30 de zile. Sub butoane se vede „Ultima verificare a licenței: …”.
+- Fără internet, Pro merge mai departe, cât timp ultima verificare reușită are cel mult 60 de zile (cele 30 de zile până la verificarea următoare, plus 30 de zile de toleranță). O eroare de rețea nu schimbă răspunsul păstrat.
+- Dacă au trecut mai mult de 60 de zile, Valet merge ca Gratuit și Setările scriu „Licența nu a mai fost verificată online de peste 60 de zile. Conectează-te la internet și apasă „Verifică licența acum”.” Nu se pierde nimic; următoarea verificare reușită readuce Pro.
+- Dacă serverul răspunde că licența e necunoscută sau revocată, sau că e activă pe prea multe calculatoare, Valet scoate răspunsul păstrat din folderul de date (îl mută în `license-removed`, nu îl șterge) și merge ca probă sau Gratuit. Fișierul licenței rămâne, ca Setările să poată spune de ce.
+
+### Scoaterea licenței de pe un calculator
+
+1. În Setări, Valet Pro, apasă „Scoate licența de pe acest calculator” și confirmă cu „Scoate licența”. Textul de confirmare: „Licența se scoate de pe acest calculator și eliberează una dintre cele 3 activări, ca s-o poți folosi pe alt calculator. Fișierul licenței nu se șterge; îl poți importa din nou oricând.”
+2. Valet trimite serverului o cerere de dezactivare, cu identificatorul licenței și al calculatorului. Dacă nu merge (fără internet), licența se scoate oricum de pe acest calculator, dar locul de pe server rămâne ocupat până îl eliberezi.
+3. Fișierul licenței și răspunsul serverului se mută în `license-removed` din folderul de date, cu un număr în față. Nu se șterg și nu se înlocuiesc. Importul unei alte licențe sau al aceleiași mută la fel fișierele vechi.
+
+Dezinstalarea lui Valet nu eliberează locul. Scoate licența din Setări înainte de dezinstalare.
+
+**Dacă vechiul calculator nu mai există** (stricat, formatat) și nu poți scoate licența de pe el, cere asistenței resetarea activărilor. Asistența poate goli de pe server lista calculatoarelor active ale licenței (o unealtă a serviciului de licențe, `services/license/reset.mjs`); apoi imporți licența pe calculatorul nou. Istoricul activărilor se păstrează pe server. Un canal de asistență nu e publicat încă.
+
+### Versiunea din Microsoft Store
+
+Diferențele față de instalatorul obișnuit sunt în [secțiunea 17](#17-instalare-actualizări-și-dezinstalare): actualizările vin din Store, pornirea cu Windows se setează din setările Windows (butonul „Deschide setările Windows”), iar dezinstalarea aplicației din Store șterge datele, inclusiv Istoricul și licența de pe calculator. Planurile și limitele sunt aceleași.

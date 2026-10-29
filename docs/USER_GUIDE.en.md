@@ -6,6 +6,8 @@ Valet puts your files in order, using rules you can see and undo. This guide des
 
 Valet is still in testing. No version has been published yet. When one is, the installer will be on the GitHub Releases page ([section 17](#17-installing-updates-and-uninstalling) says how to install it and why Windows warns); until then you start it from the source code (see [README.md](../README.md)). Until you trust it, work on folders where you have copies of your files.
 
+Valet has a Free plan with limits and a Pro plan. The first 14 days have all the Pro features. Licenses are not active in the current builds: buying and activating a license does not work yet. Details in [section 18](#18-valet-pro-and-the-free-plan).
+
 The screenshots show test folders, which is why the paths start with `/tmp/valet-e2e-…`. They were taken from the real app, on Linux, by the automatic UI smoke test. The app was in Romanian, so the screenshots show Romanian text. On Windows, paths look like `C:\Users\name\Downloads`. The names below are the English interface names.
 
 ## Contents
@@ -27,6 +29,7 @@ The screenshots show test folders, which is why the paths start with `/tmp/valet
 15. [Where the data is](#15-where-the-data-is)
 16. [Known limits](#16-known-limits)
 17. [Installing, updates and uninstalling](#17-installing-updates-and-uninstalling)
+18. [Valet Pro and the Free plan](#18-valet-pro-and-the-free-plan)
 
 ## 1. What Valet does and does not do
 
@@ -39,6 +42,7 @@ The screenshots show test folders, which is why the paths start with `/tmp/valet
 - It can undo a whole batch.
 - If the app or the computer stops in the middle of a batch, it checks the unfinished operations at the next start.
 - It can organize new files by itself, but only after you have approved a preview (see [section 9](#9-automatic-organizing)).
+- It has a Free plan, with limits, and a Pro plan (see [section 18](#18-valet-pro-and-the-free-plan)).
 
 **What it does not do**
 
@@ -46,7 +50,7 @@ The screenshots show test folders, which is why the paths start with `/tmp/valet
 - It never overwrites a file. If the name at the destination is taken, the file gets `name (2).ext`, then `name (3).ext`, and so on.
 - It does not rename files and it does not tag them. These actions do not exist in the current version.
 - It does not read file contents to classify files. Rules look at the name, extension, type, size, dates and path. The only reading of contents is the hash check of files it moves, copies or sends to the Recycle Bin, and the comparison of same-size files for duplicate rules.
-- It uses the internet only to check whether a newer version of Valet exists and, after you allow it, to download it. It sends no file names, paths or contents (see [section 14](#14-privacy)).
+- It uses the internet for two things only: to check whether a newer version of Valet exists and, after you allow it, to download it; and, only if you have imported a Pro license, to check the license. It sends no file names, paths or contents (see [section 14](#14-privacy)).
 - It does not touch system folders, hidden files, or OneDrive and Dropbox files that are not downloaded (see [section 12](#12-what-valet-never-touches)).
 
 ## 2. First run
@@ -78,6 +82,8 @@ The first time you start Valet, a 3-step guide appears. Nothing moves during it.
 After "Continue", Valet saves your choices and runs a preview. You see it on the Preview screen, with a blue "Step 3 of 3" note. Nothing moves until you press "Organize files".
 
 ![The preview at step 3](images/preview.png)
+
+The 14-day Pro trial starts the first time Valet runs. It needs no card and does not use the internet (see [section 18](#18-valet-pro-and-the-free-plan)).
 
 ## 3. The Preview
 
@@ -185,7 +191,7 @@ Steps:
 
 Undo works on a whole batch. There is no undo for a single file. If you want one file back, History shows where it went and you can move it yourself.
 
-Any finished organize batch can also be undone from History, not only the last one.
+Any finished organize batch can also be undone from History, not only the last one. That holds in Pro and in the 14-day trial. On the Free plan only the newest "Organize" batch can be undone; how batches are counted is in [section 18](#18-valet-pro-and-the-free-plan).
 
 ### What happens in each case
 
@@ -214,7 +220,7 @@ Files Valet sent to the Recycle Bin are in the normal Windows Recycle Bin. You c
 
 ## 6. History
 
-The History screen lists the batches, newest first. At most 50 are shown. "Refresh" reloads the list.
+The History screen lists the batches, newest first. At most 50 are shown. "Refresh" reloads the list. On the Free plan only the batches from the last 7 days are shown, and the screen says "The Free plan shows the last 7 days. The full history stays saved." Nothing is deleted from the journal because of the plan.
 
 ![History](images/history.png)
 
@@ -386,6 +392,12 @@ The examples use a folder you add in Settings, so they do not collide with the p
 
 A new or changed rule gets a new version. Any change counts, including the "On" checkbox. Until a preview is approved, automatic organizing does not run its operations (see [section 9](#9-automatic-organizing)). Deleting a rule also deletes its approval.
 
+### The plan and your rules
+
+- On the Free plan at most 3 own rules can be on at the same time. Preset rules are not counted. If you check "On" for a fourth own rule, or save a new one that is on, over the limit, Valet refuses with "Free allows 3 own rules turned on. Turn one off or switch to Pro." It does not turn anything off silently. You can always turn a rule off, edit it or delete it.
+- The buttons "Export rules" and "Import rules" on the Rules screen are included in Pro and in the trial. On the Free plan the screen says "Rule export and import are included in Pro and in the trial." Export writes a new file and refuses a file that already exists. Imported rules are new rules; like any new rule, they run automatically only after an approved preview.
+- Details and what happens when you move to Free: [section 18](#18-valet-pro-and-the-free-plan).
+
 ## 9. Automatic organizing
 
 Valet can organize new files in the watched folders by itself. It is off by default.
@@ -452,24 +464,28 @@ Approval belongs to a rule at a version and to the watched folders of the previe
 - In Settings, the checkbox "Start Valet with Windows" adds an entry in the current user's registry (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`). It needs no administrator rights and does not touch other accounts.
 - Valet starts with the argument `--minimized`, so it stays hidden in the tray.
 - If you disable the entry in Task Manager, "Startup" tab, Settings shows the checkbox unchecked. If you check it again, the entry is enabled again.
+- The Microsoft Store version has no such checkbox. Settings say "In the Microsoft Store version, starting with Windows is set in the Windows settings." and have the button "Open Windows settings", which opens the Windows list of startup apps. You turn Valet on or off there (see [section 18](#18-valet-pro-and-the-free-plan)).
 
 ## 11. Settings
 
 ![Settings](images/settings.png)
 
-The screenshot shows the Settings screen before the Updates, Support and About sections (described below) were added. From top to bottom the screen has: the watched folders, the general options (language, notification, start with Windows, automatic apply), Updates, Support and About.
+The screenshot shows the Settings screen before the Valet Pro, Updates, Support and About sections (described below) were added. From top to bottom the screen has: the watched folders, the general options (language, notification, start with Windows, automatic apply), Valet Pro, Updates, Support and About.
 
-- **Watched folders:** the list of folders. You type the path and press "Add", or press "Remove". Valet refuses a whole drive and a folder with an excluded name in its path (for example `AppData`, `Program Files`, `.git`, `node_modules`). A folder that does not exist right now is accepted (see "Unavailable folders"). A folder you add is not organized automatically until you approve a preview (see [section 9](#9-automatic-organizing)); a note with the button "Open Preview" says so.
+- **Watched folders:** the list of folders. You type the path and press "Add", or press "Remove". Valet refuses a whole drive and a folder with an excluded name in its path (for example `AppData`, `Program Files`, `.git`, `node_modules`). A folder that does not exist right now is accepted (see "Unavailable folders"). A folder you add is not organized automatically until you approve a preview (see [section 9](#9-automatic-organizing)); a note with the button "Open Preview" says so. On the Free plan at most 2 folders can be active; a third is not added, with the message "Free allows 2 active watched folders. Remove one or switch to Pro." (see [section 18](#18-valet-pro-and-the-free-plan)).
 - **Unavailable folders:** a folder in the list that does not exist at the moment, for example because the external drive is unplugged, is saved and shown with the text "Unavailable right now (for example, a disconnected drive). Resumes automatically when it is back." It has a "Remove" button like any folder. While it is missing, Valet does not watch or plan it, the other folders work as usual, and no file in it is touched. If all folders are missing, the preview says "No watched folder exists on disk. Add one in Settings." A manual preview reads the disk every time, so it sees the folder as soon as it is back. Automatic organizing reads the list again before each full check (every 10 minutes), so it picks the folder up within 10 minutes, with no restart. The folder keeps its approvals. This was tested with simulated folders, not with a real external drive.
 - **Folders that are not watched:** the whole-drive and excluded-name checks also apply when Valet reads `config.json`, so a folder you added there by hand is checked too. An entry that is a whole drive or has an excluded name in its path is not watched and not planned. It stays in the file. Settings lists it with "Not watched:" and the reason, without a "Remove" button, and shows "Remove the folders not watched". While such an entry is in the list, "Add" and the other "Remove" buttons are disabled; the one button removes all of them at once.
 - **Language:** Română or English. It changes at once. Rules and presets already installed keep their names and folders.
 - **Short notification after a batch:** on by default.
 - **Start Valet with Windows:** see [section 10](#10-tray-and-starting-with-windows).
 - **Apply rules automatically in watched folders:** see [section 9](#9-automatic-organizing).
-- **Updates:** shows "Installed version: …", the list "Update channel" (Stable or Beta; "Beta gets new versions earlier, before they are marked stable.") and the button "Check now". The result is "You have the newest version." or "Version … is available.", with the publication date and "What changed" (the release notes, shown as plain text). "Install and restart" asks for a confirmation ("Valet will restart. No operation is interrupted: the installation waits for the running batch."); then the download progress is shown. If a batch is running, Valet shows "Waiting for the running batch to finish." and tries again by itself; "Cancel" stops the wait. If the automatic check finds a version, you get a notification, an "Update available" mark on the Settings button and, on the other screens, a note with the button "Open Settings". Valet installs only after you press the button and confirm. More in [section 17](#17-installing-updates-and-uninstalling).
+- **Valet Pro:** the current plan, the table "What each plan includes", the price, the buttons "Buy Pro", "I have a license" and "I have the license as text" and, when a license is stored on this computer, "Check license now" and "Remove the license from this computer". What each one does is in [section 18](#18-valet-pro-and-the-free-plan). At the top of the window a small indicator shows "Free" or "Pro trial: N days"; a click on it opens this section. On Pro the indicator is not shown.
+- **Updates:** shows "Installed version: …", the list "Update channel" (Stable or Beta; "Beta gets new versions earlier, before they are marked stable."), the checkbox "Check for updates automatically" and the button "Check now". The result is "You have the newest version." or "Version … is available.", with the publication date and "What changed" (the release notes, shown as plain text). "Install and restart" asks for a confirmation ("Valet will restart. No operation is interrupted: the installation waits for the running batch."); then the download progress is shown. If a batch is running, Valet shows "Waiting for the running batch to finish." and tries again by itself; "Cancel" stops the wait. If the automatic check finds a version, you get a notification, an "Update available" mark on the Settings button and, on the other screens, a note with the button "Open Settings". Valet installs only after you press the button and confirm. More in [section 17](#17-installing-updates-and-uninstalling).
   - If your version has no updates configured (as when you start it from the source code), "Check now" answers "Updates are not configured in this version."
   - Without internet, the answer is "The update server could not be reached. Check the internet connection."
-  - The automatic check cannot be switched off in Settings; only the channel can be chosen.
+  - "Check for updates automatically" is checked by default. The text under it: "At startup, then once every 24 hours. "Check now" works either way." Unchecked, Valet makes no automatic check and shows no new-version notification; "Check now" works as before. It applies without a restart (Valet reads the setting every hour). It does not switch off the license check, which happens only if you have imported a Pro license.
+  - If a new version is not covered by the Pro license (the included updates ended before its publication date), the confirmation at "Install and restart" says so and says that the new version will run as Free. You can still install it; the current version stays Pro. See [section 18](#18-valet-pro-and-the-free-plan).
+  - In the Microsoft Store version the section shows only the installed version and the text "Updates come from the Microsoft Store." It has no channel, checkbox or check button.
 - **Support:** the checkbox "Detailed log (for troubleshooting)". When on, the log gets more lines, which may contain file paths; they stay on your computer. It applies at once, with no restart. Where the log is: [section 15](#15-where-the-data-is). The app has no button that opens the log folder.
 - **About:** one line with the version, the license and the repository address: "Valet … · MIT license · github.com/OsztrovszkyVlad/Valet".
 
@@ -505,12 +521,13 @@ The "drive without a Recycle Bin" case was tested with a simulated Recycle Bin. 
 
 The full page, with what a request contains and what is stored where: [PRIVACY.md](PRIVACY.md). In short:
 
-- Valet does not send your files over the internet. The only Valet code that connects to the internet is the update code.
+- Valet does not send your files over the internet. The Valet code that connects to the internet has two parts: the update code and the license check.
 - The check asks for a static file (JSON) at one of two GitHub addresses, the one for your channel (Stable or Beta). The request contains no file names, paths, rules or contents. GitHub sees what any web server sees: your IP address, the time and the program that asked (`tauri-plugin-updater/2.14.1`). The installed version is not sent.
-- The check runs 30 seconds after Valet starts, then once every 24 hours while it runs, and when you press "Check now". The automatic check installs nothing and cannot be switched off in Settings.
+- The check runs 30 seconds after Valet starts, then once every 24 hours while it runs, and when you press "Check now". The automatic check installs nothing. You can switch it off in Settings, Updates, with the checkbox "Check for updates automatically"; "Check now" works then too.
 - The installer of a new version is downloaded only after you press "Install and restart" and confirm. Its signature is checked with a public key inside the app (the update plugin does this; Valet has no test of it).
 - A build made without the update keys, such as any start from the source code, makes no check at all.
-- There is no telemetry, no error reporting (Sentry is not integrated) and no license check. If error reports are added, they will be opt-in, with a screen "Ce trimitem" (what we send).
+- The license check happens only if you have imported a Pro license, in a build that has a license server configured. The request holds three things: the license id (a random code from the license file), a computer identifier (a one-way hash) and the app version. When you remove the license, only the first two are sent. The email address in the license, the computer name, paths, file names and rules are not sent. The Free plan and the 14-day trial make no license request. The current builds have no license server configured, so they make no such request.
+- There is no telemetry and no error reporting (Sentry is not integrated). If error reports are added, they will be opt-in, with a screen "Ce trimitem" (what we send).
 - File names, paths and contents do not leave the computer.
 - The journal (History) keeps the full paths of files, on your disk.
 - No capture of network traffic was made while the app ran. It cannot be said for sure what WebView2 (a Microsoft component) or the Tauri plugins do beyond what the code shows.
@@ -522,10 +539,14 @@ In `%APPDATA%\ro.valetapp.desktop`:
 
 - `valet.sqlite3`: the rules and the operation journal;
 - `config.json`: the watched folders;
-- `app_settings.json`: language, notifications, starting with Windows, automatic apply, whether you finished the first-run guide, whether you approved a preview, the update channel and the "Detailed log" checkbox;
-- `approvals.json`: the approved rules, the version at which each was approved and the watched folders of the preview that approved it.
+- `app_settings.json`: language, notifications, starting with Windows, automatic apply, whether you finished the first-run guide, whether you approved a preview, the update channel, the "Check for updates automatically" checkbox and the "Detailed log" checkbox;
+- `approvals.json`: the approved rules, the version at which each was approved and the watched folders of the preview that approved it;
+- `license.valet-license` and `activation.valet-token`: only after you import a Pro license. The first is the license file (it holds the license id, the email address it was sold to and the date until which updates are included); the second is the last signed answer of the license server;
+- `license-removed\`: appears when you remove or replace a license. The old files are moved here, named `<number>-license.valet-license` and `<number>-activation.valet-token`. Valet does not delete them.
 
-Valet never deletes rows from the journal. The journal grows with every batch. Earlier versions also kept a table of statistics; it was removed, and History still comes from the journal.
+The date the 14-day trial started is kept in `valet.sqlite3`.
+
+Valet never deletes rows from the journal, not even when the Free plan shows only 7 days. The journal grows with every batch. Earlier versions also kept a table of statistics; it was removed, and History still comes from the journal.
 
 **The run logs** are in `%LOCALAPPDATA%\ro.valetapp.desktop\logs`. The active file is `valet.log`. At 2 MB it is closed and renamed `valet_<date and time>.log`; at most 5 files are kept (the active one and 4 older ones), so at most about 10 MB. To open them, type the path in the Explorer address bar. The path comes from Tauri and was not checked on a Windows install.
 
@@ -536,6 +557,8 @@ Valet never deletes rows from the journal. The journal grows with every batch. E
 ## 16. Known limits
 
 - Test version. No version has been published, and the installer is not code-signed (Windows SmartScreen warns, see [section 17](#17-installing-updates-and-uninstalling)).
+- Licenses are not active in the current builds: no license server is configured, so buying and activating do not work. The Free plan limits and the 14-day trial work (tested with automatic tests; not tried on a real Windows computer). See [section 18](#18-valet-pro-and-the-free-plan).
+- The Microsoft Store version is not published, and the package has not been tried in a real Store install.
 - Updating has not been tried on a real Windows computer yet: there is no published version to update from.
 - The "rename" and "tag" actions from the plan do not exist.
 - Undo works on a whole batch, not on a file. Rules cannot be reordered from the interface.
@@ -549,18 +572,124 @@ Valet never deletes rows from the journal. The journal grows with every batch. E
 **Installing.** No version has been published yet. When one is, the installer will be on the [GitHub Releases](https://github.com/OsztrovszkyVlad/Valet/releases) page, named `Valet_<version>_x64-setup.exe`. The installer is set up to:
 
 - install for the current user only, with no administrator rights, in `%LOCALAPPDATA%\Valet` (the default folder of the Tauri template; not checked on Windows);
-- offer English or Romanian, a "Valet" folder in the Start menu and, optionally, a desktop shortcut;
+- offer English or Romanian, a "Valet" folder in the Start menu and, optionally, a desktop shortcut. The shortcut is offered on the last page of an interactive install. A silent install (`/S`, winget, scripts) does not create a desktop shortcut; one that was already there stays. An update keeps what you already have (`packaging/nsis/hooks.nsh`);
 - download Microsoft WebView2 if it is missing (the only case in which the installer needs the internet).
 
 The installer was not run on Windows in the sessions that wrote this guide.
 
 **The Windows SmartScreen warning.** The installer and the app are not code-signed yet. Because of that, Windows SmartScreen shows "Windows protected your PC" when you run it. To go on, select "More info", then "Run anyway". The warning appears for programs that are unsigned and not widely downloaded; it is not the result of an analysis of Valet. A free signing certificate for open-source projects (SignPath Foundation or Certum Open Source) has not been obtained yet. If you want to check the downloaded file, the "Release" run in GitHub Actions lists the SHA-256 of the installer; compare it with the output of `Get-FileHash Valet_<version>_x64-setup.exe -Algorithm SHA256`.
 
-**Updates.** In Settings, Updates, choose the channel (Stable or Beta) and press "Check now", or wait for the automatic check (see [section 14](#14-privacy)). If a newer version exists, press "Install and restart" and confirm. If a batch of operations is running, the installation waits for it to finish. Valet restarts by itself; your rules, history and settings stay. Updates exist only in versions built with the updater's signing keys; a version without them answers "Updates are not configured in this version.", and then you install the new installer by hand. Do not install an older version over a newer one: the older version may not be able to open the database the newer one migrated (not tested).
+**Updates.** In Settings, Updates, choose the channel (Stable or Beta) and press "Check now", or wait for the automatic check (see [section 14](#14-privacy)). If a newer version exists, press "Install and restart" and confirm. If a batch of operations is running, the installation waits for it to finish. Valet restarts by itself; your rules, history and settings stay. Updates exist only in versions built with the updater's signing keys; a version without them answers "Updates are not configured in this version.", and then you install the new installer by hand. If you unchecked "Check for updates automatically", no automatic check is made; "Check now" works anyway. Do not install an older version over a newer one: the older version may not be able to open the database the newer one migrated (not tested).
 
 **Uninstalling.** From Windows, Settings, Apps, Valet, Uninstall (or with the uninstaller in the install folder).
 
 - Your data stays by default: settings, rules, approvals and the journal, so History and undo work after a reinstall.
 - The uninstaller has a checkbox "Delete the application data", unticked at the start. Ticked, it deletes `%APPDATA%\ro.valetapp.desktop` (including the operation journal, so History and undo are gone) and `%LOCALAPPDATA%\ro.valetapp.desktop` (the run logs). This was read from the Tauri template; no uninstall was run on Windows.
 - The "Start Valet with Windows" entry is removed on uninstall.
+- The license files are in the same data folder, so they stay by default and are gone if you tick the box. The uninstaller does not contact the license server and does not free the activation: if you want to use the license on another computer, remove it in Settings first (see [section 18](#18-valet-pro-and-the-free-plan)).
 - Files that Valet moved or copied stay where they are, and files in the Recycle Bin stay in the Recycle Bin. Uninstalling undoes nothing. To undo a batch, do it from History before you uninstall.
+
+**The Microsoft Store version.** A package in the Microsoft Store is being prepared and is not available yet. The differences, from `packaging/msix/README.md`, section 5 (not checked in a real Store install):
+
+- Updates come from the Store. Valet makes no version check and has no update channel.
+- Starting with Windows is set in the Windows settings, not by a checkbox in Valet (see [section 10](#10-tray-and-starting-with-windows)).
+- The data is in a folder of the package, under `%LOCALAPPDATA%\Packages\<package name>\LocalCache`, not in `%APPDATA%\ro.valetapp.desktop`.
+- **Uninstalling the Store app deletes that folder: the rules, settings, license files and the journal, so History and undo are gone.** There is no "Delete the application data" checkbox as in the usual installer. If you want to undo a batch, do it from History first. If you want to use the license on another computer, remove it in Settings first (see [section 18](#18-valet-pro-and-the-free-plan)). Files Valet moved stay where they are.
+- There is no installer in this variant, so there is no desktop shortcut and no SmartScreen warning: the package is signed by the Store.
+- A Pro license is imported the same way as in the usual variant.
+
+## 18. Valet Pro and the Free plan
+
+Valet has three states: **Pro trial** (the first 14 days), **Free** and **Pro**. The current one shows in Settings, in the "Valet Pro" section, and in a small indicator at the top ("Free" or "Pro trial: N days"; nothing is shown on Pro).
+
+**What works now.** Licenses are not active in the current builds: no license server is configured (the files `crates/valet-core/license/api.txt`, `pubkey.txt` and `checkout.txt` in the repository are 0 bytes). So buying and activating a license do not work. The "Valet Pro" section says "Licenses are not active in this version yet. The Free plan and the trial work normally.", the button "Buy Pro" is disabled with the text "Buying is not open yet.", and the buttons that import a license are disabled. The 14-day trial and the Free plan work normally. The rest of this section describes how the license part is built, so you know what to expect when it is active; it was tested with automatic tests and a local test server on the development machine, not with a real server.
+
+### What each plan includes
+
+| | Free | Pro and the 14-day trial |
+|---|---|---|
+| The 8 presets | yes, not counted toward the limit | yes |
+| Own rules turned on at once | 3 | unlimited |
+| Watched folders active at once | 2 | unlimited |
+| History shown | batches from the last 7 days | all |
+| Undo | the newest organize batch only | any batch in history |
+| Rule export and import | no | yes |
+| Condition and action types | all | all |
+
+- An "own rule" is a rule that does not come from a preset. Preset rules are not counted.
+- The limits are checked in the program, not only in the interface. The interface mirrors them.
+- Nothing is deleted because of a limit: no rules, no folders, no journal rows.
+
+### The 14-day trial
+
+- It starts the first time a version with this feature runs. Someone coming from an older test version starts the trial at the first start after the update.
+- It has all the Pro features. It needs no card and does not use the internet: the start date is kept only on your computer.
+- The days left show in the indicator at the top and in Settings, Valet Pro.
+
+### When you move to Free
+
+Valet moves to Free when the trial has ended and you have no valid Pro license on this computer, or when the license is no longer valid (see below). It checks at startup and every hour.
+
+- If you have at most 3 own rules turned on and at most 2 folders, nothing changes.
+- If you have more, the dialog "Choose what stays active on the Free plan" appears. Its text: "Nothing is deleted: the rules and folders you don't choose stay saved, turned off, and come back with Pro." You check at most 3 own rules and 2 folders, then press "Save choice". Presets are not counted and stay as they are.
+- "Decide later" (or the Esc key) closes the dialog without choosing. Until you choose, the first 3 own rules, in the order of the Rules list, and the first 2 folders of the Settings list stay active. The dialog comes back at the next start.
+- The rules you do not choose are turned off and carry the badge "turned off by the Free plan". They stay saved.
+- The folders you do not choose stay in the Settings list, with the text "Inactive on the Free plan. Not watched and not organized." Valet does not watch or plan them, as with an unavailable folder. Their approvals are kept.
+- On Free, turning on an own rule over the limit or adding a folder over the limit is refused with a message (see [section 8](#8-writing-your-own-rules) and [section 11](#11-settings)). You can always turn rules off, edit or delete them, and remove folders.
+- When you go back to Pro or the trial, the rules the plan turned off are turned on again and all folders become active. Rules you turned off yourself stay off.
+- History shows only the batches from the last 7 days; the rest stays in the journal and comes back on Pro (see [section 6](#6-history)).
+
+### Undo on the Free plan
+
+- Only the newest batch of type "Organize" can be undone (including one "organized automatically"), even if it was already undone.
+- Batches of type "Undo" and "Recovery after a stop" do not count as "the newest batch".
+- After you undo that batch it is still the newest organize batch. Older batches stay locked: you cannot undo batch after batch. The message: "The Free plan undoes only the most recent batch. Undo of older batches is included in Pro."
+- The newest batch is looked up in the whole journal, not only in the 7 days shown.
+- If you need a file from an older batch, History (within the 7 days) shows where it went, and files in the Recycle Bin can also be restored by hand (see [section 5](#5-undoing-a-batch)).
+
+### Importing a license
+
+1. In Settings, "Valet Pro" section, press "I have a license" and choose the file with the extension `.valet-license` that you received after buying. Or press "I have the license as text", paste the whole content of the license, from the first brace to the last, and press "Activate license".
+2. Valet checks the signature of the license. Then it connects to the license server and activates the license for this computer. You need internet at this step.
+3. If it works, you see "The license is active on this computer." and the plan "Pro, licensed to your email address", with "Updates included until" a date. The email address stays on the computer and is not sent to the server.
+
+A license can be active on at most 3 computers. Valet keeps the license file and the server's answer in the data folder (see [section 15](#15-where-the-data-is)). On an error, nothing changes on disk. The possible messages:
+
+| Message | Meaning |
+|---|---|
+| The license is not valid: the signature does not match. Check that you copied the whole text. | The file or text was changed or cut. Use the original file. |
+| The license is not for Valet Pro. | The file is signed, but for another product. |
+| The license does not cover this version: its included updates ended before this version was published. | See "Included updates" below. |
+| The license server could not be reached. Check the internet connection and try again. | No internet, or the server does not answer. |
+| The license server does not know this license. | The license id does not exist on the server. |
+| The license is already active on 3 computers. Remove it from one of them in Settings, then try again. | All 3 places are taken. |
+| The license was revoked. | The server withdrew the license. |
+| This computer's identifier could not be read, so the license can't be activated. | Valet could not read the computer's Windows identifier. |
+| The license file could not be read or saved. The log has the details. | A disk error while reading or saving. |
+| Licenses are not active in this version yet. | The build has no license server configured (the case now). |
+
+### Included updates
+
+Pro includes updates for 12 months from purchase. The date shows as "Updates included until …". The license covers versions published up to that date. A version published after it runs as Free, and Settings name the date. Versions published up to that date stay Pro, and a version you already have does not stop. Before you install an update, Valet compares its publication date with the license date; if it is not covered, the confirmation says the new version will run as Free. You can still install it. The price of renewing updates (15 EUR per year, optional) is in the product plan; there is no way to buy it from the app yet.
+
+### The license check and working offline
+
+- After activation, Valet asks the server for a new answer only when the last successful answer is 30 days old or older. It looks at startup and every hour, and a request goes out at most once every 24 hours. The Free plan and the trial make no license request.
+- "Check license now" does the check at once, even before 30 days. Under the buttons you see "Last license check: …".
+- Without internet, Pro keeps working while the last successful check is at most 60 days old (the 30 days until the next check, plus 30 days of grace). A network error does not change the stored answer.
+- After more than 60 days, Valet works as Free and Settings say "The license has not been checked online for more than 60 days. Connect to the internet and press "Check license now"." Nothing is lost; the next successful check brings Pro back.
+- If the server answers that the license is unknown or revoked, or active on too many computers, Valet takes the stored answer out of the data folder (it moves it to `license-removed`, it does not delete it) and works as trial or Free. The license file stays, so Settings can say why.
+
+### Removing the license from a computer
+
+1. In Settings, Valet Pro, press "Remove the license from this computer" and confirm with "Remove license". The confirmation text: "The license is removed from this computer and frees one of its 3 activations, so you can use it on another computer. The license file is not deleted; you can import it again at any time."
+2. Valet sends the server a deactivation request with the license id and the computer identifier. If it fails (no internet), the license is still removed from this computer, but the place on the server stays taken until you free it.
+3. The license file and the server's answer are moved to `license-removed` in the data folder, with a number in front. They are not deleted and not replaced. Importing another license, or the same one, moves the old files the same way.
+
+Uninstalling Valet does not free the place. Remove the license in Settings before uninstalling.
+
+**If the old computer is gone** (broken, formatted) and you cannot remove the license from it, ask support to reset the activations. Support can clear the license's list of active computers on the server (a tool of the license service, `services/license/reset.mjs`); then you import the license on the new computer. The activation history stays on the server. A support channel is not published yet.
+
+### The Microsoft Store version
+
+The differences from the usual installer are in [section 17](#17-installing-updates-and-uninstalling): updates come from the Store, starting with Windows is set in the Windows settings (the button "Open Windows settings"), and uninstalling the Store app deletes the data, including History and the license on the computer. The plans and limits are the same.
