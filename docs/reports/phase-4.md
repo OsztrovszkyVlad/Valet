@@ -172,13 +172,14 @@ Serverul nostru emite oricum fișierul de licență, deci oricare dintre cei pat
 | `cargo clippy -p valet-core --all-targets --features test-support -- -D warnings` | 0 | |
 | `cargo clippy -p valet-platform --all-targets --target x86_64-pc-windows-msvc -- -D warnings` | 0 | |
 | `cargo fmt --all -- --check` | 0 | |
-| `cargo test --workspace` (PM, `3c339d6`) | 0 | 565 trecute, 0 picate, 4 ignorate (cele de performanță, rulate în release mai jos) |
+| `cargo test --workspace` (PM, `3c339d6`; din nou la `8e2bf7c`, 565/0) | 0 | 565 trecute, 0 picate, 4 ignorate (cele de performanță, rulate în release mai jos) |
 | `VALET_FAULT_ITERS=100 cargo test -p valet-core --features test-support --test fault_injection` | 0 | 100 de iterații: 73 opriri în mijlocul lotului, 61 de decizii de recuperare, 91 de loturi anulate; fiecare fișier o singură dată |
-| `node --test` (`services/license`) | 0 | 41/41 |
+| `node --test` (`services/license`) | 0 | 41/41; după completare 86/86 (webhook, Resend, rate limiting, backup, `lookup --order`) |
 | `pnpm lint`, `pnpm test`, `pnpm check:i18n`, `tsc --noEmit`, `pnpm build` | 0 | 239 de teste vitest, 539 de chei ro = en |
 | Smoke UI (`tests/e2e/smoke.mjs`, local Xvfb) | 0 | pas nou: badge „Probă Pro: 14 zile”, secțiunea Pro neconfigurată, cumpărarea dezactivată |
 | `node scripts/check-site.mjs` | 0 | 360 și 1280 px, temă light/dark: fără overflow orizontal, 0 cereri externe, contrast minim 7,54:1 |
 | CI, [run 40909021759](https://github.com/OsztrovszkyVlad/Valet/actions/runs/40909021759) (`fc6acc0`, tot codul fazei) | verde | toate cele 6 joburi |
+| CI, [run 40929292606](https://github.com/OsztrovszkyVlad/Valet/actions/runs/40929292606) (`8e2bf7c`, după completare: webhook, rate limiting, backup, avertismentul de probă) | verde | toate cele 6 joburi |
 | MSIX, [run 40904535628](https://github.com/OsztrovszkyVlad/Valet/actions/runs/40904535628) (`d063308`) | verde | împachetare 6,97 MB; instalare, pornire 10 s, baza de date la 356 ms după lansare, dezinstalare |
 | CI, [run 40913739498](https://github.com/OsztrovszkyVlad/Valet/actions/runs/40913739498) (`3c339d6`, ultimul commit de cod) | verde | toate cele 6 joburi, inclusiv smoke-ul UI pe Windows cu pasul nou de Pro și installer-ul cu actualizarea pasivă |
 
@@ -207,78 +208,114 @@ Măsurate pe `Valet.exe` instalat de NSIS, pe runner-ul Windows din CI (run 4090
 | Indexare 100.000 de fișiere | < 60 s | 6,68 s |
 | Actualizare pasivă după instalare silențioasă | — | 2,3 s (înainte se bloca) |
 
+## Completare după deciziile tale (29 octombrie)
+
+Ai cerut o sarcină scurtă: webhook → `issue` → email, Fly.io, rate limiting, backup, `SOURCE_DATE_EPOCH`, `rustls`, `docs/STORE.md`. Placeholder-ele din mesaj le-am lămurit cu tine:
+- webhook pentru ambii comercianți, ales cu `VALET_MERCHANT`;
+- domeniul `valetapp.ro`;
+- asistența doar prin GitHub Issues;
+- cheile le împingi tu.
+
+| Ce | Unde | Stare |
+|---|---|---|
+| `rustls` (feature `ring`) în allowlist | CLAUDE.md (`09bb1bb`) | făcut |
+| Webhook Paddle și Stripe Managed Payments, emisă licența, email prin Resend cu fișierul atașat, revocare la rambursare | `services/license/` (`3eaa51c`) | făcut, 86/86 teste |
+| Rate limiting per IP (activate/validate/deactivate), maximum 4 webhook-uri simultan, IP-urile nu se loghează | `lib/ratelimit.mjs` | făcut |
+| Backup zilnic al JSON-ului pe volum (copii datate, ultimele 30), `/healthz` | `lib/backup.mjs` | făcut |
+| Fly.io: `Dockerfile`, `fly.toml` (regiunea `fra`, un singur calculator, volum `/data`), pașii de deploy | `services/license/README.md` | făcut; imaginea Docker nu s-a putut construi aici (nu există daemon), comanda de pornire a rulat pe fișierele copiate |
+| Asistența după numărul comenzii: `lookup.mjs --order`, `reset.mjs`/`revoke.mjs --order` | `services/license/` | făcut |
+| `docs/STORE.md`: citate exacte din politica Microsoft Store 7.20 (10.8.1, 10.8.2, 10.8.3, 10.8.4, 10.8.7, 10.3), textul pentru „Notes for certification” | `32dc6b8` | făcut |
+| Avertisment în ultimele 3 zile de probă (10.8.4: utilizatorul trebuie anunțat înainte să piardă accesul la regulile lui) | `PlanBadge` (`25f56ec`) | făcut |
+| Rambursare 14 zile, licența se revocă; asistență prin GitHub Issues; canonical, hreflang, og:url pe `valetapp.ro` | site, ghiduri, șabloane, PRIVACY (`8078d4f`, `fa8c070`, `cc20d8a`, `7ea8443`) | făcut |
+| `SOURCE_DATE_EPOCH` în `release.yml` | — | **blocat de hook-ul `guard-edit`** (vezi mai jos) |
+
+Identificatorul aplicației, `ro.valetapp.desktop`, se potrivește deja cu domeniul, deci nu l-am schimbat.
+
+**Problemă de securitate găsită pe drum.** Doar codul de licență ajunge ca să ocupi o activare, iar GitHub Issues e public. De aceea asistența nu mai cere niciodată codul, ci numărul comenzii din emailul comerciantului. Textul din Setări avertizează acum: „Nu-l publica…” (`018d81b`).
+
+**Ce face o cumpărare:**
+1. Comerciantul trimite `POST https://license.valetapp.ro/v1/webhook/<comerciant>`.
+2. Semnătura HMAC e verificată pe corpul brut, cu toleranță de 5 minute și comparație în timp constant.
+3. Evenimentul e verificat: produsul corect, plătit.
+4. Comanda e legată de o licență nouă (365 de zile, 3 activări), înainte de email.
+5. Licența e trimisă prin Resend. Dacă trimiterea eșuează, serverul răspunde 502, comerciantul retrimite evenimentul, iar serverul trimite aceeași licență.
+6. La rambursare, licența e revocată, iar aplicația primește 410 la următoarea verificare.
+
+Serverul nu păstrează emailul.
+
+**Lipsă de verificat:** documentația Paddle, Stripe, Fly și Resend nu se poate citi din sesiune. Formatul evenimentelor e scris din cunoștințe, iar fixture-urile copiază formatul documentat. Lista de verificat în sandbox e în `services/license/README.md`. Vânzarea se deschide doar după ce trece toată lista (decizia 10).
+
+**Pentru `SOURCE_DATE_EPOCH`:** hook-ul `.claude/hooks/guard-edit.sh` blochează orice editare a `release.yml`, chiar și cu aprobarea ta. Nu l-am ocolit. Adaugă tu acest rând după pasul `actions/checkout` din jobul `build` (după `persist-credentials: false`):
+
+```yaml
+      - run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
+```
+
+`build.rs` citește deja variabila. Cu rândul adăugat, data de build devine data commit-ului.
+
 ## Probleme cunoscute
 
-1. **Licențele nu sunt active în niciun build**, pentru că `pubkey.txt`, `api.txt` și `checkout.txt` sunt goale (decizia 3). Proba de 14 zile și planul Gratuit funcționează. Cumpărarea și activarea Pro nu se pot face încă.
-2. **Dezinstalarea aplicației din Store șterge datele pachetului**, adică jurnalul și istoricul de undo. Așa face Windows cu MSIX. Ghidul și textul pentru Store avertizează despre asta.
-3. **Neverificate pe un Windows real (doar compilate și testate în CI):**
+1. **Licențele nu sunt active în niciun build.** `pubkey.txt` și `api.txt` sunt goale pe `origin/main`, iar tu ai spus că le împingi. `checkout.txt` rămâne gol până trece testul în sandbox.
+2. **Dezinstalarea aplicației din Store șterge datele pachetului** (jurnalul, istoricul de undo). Așa face Windows cu MSIX. Ghidul și textul pentru Store avertizează despre asta.
+3. **Neverificate pe un Windows real:**
    - dialogurile de fișier;
    - `open_external`;
    - notificările sub identitatea MSIX;
-   - ce se întâmplă când același utilizator are atât instalarea NSIS, cât și pe cea din Store.
-4. **Data de build vine din `SOURCE_DATE_EPOCH`.** Fără ea, `build.rs` folosește momentul ultimei lui rulări. `release.yml` nu o setează, iar fișierul e protejat (decizia 5).
-5. **Importul unei alte licențe nu dezactivează pe server licența veche.** Perechea veche e doar mutată în `license-removed/`.
-6. **Scoaterea licenței fără internet** lasă locul ocupat pe server până la un `reset.mjs`. Ghidul spune asta.
-7. **Build-ul din Store are butonul „Cumpără Pro”.** Politica Store pentru cumpărări externe trebuie verificată (decizia 7).
-8. **Nu există ecranul „Ce trimitem” și nici Sentry.** Sunt amânate după beta, cum ai decis.
-9. **Iconița e tot placeholder-ul.** Lipsește `resources.pri`, așa că logo-urile din Store nu au variante pe fundal transparent.
-10. **Site-ul nu are încă `demo.gif`, domeniu sau `hreflang`/canonical.** Toate depind de domeniu.
-11. **Avertisment de build:** când un worktree și arborele principal folosesc același `target/`, cargo poate rula binare de test vechi. QA a dat de asta o dată. Rulările finale s-au făcut în arborele principal.
+   - instalarea NSIS și cea din Store la același utilizator.
+4. **`SOURCE_DATE_EPOCH` lipsește până adaugi rândul de mai sus.**
+5. **Importul unei alte licențe nu dezactivează pe server licența veche.**
+6. **Scoaterea licenței fără internet** lasă locul ocupat până la `reset.mjs --order`.
+7. **Numerele de comandă vor apărea în GitHub Issues, care e public.** Nu e verificat ce permite un număr de comandă singur la comerciant.
+8. **Ce afișează chitanța:** nu e confirmat că chitanța Stripe sau Paddle arată id-ul pe care îl caută `lookup.mjs` (`txn_…`, `cs_…`, `pi_…`). E pe lista de verificat în sandbox.
+9. **Cazuri fără rezolvare pe server:**
+   - chargeback-urile și disputele nu revocă licența (contractul vorbește doar de rambursări);
+   - nu există o comandă pentru retrimiterea unui email pierdut;
+   - nu există o comandă pentru înlocuirea unei licențe scurse.
+10. **Imaginea `node:22-alpine` nu e fixată pe digest.**
+11. **Fără ecranul „Ce trimitem” și fără Sentry:** amânate după beta, cum ai decis.
+12. **Iconița e tot placeholder-ul.** Lipsește `resources.pri`.
+13. **Site-ul nu are `demo.gif` și nu e publicat pe `valetapp.ro`.**
+14. **Avertisment de build:** când un worktree și arborele principal folosesc același `target/`, cargo poate rula binare de test vechi.
 
 ## Decizii necesare de la Vlad
 
-1. **Comerciantul:** Stripe Managed Payments, Paddle sau Polar. Webhook-ul serverului (cumpărare → `issue` → email) se scrie după alegerea ta. Pentru Stripe, verifică cele 3 puncte din secțiunea de cercetare.
-2. **Hosting-ul serverului de licențe și serviciul de email** (Cloudflare Workers, Cloud Run, Supabase etc.). Serverul e portabil; lipsește doar adaptorul de stocare.
-3. **Cheile și adresele:**
-   - (1) rulezi `node services/license/keygen.mjs`;
-   - (2) pui secretul doar în secretele hostului;
-   - (3) comiți `pubkey.txt` (linia `RW…`), `api.txt` (URL-ul HTTPS) și, când cumpărarea e deschisă, `checkout.txt`.
-4. **`rustls` ca dependență directă** a aplicației, cu feature-ul `ring`. Clientul de licență are nevoie de el ca furnizor criptografic pentru `reqwest`. E deja în build prin updater, deci binarul nu crește. Aprobi să intre în allowlist?
-5. **`SOURCE_DATE_EPOCH` în `release.yml`:** e un rând, dar fișierul e protejat. Aprobi modificarea? Fără ea, avertismentul de acoperire a licenței poate greși cu ore sau zile.
+1. **Comerciantul**, după răspunsul scris despre PFA: setezi `VALET_MERCHANT=paddle` sau `stripe`, apoi treci lista de verificat în sandbox.
+2. **Rândul `SOURCE_DATE_EPOCH`** din `release.yml`: îl adaugi tu (vezi mai sus).
+3. **Cheile și deploy-ul** (pașii exacți sunt în `services/license/README.md`):
+   - `keygen.mjs`, apoi comiți `pubkey.txt`;
+   - Resend: domeniul `valetapp.ro` cu DKIM/SPF, cheie API;
+   - Fly: volumul, secretele, `fly deploy`, certificatul pentru `license.valetapp.ro`;
+   - comiți `api.txt`.
+4. **Chargeback-uri și dispute:** revocă licența sau nu?
+5. **Email pierdut sau licență scursă:** vrei comenzi `resend.mjs --order` și `reissue.mjs --order`?
 6. **Partner Center:**
-   - rezervi numele „Valet”;
-   - setezi variabilele Actions `VALET_MSIX_IDENTITY_NAME`, `VALET_MSIX_PUBLISHER`, `VALET_MSIX_PUBLISHER_DISPLAY_NAME`;
-   - rulezi `msix.yml` cu `dry_run=false` pe un tag stabil;
-   - urci pachetul (pașii sunt în `packaging/msix/README.md`).
-7. **Butonul „Cumpără Pro” în build-ul din Store:** îl păstrăm (politica Store permite plata externă pentru aplicații non-joc, dar verifică) sau îl ascundem când `packaged` e true?
-8. **Iconița finală** înainte de Store: un PNG de 1024×1024 de la tine.
-9. **Politica de rambursare.** E un placeholder în șabloane; `revoke.mjs` există dacă vrei ca rambursarea să revoce licența.
-10. **Unde ții legătura email → cod licență** până există webhook-ul. Aplicația arată acum codul în Setări, așa că utilizatorul ți-l poate trimite.
-11. **Textele anunțurilor** (`docs/launch/`) și un canal de asistență public (email sau GitHub Issues).
-12. **Domeniul site-ului** (PLAN 8: `valetapp.ro` sau `getvalet.app`), plus verificarea mărcii în EUIPO înainte de Store.
+   - rezervi numele „Valet” și setezi variabilele `VALET_MSIX_*`;
+   - la fiecare trimitere, bifezi folosirea unui sistem de plată terț (10.8.2);
+   - folosești textul pentru certificare din `docs/STORE.md`;
+   - verifici marca în EUIPO.
+7. **Iconița finală** (PNG de 1024×1024) înainte de Store. Nu era în mesajul tău.
+8. **Numele comerciantului lângă butonul „Cumpără Pro”** (10.8.2): îl adaug după ce alegi comerciantul.
 
 ## Checklist manual pentru Vlad
 
-- [ ] CI verde pe `main`: https://github.com/OsztrovszkyVlad/Valet/actions (6 joburi, plus MSIX).
-- [ ] Pe un Windows 11 curat, instalează build-ul din dry run-ul Release:
-  - [ ] fără scurtătură pe Desktop după `/S`, cu scurtătură la instalarea interactivă dacă o bifezi;
-  - [ ] în `valet.log`, „Database ready N ms” e sub ~300 ms.
-- [ ] Header-ul arată „Probă Pro: 14 zile”. Setări → Valet Pro arată „Licențele nu sunt încă active…” și „Cumpără Pro” dezactivat.
-- [ ] Testul trecerii pe Gratuit (cere schimbarea ceasului sau așteptarea celor 14 zile):
-  - [ ] cu 5 reguli proprii și 3 foldere, apare dialogul „ce rămâne activ”;
-  - [ ] alege alte reguli și verifică eticheta „dezactivată de planul Gratuit”;
-  - [ ] Istoricul arată doar ultimele 7 zile, iar undo e permis doar pe ultimul lot.
-- [ ] Setări → Actualizări: debifează „Verifică automat actualizările” și repornește. În log nu apare nicio verificare la 30 s.
-- [ ] Reguli → Export (pe durata probei): salvează un fișier, apoi încearcă să salvezi peste el; trebuie refuzat. Importă-l pe alt profil; regulile cer o previzualizare.
-- [ ] MSIX: descarcă artefactul `valet-0.1.0-msix-x64-dryrun`. Pentru sideload ai nevoie de un certificat de test (vezi `packaging/msix/README.md`). Verifică:
-  - [ ] fără secțiunea de actualizări;
-  - [ ] autostart prin „Deschide setările Windows”.
-- [ ] După decizia 3, pe serverul tău:
-  - [ ] `issue.mjs` și importul licenței pe două calculatoare dau Pro;
-  - [ ] al patrulea calculator e refuzat;
-  - [ ] „Scoate licența” eliberează locul.
-- [ ] Criteriul mutat din Faza 3: release `v1.0.0-beta.1`, apoi `v1.0.0-beta.2`, apoi upgrade din updater pe VM, cu regulile și istoricul păstrate.
-- [ ] Răspunde la deciziile 1–12.
+- [ ] CI verde pe `main` (6 joburi, plus MSIX).
+- [ ] Rândul `SOURCE_DATE_EPOCH` adăugat în `release.yml`, iar un dry run Release trece.
+- [ ] Pe un Windows 11 curat, din dry run-ul Release:
+  - [ ] fără scurtătură pe Desktop după `/S`;
+  - [ ] „Database ready N ms” sub ~300 ms în `valet.log`.
+- [ ] Header: „Probă Pro: 14 zile”. Cu ceasul mutat la 3 zile înainte de sfârșitul probei, badge-ul spune „Proba se termină curând”, iar tooltip-ul spune ce devine inactiv.
+- [ ] Trecerea pe Gratuit (5 reguli, 3 foldere): dialogul „ce rămâne activ”, eticheta pe reguli, Istoricul pe 7 zile, undo doar pe ultimul lot.
+- [ ] Setări → Actualizări: cu bifa scoasă, nu apare nicio verificare automată în log.
+- [ ] Export de reguli: salvarea peste un fișier existent e refuzată; importul cere o previzualizare.
+- [ ] MSIX: fără secțiunea de actualizări; autostart prin setările Windows.
+- [ ] Server pe Fly (după decizia 3):
+  - [ ] `curl https://license.valetapp.ro/healthz` răspunde `ok`;
+  - [ ] lista de verificat în sandbox din `services/license/README.md`, toată;
+  - [ ] licența pe 2 calculatoare, al patrulea refuzat;
+  - [ ] rambursarea revocă licența;
+  - [ ] `lookup.mjs --order` găsește licența după numărul de pe chitanță.
+- [ ] Release `v1.0.0-beta.1`, apoi `v1.0.0-beta.2`, upgrade din updater pe VM, apoi 7 zile de folosire zilnică. Abia după aceea anunțurile.
 
 ## Propunere pentru faza următoare
 
-Criteriile de ieșire ale Fazei 4 depind toate de tine:
-- o cumpărare reală de test, pentru care trebuie ales comerciantul și pus pe hosting serverul;
-- licența pe 2 calculatoare, cu al patrulea refuzat, pe un server real (pe un server local e deja testat);
-- listarea aprobată în Store, care cere Partner Center;
-- 50 de instalări externe;
-- upgrade-ul beta.1 → beta.2 pe VM.
-
-Codul pentru toate acestea e gata și testat local și în CI.
-
-Propun să lăsăm Faza 4 deschisă pentru acești pași. Când alegi comerciantul și hosting-ul, scriem webhook-ul și adaptorul de stocare ca o sarcină scurtă, apoi închidem faza. Faza 5 (spațiu pe disc) nu depinde de ei și poate porni după aprobarea ta.
+Codul Fazei 4 e complet. Criteriile de ieșire rămase sunt toate acțiuni ale tale: deploy-ul pe Fly și testul în sandbox, cumpărarea de test, listarea aprobată în Store, 50 de instalări externe și upgrade-ul pe VM. Planul nu cere nicio schimbare. Faza 5 nu pornește până nu spui.
