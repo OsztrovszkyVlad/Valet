@@ -11,10 +11,12 @@
 //        [--port 4444] [--keep-temp] [--allow-real-user-dirs]
 //        [--attach-port 9222]
 //
-// --attach-port (Windows): no tauri-driver. The test starts the app itself
-// with WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=<n>,
+// --attach-port (Windows): no tauri-driver. The test starts the app itself,
 // starts msedgedriver (--native-driver) on --port and attaches to the
-// WebView2 through `ms:edgeOptions.debuggerAddress`.
+// WebView2 DevTools port <n> through `ms:edgeOptions.debuggerAddress`. The
+// app must open that port itself (`additionalBrowserArgs` in the build's
+// config): WebView2 ignores WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS when the
+// app sets AdditionalBrowserArguments, which wry always does.
 //
 // Isolation on Linux: tauri-driver (and so the app) runs with HOME and the
 // XDG base dirs inside a fresh temp dir, and `user-dirs.dirs` points the
@@ -279,13 +281,12 @@ function captureOutput(child, log, prefix = '') {
 }
 
 /**
- * Attach mode (Windows): the app with a WebView2 DevTools port, and
+ * Attach mode (Windows): the app (which opens its DevTools port), and
  * msedgedriver on opts.port. Returns { child, app, log } like startDriver.
  */
 function startAttached(opts, env) {
     const log = [];
-    const appEnv = { ...env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${opts.attachPort}` };
-    const app = spawn(opts.app, [], { env: appEnv, stdio: ['ignore', 'pipe', 'pipe'] });
+    const app = spawn(opts.app, [], { env, stdio: ['ignore', 'pipe', 'pipe'] });
     captureOutput(app, log, '[app] ');
     const child = spawn(opts.nativeDriver, [`--port=${opts.port}`], { env, stdio: ['ignore', 'pipe', 'pipe'] });
     captureOutput(child, log, '[msedgedriver] ');

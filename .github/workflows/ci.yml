@@ -268,40 +268,59 @@ jobs:
           }
           Write-Output "::notice title=e2e-windows::msedgedriver used: $((& $driver --version | Out-String).Trim()) ($driver)"
           "path=$driver" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-      # Annotations "diag A..D": the app alone, the WebView2 DevTools port,
-      # msedgedriver launching the app (verbose log), msedgedriver attaching.
-      - name: Diagnostics (app, WebView2, msedgedriver)
+      # msedgedriver passes --remote-debugging-port=0 to WebView2 through
+      # WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS, and WebView2 ignores that
+      # variable when the app sets AdditionalBrowserArguments (wry always
+      # does). CI run of commit 9968bac, "diag" annotations: the browser process starts
+      # without the flag, so DevToolsActivePort never appears.
+      # Annotation "diag E": does the WebView2 policy key reach the browser.
+      - name: Diagnostics (WebView2 policy)
         continue-on-error: true
-        timeout-minutes: 6
+        timeout-minutes: 3
         shell: pwsh
-        run: ./scripts/e2e-windows-diag.ps1 -AppPath target/debug/app.exe -EdgeDriver "${{ steps.edgedriver.outputs.path }}"
-      - name: Smoke test (tauri-driver)
-        id: smoke_td
+        run: ./scripts/e2e-windows-diag.ps1 -AppPath target/debug/app.exe -EdgeDriver "${{ steps.edgedriver.outputs.path }}" -Cases E
+      # Option 1: the same binary, the port flag through the WebView2 policy.
+      - name: Smoke test (tauri-driver, WebView2 policy)
+        id: smoke_policy
         continue-on-error: true
+        timeout-minutes: 8
+        shell: pwsh
+        env:
+          EDGE_DRIVER: ${{ steps.edgedriver.outputs.path }}
+        run: |
+          $key = 'HKCU:\Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments'
+          New-Item -Path $key -Force | Out-Null
+          New-ItemProperty -Path $key -Name 'app.exe' -Value '--remote-debugging-port=0' -PropertyType String -Force | Out-Null
+          try {
+            node tests/e2e/smoke.mjs --app target/debug/app.exe --native-driver $env:EDGE_DRIVER --screenshots e2e-screenshots-policy
+            $code = $LASTEXITCODE
+          } finally {
+            Remove-ItemProperty -Path $key -Name 'app.exe' -ErrorAction SilentlyContinue
+          }
+          if ($code -eq 0) { Write-Output "::notice title=e2e-windows::smoke passed with the WebView2 policy" }
+          exit $code
+      # Option 2: a test build whose window config adds the port flag to the
+      # WebView2 arguments (TAURI_CONFIG is merged into tauri.conf.json at
+      # build time; product code and tauri.conf.json stay unchanged).
+      - name: Build app for e2e (additionalBrowserArgs with --remote-debugging-port=0)
+        if: ${{ steps.smoke_policy.outcome == 'failure' }}
+        shell: pwsh
+        run: |
+          ./scripts/e2e-windows-reset.ps1 -Tag policy
+          $env:TAURI_CONFIG = node scripts/e2e-tauri-config.mjs 0
+          Write-Output "::notice title=e2e-windows::TAURI_CONFIG $env:TAURI_CONFIG"
+          cargo build -p app --features tauri/custom-protocol
+      - name: Smoke test (tauri-driver, additionalBrowserArgs build)
+        if: ${{ steps.smoke_policy.outcome == 'failure' }}
         timeout-minutes: 8
         shell: pwsh
         env:
           EDGE_DRIVER: ${{ steps.edgedriver.outputs.path }}
         run: |
           node tests/e2e/smoke.mjs --app target/debug/app.exe --native-driver $env:EDGE_DRIVER --screenshots e2e-screenshots
-          exit $LASTEXITCODE
-      # Without tauri-driver: the test starts the app with a WebView2 DevTools
-      # port and msedgedriver attaches to it (debuggerAddress). App data from
-      # the previous step is moved aside first, so this is a first run.
-      - name: Smoke test (msedgedriver attach)
-        if: ${{ steps.smoke_td.outcome == 'failure' }}
-        timeout-minutes: 8
-        shell: pwsh
-        env:
-          EDGE_DRIVER: ${{ steps.edgedriver.outputs.path }}
-        run: |
-          Get-Process app -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-          Start-Sleep -Seconds 2
-          foreach ($d in @("$env:APPDATA\ro.valetapp.desktop", "$env:LOCALAPPDATA\ro.valetapp.desktop")) {
-            if (Test-Path $d) { Move-Item -Path $d -Destination (Join-Path $env:RUNNER_TEMP ("smoke-td-" + (Split-Path -Leaf (Split-Path -Parent $d)))) }
-          }
-          node tests/e2e/smoke.mjs --app target/debug/app.exe --native-driver $env:EDGE_DRIVER --attach-port 9222 --screenshots e2e-screenshots-attach
-          exit $LASTEXITCODE
+          $code = $LASTEXITCODE
+          if ($code -eq 0) { Write-Output "::notice title=e2e-windows::smoke passed with the additionalBrowserArgs build" }
+          exit $code
       - name: Upload screenshots
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
@@ -309,7 +328,7 @@ jobs:
           name: e2e-windows-screenshots
           path: |
             e2e-screenshots
-            e2e-screenshots-attach
+            e2e-screenshots-policy
           if-no-files-found: ignore
 
   windows:
