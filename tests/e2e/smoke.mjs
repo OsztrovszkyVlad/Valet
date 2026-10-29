@@ -9,6 +9,12 @@
 //   node tests/e2e/smoke.mjs --app target/debug/app [--screenshots dir]
 //        [--driver tauri-driver] [--native-driver <WebKitWebDriver|msedgedriver>]
 //        [--port 4444] [--keep-temp] [--allow-real-user-dirs]
+//        [--attach-port 9222]
+//
+// --attach-port (Windows): no tauri-driver. The test starts the app itself
+// with WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=<n>,
+// starts msedgedriver (--native-driver) on --port and attaches to the
+// WebView2 through `ms:edgeOptions.debuggerAddress`.
 //
 // Isolation on Linux: tauri-driver (and so the app) runs with HOME and the
 // XDG base dirs inside a fresh temp dir, and `user-dirs.dirs` points the
@@ -32,7 +38,7 @@ import { Session, waitForServer } from './webdriver.mjs';
 // ---------- arguments ----------
 
 function parseArgs(argv) {
-    const out = { driver: 'tauri-driver', nativeDriver: null, port: 4444, screenshots: null, keepTemp: false, allowReal: false };
+    const out = { driver: 'tauri-driver', nativeDriver: null, port: 4444, screenshots: null, keepTemp: false, allowReal: false, attachPort: null };
     for (let i = 0; i < argv.length; i++) {
         const a = argv[i];
         const next = () => {
@@ -46,6 +52,7 @@ function parseArgs(argv) {
         else if (a === '--port') out.port = Number(next());
         else if (a === '--keep-temp') out.keepTemp = true;
         else if (a === '--allow-real-user-dirs') out.allowReal = true;
+        else if (a === '--attach-port') out.attachPort = Number(next());
         else if (!a.startsWith('--') && out.app === undefined) out.app = a;
         else throw new Error(`unknown argument ${a}`);
     }
@@ -53,6 +60,7 @@ function parseArgs(argv) {
     out.app = path.resolve(out.app);
     if (!fs.existsSync(out.app)) throw new Error(`app binary not found: ${out.app}`);
     if (out.screenshots) out.screenshots = path.resolve(out.screenshots);
+    if (out.attachPort && !out.nativeDriver) throw new Error('--attach-port needs --native-driver <msedgedriver>');
     return out;
 }
 
@@ -258,6 +266,50 @@ function startDriver(opts, env) {
     return { child, log };
 }
 
+/** Keeps the last 400 output chunks of `child` in `log`. */
+function captureOutput(child, log, prefix = '') {
+    const keep = (chunk) => {
+        log.push(prefix + chunk.toString());
+        if (log.length > 400) log.splice(0, log.length - 400);
+    };
+    child.stdout.on('data', keep);
+    child.stderr.on('data', keep);
+    child.on('error', (err) => log.push(`${prefix}spawn error: ${err.message}\n`));
+    child.on('exit', (code, sig) => log.push(`${prefix}exited (code ${code}, signal ${sig})\n`));
+}
+
+/**
+ * Attach mode (Windows): the app with a WebView2 DevTools port, and
+ * msedgedriver on opts.port. Returns { child, app, log } like startDriver.
+ */
+function startAttached(opts, env) {
+    const log = [];
+    const appEnv = { ...env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${opts.attachPort}` };
+    const app = spawn(opts.app, [], { env: appEnv, stdio: ['ignore', 'pipe', 'pipe'] });
+    captureOutput(app, log, '[app] ');
+    const child = spawn(opts.nativeDriver, [`--port=${opts.port}`], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    captureOutput(child, log, '[msedgedriver] ');
+    return { child, app, log };
+}
+
+/** Polls the WebView2 DevTools endpoint until it lists a page. */
+async function waitForDevTools(port, timeout = 30000) {
+    const end = Date.now() + timeout;
+    let last = 'no response';
+    while (Date.now() < end) {
+        try {
+            const res = await fetch(`http://127.0.0.1:${port}/json/list`);
+            const list = await res.json();
+            if (Array.isArray(list) && list.some((t) => t.type === 'page')) return list;
+            last = `targets: ${JSON.stringify(list).slice(0, 200)}`;
+        } catch (err) {
+            last = err.message;
+        }
+        await sleep(250);
+    }
+    throw new Error(`WebView2 DevTools port ${port} not ready within ${timeout} ms (${last})`);
+}
+
 function stopDriver(child, signal = 'SIGTERM') {
     try {
         if (process.platform === 'win32') child.kill();
@@ -316,9 +368,20 @@ async function main() {
 
         const base = `http://127.0.0.1:${opts.port}`;
         await step('start tauri-driver and the app', async () => {
-            driver = startDriver(opts, env);
-            await waitForServer(base);
-            session = await Session.create(base, opts.app);
+            if (opts.attachPort) {
+                driver = startAttached(opts, env);
+                await waitForServer(base);
+                const targets = await waitForDevTools(opts.attachPort);
+                console.log(`  DevTools targets: ${targets.map((t) => `${t.type} ${t.url}`).join(', ')}`);
+                session = await Session.createWithCapabilities(base, {
+                    browserName: 'webview2',
+                    'ms:edgeOptions': { debuggerAddress: `127.0.0.1:${opts.attachPort}` },
+                });
+            } else {
+                driver = startDriver(opts, env);
+                await waitForServer(base);
+                session = await Session.create(base, opts.app);
+            }
             try {
                 await session.setWindowSize(1100, 750);
             } catch (err) {
@@ -499,6 +562,10 @@ async function main() {
                 `${err.message}\nLast UI text: ${tail.replace(/\s+/g, ' ')}`,
             )}`,
         );
+        if (driver) {
+            const out = driver.log.join('').trim();
+            console.log(`::notice title=e2e driver and app output (tail)::${annotationEscape(out ? out.slice(-4000) : '(no output)')}`);
+        }
         return 1;
     } finally {
         if (session) {
@@ -509,6 +576,7 @@ async function main() {
             }
         }
         if (driver) stopDriver(driver.child);
+        if (driver?.app) stopDriver(driver.app);
         if (driver) await sleep(500);
         if (driver) stopDriver(driver.child, 'SIGKILL');
         if (envInfo?.tmp) {

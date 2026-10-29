@@ -34,6 +34,12 @@ export class Session {
         return new Session(base, value.sessionId);
     }
 
+    /** POST /session with native capabilities (no tauri-driver mapping). */
+    static async createWithCapabilities(base, alwaysMatch) {
+        const value = await request(base, 'POST', '/session', { capabilities: { alwaysMatch } });
+        return new Session(base, value.sessionId);
+    }
+
     cmd(method, path, body) {
         return request(this.base, method, `/session/${this.id}${path}`, body);
     }

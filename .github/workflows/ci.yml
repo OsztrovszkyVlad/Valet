@@ -268,19 +268,48 @@ jobs:
           }
           Write-Output "::notice title=e2e-windows::msedgedriver used: $((& $driver --version | Out-String).Trim()) ($driver)"
           "path=$driver" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-      - name: Smoke test
+      # Annotations "diag A..D": the app alone, the WebView2 DevTools port,
+      # msedgedriver launching the app (verbose log), msedgedriver attaching.
+      - name: Diagnostics (app, WebView2, msedgedriver)
+        continue-on-error: true
+        timeout-minutes: 6
+        shell: pwsh
+        run: ./scripts/e2e-windows-diag.ps1 -AppPath target/debug/app.exe -EdgeDriver "${{ steps.edgedriver.outputs.path }}"
+      - name: Smoke test (tauri-driver)
+        id: smoke_td
+        continue-on-error: true
+        timeout-minutes: 8
         shell: pwsh
         env:
           EDGE_DRIVER: ${{ steps.edgedriver.outputs.path }}
         run: |
           node tests/e2e/smoke.mjs --app target/debug/app.exe --native-driver $env:EDGE_DRIVER --screenshots e2e-screenshots
           exit $LASTEXITCODE
+      # Without tauri-driver: the test starts the app with a WebView2 DevTools
+      # port and msedgedriver attaches to it (debuggerAddress). App data from
+      # the previous step is moved aside first, so this is a first run.
+      - name: Smoke test (msedgedriver attach)
+        if: ${{ steps.smoke_td.outcome == 'failure' }}
+        timeout-minutes: 8
+        shell: pwsh
+        env:
+          EDGE_DRIVER: ${{ steps.edgedriver.outputs.path }}
+        run: |
+          Get-Process app -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 2
+          foreach ($d in @("$env:APPDATA\ro.valetapp.desktop", "$env:LOCALAPPDATA\ro.valetapp.desktop")) {
+            if (Test-Path $d) { Move-Item -Path $d -Destination (Join-Path $env:RUNNER_TEMP ("smoke-td-" + (Split-Path -Leaf (Split-Path -Parent $d)))) }
+          }
+          node tests/e2e/smoke.mjs --app target/debug/app.exe --native-driver $env:EDGE_DRIVER --attach-port 9222 --screenshots e2e-screenshots-attach
+          exit $LASTEXITCODE
       - name: Upload screenshots
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: e2e-windows-screenshots
-          path: e2e-screenshots
+          path: |
+            e2e-screenshots
+            e2e-screenshots-attach
           if-no-files-found: ignore
 
   windows:
