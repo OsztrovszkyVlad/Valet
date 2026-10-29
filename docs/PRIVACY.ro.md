@@ -2,13 +2,13 @@
 
 English version: [PRIVACY.md](PRIVACY.md)
 
-Pagina spune ce trimite Valet prin rețea, ce păstrează pe calculatorul tău, ce nu are și ce se întâmplă cu datele la dezinstalare. Descrie codul de la commitul `1d910c9`. Unde ceva a fost citit din cod sau dintr-o dependență și nu a fost observat pe o instalare Windows care rulează, pagina spune asta.
+Pagina spune ce trimite Valet prin rețea, ce păstrează pe calculatorul tău, ce nu are și ce se întâmplă cu datele la dezinstalare. Descrie codul de la commitul `1d910c9`. Unde ceva a fost citit din cod sau dintr-o dependență și nu a fost observat pe o instalare Windows care rulează, pagina spune asta. Verificarea licenței (secțiunea 1, „Verificarea licenței”) face excepție de la „descrie codul”: e scrisă după contractul din `docs/LICENSING.md`, după care se construiește codul Fazei 4, și nu a fost verificată cu codul sau cu un build care rulează.
 
-Pe scurt: Valet face un singur fel de cerere de rețea, verificarea unei versiuni noi a lui însuși. Nicio denumire de fișier, cale sau conținut de fișier nu face parte din ea. Restul rămâne pe calculatorul tău.
+Pe scurt: Valet face două feluri de cerere de rețea. Una e verificarea unei versiuni noi a lui însuși. Cealaltă e verificarea licenței, și are loc doar dacă ai importat o licență Pro într-un build care are un server de licențe configurat. Nicio denumire de fișier, cale, regulă sau conținut de fișier nu face parte din vreuna. Restul rămâne pe calculatorul tău.
 
 ## 1. Ce merge prin rețea
 
-Codul Valet deschide o conexiune într-un singur loc: actualizatorul (`apps/desktop/src-tauri/src/updater.rs`). Singura bibliotecă de rețea din arborele de dependențe, `reqwest`, vine prin `tauri-plugin-updater` și altfel nu apare (`cargo tree -p app -i reqwest` afișează doar acea cale, verificat pentru gazda Linux și pentru `--target x86_64-pc-windows-msvc`).
+La commitul `1d910c9`, codul Valet deschidea o conexiune într-un singur loc: actualizatorul (`apps/desktop/src-tauri/src/updater.rs`). Singura bibliotecă de rețea din arborele de dependențe, `reqwest`, venea prin `tauri-plugin-updater` și altfel nu apărea (`cargo tree -p app -i reqwest` afișa doar acea cale, verificat pentru gazda Linux și pentru `--target x86_64-pc-windows-msvc`). Verificarea licenței descrisă mai jos adaugă un al doilea utilizator al `reqwest`, în crate-ul aplicației; după ce acel cod intră, aceeași comandă afișează mai multe căi.
 
 ### Adresele
 
@@ -48,6 +48,34 @@ Nu din Setări: nu există o opțiune care să oprească verificarea automată. 
 
 Un build făcut fără cheile actualizatorului nu rulează deloc cod de actualizare: nu există verificare automată, iar „Verifică acum” răspunde că actualizările nu sunt configurate. Build-urile făcute cu `pnpm tauri dev` sunt de acest fel. Fluxul de release construiește cu chei doar dacă proprietarul depozitului le-a setat (`docs/RELEASE.md`, secțiunea 0.2); rularea de probă de la commitul `1d910c9` a construit fără ele (jurnalul ei spune „updater artifacts off”).
 
+### Verificarea licenței
+
+Această subsecțiune urmează `docs/LICENSING.md`, „Online check”. Nu a fost verificată cu codul sau cu un build care rulează.
+
+**Când rulează.** Doar când a fost importat un fișier de licență Pro. Proba (14 zile) și planul Gratuit nu fac nicio cerere de licență: începutul probei e o dată păstrată pe calculatorul tău și nimic din ea nu merge prin rețea. Cu o licență Pro importată, verificarea rulează:
+
+- la activare, când imporți fișierul de licență (`POST /v1/activate`);
+- apoi cel mult o dată la 30 de zile: aplicația se uită la pornire și din 24 în 24 de ore, și trimite o cerere (`POST /v1/validate`) doar când ultima verificare reușită are 30 de zile sau mai mult;
+- când ștergi licența din Setări (`POST /v1/deactivate`, vezi mai jos).
+
+**Ce se trimite.** Corpul cererilor de activare și de validare are trei câmpuri:
+
+- identificatorul licenței, un cod aleatoriu (UUID versiunea 4) scris în fișierul tău de licență;
+- un identificator al calculatorului: primele 32 de caractere hexazecimale din hash-ul blake3 al textului `valet-machine-v1:` urmat de `MachineGuid` din Windows (citit din `HKLM\SOFTWARE\Microsoft\Cryptography`). E un hash într-un singur sens: serverul poate compara doi identificatori, dar nu poate scoate GUID-ul din unul;
+- versiunea aplicației.
+
+Cererea de dezactivare are identificatorul licenței și identificatorul calculatorului. Cererile merg la o adresă HTTPS, cu un timp de așteptare de 10 secunde. Serverul răspunde cu un token semnat, păstrat lângă fișierul de licență, sau cu un refuz (licență necunoscută, prea multe activări, licență revocată). Ca orice server web, vede și adresa ta IP publică și ora cererii. Pentru fiecare identificator de licență, serverul trebuie să rețină ce identificatori de calculator au activat-o, pentru că așa numără activările (cel mult 3 pe licență).
+
+**Ce nu se trimite niciodată.** Nicio denumire de fișier, cale de folder, regulă, conținut de regulă sau număr de reguli ori de fișiere. Nici `MachineGuid` în forma lui brută, nici numele calculatorului, nici versiunea de Windows, nici adresa de email din fișierul de licență, care rămâne pe calculatorul tău și se arată în Setări. (Emailul îl știe cine ți-a vândut licența, din cumpărare. Valet nu îl trimite.)
+
+**Unde se păstrează licența.** În folderul de date al aplicației, ca `license.valet-license` (fișierul de licență, un fișier JSON UTF-8 cu semnătură) și `activation.valet-token` (ultimul răspuns al serverului). Contractul spune „folderul de date al aplicației”; aici se citește ca `%APPDATA%\ro.valetapp.desktop`, folderul din secțiunea 2, și nu s-a verificat pe o instalare.
+
+**Ce se întâmplă fără conexiune.** O eroare de rețea păstrează tokenul existent. Un token a cărui ultimă verificare reușită are cel mult 60 de zile dă în continuare Pro; mai vechi de atât, Valet merge ca Gratuit până la următoarea verificare reușită, și nu se pierde nimic. Dacă serverul răspunde că licența e necunoscută sau revocată (sau, la o reverificare, că sunt prea multe activări), Valet șterge tokenul și merge ca Probă sau Gratuit. Fișierul de licență rămâne, ca Setările să poată arăta motivul.
+
+**Cum dezactivează ștergerea.** Ștergerea licenței din Setări trimite cererea de dezactivare, care eliberează activarea acestui calculator pe server, deci licența se poate folosi pe alt calculator. Dezinstalarea nu face asta: dezinstalatorul nu face nicio cerere de rețea, deci șterge licența din Setări înainte. Contractul nu spune ce se întâmplă cu cererea dacă în acel moment nu există conexiune, și nici, în aceste cuvinte, că cele două fișiere locale se șterg; nimic din acestea nu e verificat.
+
+**Când nu e activă.** Adresa serverului și cheia publică vin din două fișiere din depozit, `crates/valet-core/license/api.txt` și `pubkey.txt`. Când unul e gol sau lipsește, aplicația nu face nicio cerere de licență, o licență Pro nu se poate activa, iar proba și planul Gratuit merg așa cum e descris. La data scrierii ambele fișiere sunt goale (0 octeți), deci un build făcut din acest depozit nu are verificare de licență. Un build de release o are doar dacă proprietarul depozitului a completat fișierele înainte de build.
+
 ### Alte conexiuni
 
 - Instalatorul descarcă programul de pornire Microsoft WebView2, și WebView2 însuși, doar dacă WebView2 nu e instalat pe calculator (`downloadBootstrapper` în `tauri.conf.json`; conform `docs/RELEASE.md`, secțiunea 6). Aici vorbește instalatorul cu Microsoft, nu Valet.
@@ -64,6 +92,7 @@ Un build făcut fără cheile actualizatorului nu rulează deloc cod de actualiz
 | `config.json` | Folderele urmărite. |
 | `app_settings.json` | Limba, notificarea pornită sau oprită, pornirea cu Windows, organizarea automată pornită sau oprită, dacă ai terminat ghidul de prima pornire, dacă ai aprobat o previzualizare, canalul de actualizare și comutatorul jurnalului detaliat. |
 | `approvals.json` | Pentru fiecare regulă, versiunea aprobată și folderele urmărite ale previzualizării care a aprobat-o. |
+| `license.valet-license`, `activation.valet-token` | Doar după ce imporți o licență Pro: fișierul de licență semnat (are identificatorul licenței, emailul pe care s-a vândut, numărul de activări permise și data până la care actualizările sunt incluse) și ultimul răspuns semnat al serverului. Vezi „Verificarea licenței”. |
 
 Înainte de această versiune, baza de date avea și un tabel cu statistici de operații (`operation_history`). Migrarea `0005_drop_operation_history.sql` îl șterge. Jurnalul e singurul istoric. Testul `storage::tests::migration_0005_drops_operation_history_and_keeps_the_journal` verifică faptul că tabelul dispare și rândurile jurnalului rămân.
 
@@ -85,10 +114,10 @@ Fișierul de jurnal e `valet.log`. Locul vine din `app_log_dir` al Tauri și din
 
 - **Nicio telemetrie.** Nimic nu numără ce faci, și nu există nicio bibliotecă de analiză în `Cargo.toml` sau `package.json`.
 - **Niciun raport de erori.** Sentry nu e integrat. O cădere sau o panică lasă o linie în jurnalul local și nimic altceva. Dacă rapoartele de erori se adaugă mai târziu, vor fi opt-in (oprite până le pornești), un ecran numit „Ce trimitem” va arăta exact ce se trimite, iar căile vor fi scoase înainte de trimitere (PLAN 4.5). Nimic din toate acestea nu există încă.
-- **Nicio verificare de licență.** În această versiune nu există. Planul permite una mai târziu (PLAN 2.6, punctul 7); când se adaugă, pagina se schimbă.
+- **Nicio verificare de licență, dacă nu imporți o licență Pro.** Gratuit și proba nu contactează niciodată un server de licențe. Cu o licență importată, verificarea e cea descrisă în secțiunea 1, și doar într-un build care are un server de licențe configurat.
 - **Niciun cont, nicio reclamă, nicio copie în cloud** a regulilor, jurnalului sau fișierelor tale.
 
-Nimic nu împiedică o versiune viitoare să adauge un apel de rețea, și niciun test nu pică dacă se adaugă unul. Cele două lucruri din cod care fixează comportamentul de acum sunt `updater::tests::endpoints_match_the_release_config_script` (cele două adrese de mai sus sunt cele pe care fluxul de release le scrie în build) și `updater::tests::not_configured_without_updater_section` (`tauri.conf.json` nu are secțiune de actualizator; build-urile de release o adaugă).
+Nimic nu împiedică o versiune viitoare să adauge un apel de rețea, și niciun test nu pică dacă se adaugă unul. Cele două lucruri din cod care fixează comportamentul actualizatorului sunt `updater::tests::endpoints_match_the_release_config_script` (cele două adrese de mai sus sunt cele pe care fluxul de release le scrie în build) și `updater::tests::not_configured_without_updater_section` (`tauri.conf.json` nu are secțiune de actualizator; build-urile de release o adaugă).
 
 ## 4. Dezinstalarea
 
@@ -98,6 +127,7 @@ Instalatorul e per utilizator și folosește șablonul NSIS al Tauri. La dezinst
 - Cu caseta bifată, dezinstalatorul șterge `%APPDATA%\ro.valetapp.desktop` (setările, regulile, aprobările și jurnalul, deci Istoricul și anularea dispar) și, de asemenea, `%LOCALAPPDATA%\ro.valetapp.desktop` (jurnalele). Asta s-a citit din șablonul `tauri-bundler` 2.6.1 și 2.10.4 (`RmDir /r` pe ambele foldere); nu s-a rulat nicio dezinstalare pe Windows.
 - Intrarea de pornire cu Windows se șterge la dezinstalare, indiferent dacă caseta e bifată (același șablon).
 - Cu caseta nebifată, o instalare ulterioară găsește vechiul jurnal și vechile setări și merge mai departe. Testele de upgrade de mai jos acoperă asta pentru baze de date ale versiunilor anterioare.
+- Fișierele de licență sunt în același folder, deci se păstrează din oficiu și se șterg cu caseta bifată. Dezinstalatorul nu contactează serverul de licențe și nu eliberează activarea; dacă vrei activarea înapoi, șterge licența din Setări înainte de dezinstalare.
 - Fișierele pe care Valet le-a mutat sau copiat rămân unde sunt. Fișierele din Coșul de reciclare rămân acolo. Dezinstalarea nu anulează nimic.
 
 Ca să ștergi tot cu mâna, șterge cele două foldere de mai sus.
@@ -112,6 +142,7 @@ cargo tree -p app -i reqwest
 cargo test -p app updater::
 cargo test -p app logging::
 cargo test -p valet-core --test upgrade_journal
+wc -c crates/valet-core/license/api.txt crates/valet-core/license/pubkey.txt
 ```
 
-Prima arată cele două adrese. A doua arată ce crate folosește biblioteca HTTP. Testele sunt cele numite mai sus.
+Prima arată cele două adrese. A doua arată ce crate folosește biblioteca HTTP. Testele sunt cele numite mai sus. Ultima afișează mărimea celor două fișiere de configurare a licenței; 0 pentru ambele înseamnă că build-ul nu are verificare de licență (a afișat 0 și 0 pentru depozitul din care s-a scris această secțiune).
