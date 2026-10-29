@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Privacy – Valet</title>
 <meta name="description" content="What Valet sends over the network, what it stores on your computer, what it does not have, and what happens to the data when you uninstall.">
+<link rel="canonical" href="https://valetapp.ro/en/privacy.html">
+<link rel="alternate" hreflang="ro" href="https://valetapp.ro/privacy.html">
+<link rel="alternate" hreflang="en" href="https://valetapp.ro/en/privacy.html">
+<link rel="alternate" hreflang="x-default" href="https://valetapp.ro/privacy.html">
+<meta property="og:url" content="https://valetapp.ro/en/privacy.html">
 <link rel="stylesheet" href="../style.css">
 </head>
 <body>
@@ -26,6 +31,7 @@
   <p class="lead">This page says what Valet sends over the network, what it stores on your computer, what it does not have, and what happens to the data when you uninstall. It is a summary. The full text, with each statement tied to the code or test it comes from and with what was not checked, is in the repository: <a href="https://github.com/OsztrovszkyVlad/Valet/blob/main/docs/PRIVACY.md">PRIVACY.md</a>.</p>
 
   <p><strong>Short version.</strong> Valet makes two kinds of network request: a check for a new version of itself and, only if you have imported a Pro license, a license check. No file name, path, rule or file content is part of either. Everything else stays on your computer.</p>
+  <p>Buying a license happens outside the app and has its own data (the payment and your email), described below under "Buying a license". Buying is not open yet.</p>
 
   <h2>What goes over the network</h2>
 
@@ -58,6 +64,18 @@
     <li>WebView2 has its own update service; what it contacts is not covered here.</li>
     <li>No network capture was made while Valet ran, so what Tauri and its plugins do beyond the above is read from code, not observed.</li>
   </ul>
+
+  <h2>Buying a license</h2>
+  <p><strong>State.</strong> Buying is not open. What follows describes what is decided for when it opens (the contract in the repository, <code>docs/LICENSING.md</code>), not something that runs now. It has not been tried with a real merchant.</p>
+  <ul>
+    <li><strong>The merchant.</strong> The payment, VAT and refunds are handled by a merchant (Paddle or Stripe Managed Payments; not chosen yet). You pay on the merchant's page, opened in the browser; the app has no payment form. The merchant receives your payment details and your email address. What it keeps is under its own policy, which is not covered here.</li>
+    <li><strong>The license server.</strong> It runs on Fly.io. The region is not chosen yet. It receives a signed notification (webhook) from the merchant for a purchase and for a refund, and it keeps: the license id, the merchant's order ids, the one-way hashed ids of the computers that activated the license, and the dates of those activations. <strong>It does not keep your email address.</strong></li>
+    <li><strong>Your email.</strong> The server receives it from the merchant at the moment of purchase (with Paddle it reads it through Paddle's API) and uses it once: it puts it in the license file and sends the message with the license through Resend, an email delivery service. Resend processes the address to deliver the message; what it keeps is under its own policy. After that the email is only in the message and in your license file, on your computer.</li>
+    <li><strong>Refunds.</strong> Within 14 days of purchase, through the merchant. The merchant tells the server, and the server marks the license as revoked. The app learns about it at the next license check.</li>
+    <li><strong>IP addresses.</strong> The server limits requests per IP address in the memory of the process and does not write them to a log or keep them. The hosting (Fly.io) sees what any hosting sees.</li>
+    <li><strong>What does not change.</strong> The app still does not send your email, file names, paths or contents. The app's requests are the ones described above.</li>
+  </ul>
+  <p>The statements about what the server keeps come from the contract in the repository. The server with the merchant part does not run yet, so they have not been checked on a running server.</p>
 
   <h2>What Valet stores on your computer</h2>
   <ul>

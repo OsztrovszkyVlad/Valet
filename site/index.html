@@ -7,6 +7,11 @@
 <meta name="description" content="Valet este un organizator de fișiere pe bază de reguli pentru Windows, cu previzualizare și anulare. Alternativă la Hazel pentru Windows. Gratuit; Pro 29 € o singură dată.">
 <meta property="og:title" content="Valet – organizator de fișiere pe bază de reguli pentru Windows">
 <meta property="og:description" content="Valet pune ordine în fișierele tale, pe calculatorul tău, după reguli pe care le vezi și le poți anula.">
+<link rel="canonical" href="https://valetapp.ro/">
+<link rel="alternate" hreflang="ro" href="https://valetapp.ro/">
+<link rel="alternate" hreflang="en" href="https://valetapp.ro/en/">
+<link rel="alternate" hreflang="x-default" href="https://valetapp.ro/">
+<meta property="og:url" content="https://valetapp.ro/">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -86,8 +91,9 @@
     <li>Include actualizările timp de 12 luni de la cumpărare. Versiunile apărute în acest interval rămân Pro pentru totdeauna.</li>
     <li>Reînnoirea actualizărilor este opțională: 15 €/an. O versiune apărută după cele 12 luni funcționează ca Gratuit până reînnoiești; versiunea pe care o ai deja merge în continuare.</li>
     <li>O licență se poate activa pe cel mult 3 calculatoare.</li>
+    <li>Rambursare în 14 zile de la cumpărare. Rambursarea se face prin comerciantul care procesează plata, iar licența se revocă la rambursare (detalii în întrebările de mai jos).</li>
   </ul>
-  <p>Cumpărarea nu este deschisă încă, iar activarea unei licențe nu funcționează încă în versiunile de acum: nu e configurat un server de licențe. Proba de 14 zile de Pro complet nu cere card și nu folosește rețeaua: pornește la prima deschidere a aplicației. După probă, dacă nu ai licență, Valet trece pe Gratuit și nu șterge nimic (vezi întrebările de mai jos). Cum se importă și cum se scoate o licență, ce se întâmplă fără internet și ce se schimbă în varianta din Microsoft Store: <a href="https://github.com/OsztrovszkyVlad/Valet/blob/main/docs/USER_GUIDE.ro.md">ghidul de utilizare</a>, secțiunea 18.</p>
+  <p>Cumpărarea nu este deschisă încă. Ea se deschide abia după ce plata și rambursarea au fost încercate cap-coadă, în modul de probă al comerciantului; comerciantul (Paddle sau Stripe) nu este ales încă. Activarea unei licențe nu funcționează încă în versiunile de acum: nu e configurat un server de licențe. Proba de 14 zile de Pro complet nu cere card și nu folosește rețeaua: pornește la prima deschidere a aplicației. După probă, dacă nu ai licență, Valet trece pe Gratuit și nu șterge nimic (vezi întrebările de mai jos). Cum se importă și cum se scoate o licență, ce se întâmplă fără internet și ce se schimbă în varianta din Microsoft Store: <a href="https://github.com/OsztrovszkyVlad/Valet/blob/main/docs/USER_GUIDE.ro.md">ghidul de utilizare</a>, secțiunea 18.</p>
 </section>
 
 <section id="descarca">
@@ -125,6 +131,22 @@
   </details>
 
   <details>
+    <summary>Pot cere banii înapoi?</summary>
+    <p>Da, în 14 zile de la cumpărare. Rambursarea se face prin comerciantul care a procesat plata, nu direct de Valet. Când rambursarea e făcută, licența este revocată.</p>
+    <ul>
+      <li><strong>Ce vede aplicația.</strong> Valet află de revocare la următoarea verificare a licenței, care are loc cel mult o dată la 30 de zile; dacă apeși „Verifică licența acum” în Setări, Valet Pro, are loc pe loc. Apoi Valet trece pe proba de 14 zile, dacă încă n-a trecut, sau pe planul Gratuit. Regulile, folderele, istoricul și setările rămân; ce depășește limitele Gratuit se dezactivează, nu se șterge.</li>
+      <li><strong>Fișierul licenței</strong> rămâne pe calculator, ca Setările să poată spune de ce nu mai e activă.</li>
+      <li><strong>Cumpărarea nu e deschisă încă</strong>, deci deocamdată nu există nimic de rambursat.</li>
+    </ul>
+  </details>
+
+  <details>
+    <summary>Unde cer ajutor sau raportez o problemă?</summary>
+    <p>Pe <a href="https://github.com/OsztrovszkyVlad/Valet/issues">GitHub Issues</a>. Deocamdată nu există altă cale de contact, nici o adresă de email.</p>
+    <p>Paginile de pe GitHub Issues sunt publice. Nu pune în ele adresa ta de email, fișierul licenței sau fișiere de-ale tale. Jurnalul Valet poate conține căi de fișiere dacă ai pornit „Jurnal detaliat”: citește-l înainte să-l lipești. Dacă un fișier pare dispărut, uită-te întâi în Coșul de reciclare și în Istoric.</p>
+  </details>
+
+  <details>
     <summary>Ce versiuni de Windows sunt acceptate?</summary>
     <p>Windows 10 22H2 și Windows 11, pe 64 de biți. Valet folosește Microsoft WebView2: Windows 11 îl are instalat, iar instalatorul îl descarcă pe Windows 10 dacă lipsește (singurul caz în care instalatorul are nevoie de internet). Beta nu a fost încă încercată pe toate configurațiile de Windows.</p>
   </details>
@@ -144,7 +166,7 @@
 
 <footer>
   <div class="wrap">
-    <p>Valet · licență MIT · <a href="https://github.com/OsztrovszkyVlad/Valet">cod sursă pe GitHub</a> · <a href="privacy.html">Confidențialitate</a> · <a href="en/index.html" hreflang="en" lang="en">English</a></p>
+    <p>Valet · licență MIT · <a href="https://github.com/OsztrovszkyVlad/Valet">cod sursă pe GitHub</a> · <a href="https://github.com/OsztrovszkyVlad/Valet/issues">Asistență (GitHub Issues)</a> · <a href="privacy.html">Confidențialitate</a> · <a href="en/index.html" hreflang="en" lang="en">English</a></p>
     <p>Această pagină nu încarcă nimic de pe alte site-uri și nu folosește cookie-uri.</p>
   </div>
 </footer>

@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Confidențialitate – Valet</title>
 <meta name="description" content="Ce trimite Valet prin rețea, ce păstrează pe calculatorul tău, ce nu are și ce se întâmplă cu datele la dezinstalare.">
+<link rel="canonical" href="https://valetapp.ro/privacy.html">
+<link rel="alternate" hreflang="ro" href="https://valetapp.ro/privacy.html">
+<link rel="alternate" hreflang="en" href="https://valetapp.ro/en/privacy.html">
+<link rel="alternate" hreflang="x-default" href="https://valetapp.ro/privacy.html">
+<meta property="og:url" content="https://valetapp.ro/privacy.html">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -26,6 +31,7 @@
   <p class="lead">Pagina spune ce trimite Valet prin rețea, ce păstrează pe calculatorul tău, ce nu are și ce se întâmplă cu datele la dezinstalare. Este un rezumat. Textul complet, cu fiecare afirmație legată de codul sau testul de unde vine și cu ce nu a fost verificat, e în depozit: <a href="https://github.com/OsztrovszkyVlad/Valet/blob/main/docs/PRIVACY.ro.md">PRIVACY.ro.md</a>.</p>
 
   <p><strong>Pe scurt.</strong> Valet face două feluri de cerere de rețea: verificarea unei versiuni noi a lui însuși și, doar dacă ai importat o licență Pro, verificarea licenței. Nicio denumire de fișier, cale, regulă sau conținut de fișier nu face parte din vreuna. Restul rămâne pe calculatorul tău.</p>
+  <p>Cumpărarea unei licențe se face în afara aplicației și are o parte proprie de date (plata și emailul tău), descrisă mai jos, la „Cumpărarea unei licențe”. Cumpărarea nu este deschisă încă.</p>
 
   <h2>Ce merge prin rețea</h2>
 
@@ -58,6 +64,18 @@
     <li>WebView2 are propriul serviciu de actualizare; ce contactează el nu e tratat aici.</li>
     <li>Nu s-a făcut o captură de trafic cât a rulat Valet, deci ce fac Tauri și pluginurile lui în afară de cele de mai sus e citit din cod, nu observat.</li>
   </ul>
+
+  <h2>Cumpărarea unei licențe</h2>
+  <p><strong>Stare.</strong> Cumpărarea nu este deschisă. Ce urmează descrie ce e hotărât pentru momentul în care se deschide (contractul din depozit, <code>docs/LICENSING.md</code>), nu ceva ce rulează acum. Nu a fost încercat cu un comerciant real.</p>
+  <ul>
+    <li><strong>Comerciantul.</strong> Plata, TVA-ul și rambursarea sunt tratate de un comerciant (Paddle sau Stripe Managed Payments; nu este ales încă). Plata se face pe pagina comerciantului, deschisă în browser; aplicația nu are formular de plată. Comerciantul primește datele de plată și adresa ta de email. Ce păstrează el ține de politica lui, care nu e tratată aici.</li>
+    <li><strong>Serverul de licențe.</strong> Rulează pe Fly.io. Regiunea nu este aleasă încă. Primește de la comerciant o notificare semnată (webhook) pentru cumpărare și pentru rambursare și păstrează: identificatorul licenței, identificatorii comenzii la comerciant, identificatorii hash ai calculatoarelor care au activat licența și datele acestor activări. <strong>Nu păstrează adresa ta de email.</strong></li>
+    <li><strong>Emailul tău.</strong> Serverul îl primește de la comerciant în momentul cumpărării (la Paddle îl citește prin API-ul lui) și îl folosește o singură dată: îl pune în fișierul licenței și trimite mesajul cu licența prin Resend, un serviciu de trimis emailuri. Resend procesează adresa ca să livreze mesajul; ce păstrează el ține de politica lui. Emailul rămâne apoi doar în mesaj și în fișierul tău de licență, pe calculatorul tău.</li>
+    <li><strong>Rambursarea.</strong> În 14 zile de la cumpărare, prin comerciant. Comerciantul anunță serverul, iar serverul marchează licența ca revocată. Aplicația află la următoarea verificare a licenței.</li>
+    <li><strong>Adrese IP.</strong> Serverul limitează numărul de cereri pe adresă IP în memoria procesului și nu le scrie în jurnal și nu le păstrează. Găzduirea (Fly.io) vede ce vede orice găzduire.</li>
+    <li><strong>Ce nu se schimbă.</strong> Aplicația tot nu trimite emailul, numele de fișiere, căi sau conținut. Cererile aplicației sunt cele descrise mai sus.</li>
+  </ul>
+  <p>Afirmațiile despre ce păstrează serverul vin din contractul din depozit; serverul cu partea de comerciant nu rulează încă, deci nu au fost verificate pe un server pornit.</p>
 
   <h2>Ce păstrează Valet pe calculatorul tău</h2>
   <ul>

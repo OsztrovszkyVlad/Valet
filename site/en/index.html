@@ -7,6 +7,11 @@
 <meta name="description" content="Valet is a rules-based file organizer for Windows with preview and undo. A Hazel for Windows alternative. Free; Pro is a one-time 29 EUR with VAT included.">
 <meta property="og:title" content="Valet – rules-based file organizer for Windows">
 <meta property="og:description" content="Valet puts your files in order, on your own computer, by rules you can see and undo.">
+<link rel="canonical" href="https://valetapp.ro/en/">
+<link rel="alternate" hreflang="ro" href="https://valetapp.ro/">
+<link rel="alternate" hreflang="en" href="https://valetapp.ro/en/">
+<link rel="alternate" hreflang="x-default" href="https://valetapp.ro/">
+<meta property="og:url" content="https://valetapp.ro/en/">
 <link rel="stylesheet" href="../style.css">
 </head>
 <body>
@@ -86,8 +91,9 @@
     <li>Includes updates for 12 months from purchase. Versions released in that period stay Pro for good.</li>
     <li>Renewing updates is optional: €15 per year. A version released after the 12 months works as Free until you renew; the version you already have keeps working.</li>
     <li>One license can be activated on at most 3 computers.</li>
+    <li>Refund within 14 days of purchase. The refund goes through the merchant that processes the payment, and the license is revoked on refund (details in the questions below).</li>
   </ul>
-  <p>Buying is not open yet, and activating a license does not work yet in the current builds: no license server is configured. The 14-day trial of full Pro needs no card and uses no network: it starts the first time the app opens. After the trial, if you have no license, Valet falls back to Free and deletes nothing (see the questions below). How a license is imported and removed, what happens without internet, and what changes in the Microsoft Store version: <a href="https://github.com/OsztrovszkyVlad/Valet/blob/main/docs/USER_GUIDE.en.md">the user guide</a>, section 18.</p>
+  <p>Buying is not open yet. It opens only after payment and refund have been tried end to end in the merchant's test mode; the merchant (Paddle or Stripe) is not chosen yet. Activating a license does not work yet in the current builds: no license server is configured. The 14-day trial of full Pro needs no card and uses no network: it starts the first time the app opens. After the trial, if you have no license, Valet falls back to Free and deletes nothing (see the questions below). How a license is imported and removed, what happens without internet, and what changes in the Microsoft Store version: <a href="https://github.com/OsztrovszkyVlad/Valet/blob/main/docs/USER_GUIDE.en.md">the user guide</a>, section 18.</p>
 </section>
 
 <section id="download">
@@ -125,6 +131,22 @@
   </details>
 
   <details>
+    <summary>Can I get my money back?</summary>
+    <p>Yes, within 14 days of purchase. The refund goes through the merchant that processed the payment, not directly through Valet. When the refund is made, the license is revoked.</p>
+    <ul>
+      <li><strong>What the app does.</strong> Valet learns about the revocation at the next license check, which happens at most once every 30 days; if you press "Check license now" in Settings, Valet Pro, it happens at once. Then Valet goes back to the 14-day trial, if it has not ended, or to the Free plan. Your rules, folders, history and settings stay; whatever goes over the Free limits is switched off, not deleted.</li>
+      <li><strong>The license file</strong> stays on the computer, so Settings can say why it is no longer active.</li>
+      <li><strong>Buying is not open yet</strong>, so for now there is nothing to refund.</li>
+    </ul>
+  </details>
+
+  <details>
+    <summary>Where do I ask for help or report a problem?</summary>
+    <p>On <a href="https://github.com/OsztrovszkyVlad/Valet/issues">GitHub Issues</a>. For now there is no other way to get in touch, and no email address.</p>
+    <p>Pages on GitHub Issues are public. Do not put your email address, your license file or any of your files in them. The Valet log can contain file paths if you switched on "Detailed log": read it before you paste it. If a file seems to be missing, look in the Recycle Bin and in History first.</p>
+  </details>
+
+  <details>
     <summary>Which Windows versions are supported?</summary>
     <p>Windows 10 22H2 and Windows 11, 64-bit. Valet uses Microsoft WebView2: Windows 11 has it installed, and the installer downloads it on Windows 10 if it is missing (the only case where the installer needs the internet). The beta has not been tried on every Windows setup yet.</p>
   </details>
@@ -144,7 +166,7 @@
 
 <footer>
   <div class="wrap">
-    <p>Valet · MIT license · <a href="https://github.com/OsztrovszkyVlad/Valet">source code on GitHub</a> · <a href="privacy.html">Privacy</a> · <a href="../index.html" hreflang="ro" lang="ro">Română</a></p>
+    <p>Valet · MIT license · <a href="https://github.com/OsztrovszkyVlad/Valet">source code on GitHub</a> · <a href="https://github.com/OsztrovszkyVlad/Valet/issues">Support (GitHub Issues)</a> · <a href="privacy.html">Privacy</a> · <a href="../index.html" hreflang="ro" lang="ro">Română</a></p>
     <p>This page loads nothing from other sites and uses no cookies.</p>
   </div>
 </footer>
