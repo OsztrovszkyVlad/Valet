@@ -96,7 +96,14 @@ Base URL and public key come from `crates/valet-core/license/` files committed b
 - Activation storage: one small interface (`get`, `put`). The repo ships a JSON-file implementation for tests and local runs. The hosting decision (Vlad) adds the real one.
 - `node services/license/issue.mjs --email a@b.c [--days 365]` issues a license file by hand (for test purchases and support).
 - `node services/license/reset.mjs --license <id>` clears the active machines of a license (support: the old PC is gone and can't deactivate). History is kept.
-- The merchant webhook (Paddle, Polar or Stripe, Vlad's decision) is not part of this contract yet.
+- Merchant webhook (Vlad, 2026-10-29: Paddle or Stripe Managed Payments, picked with `VALET_MERCHANT=paddle|stripe` once the written answer on PFA arrives). One route, `POST /v1/webhook/<merchant>`:
+  - The signature is checked on the raw body before anything else (Paddle: `Paddle-Signature` `ts=…;h1=…`, HMAC-SHA256 over `ts:body`; Stripe: `Stripe-Signature` `t=…,v1=…`, HMAC-SHA256 over `t.body`), with the secret from `VALET_WEBHOOK_SECRET` and a 5-minute timestamp tolerance. A bad signature gets 400 and changes nothing.
+  - Purchase (Paddle `transaction.completed`; Stripe `checkout.session.completed` with `payment_status = paid`) → `issue` (365 days, 3 activations) → email with the license file attached, through Resend (`VALET_RESEND_API_KEY`, `VALET_MAIL_FROM`). Paddle events carry a customer id, not the email: the service reads it with `GET /customers/{id}` (`VALET_PADDLE_API_KEY`).
+  - Refund (Paddle `adjustment.created`/`adjustment.updated` with `action = refund` and `status = approved`; Stripe `charge.refunded`) → `revoke` (Vlad: refunds within 14 days, and a refund revokes the license).
+  - Idempotent: the store maps the merchant's order id (Paddle transaction id; Stripe checkout session id and payment intent id) to the license id. A repeated event issues nothing new. An email that fails is retried on the merchant's redelivery without issuing a second license.
+  - The store keeps merchant ids and the license id, never the email. The email exists only inside the signed license file and in the message sent through Resend.
+- Hosting (Vlad, 2026-10-29): Fly.io, one machine with a persistent volume, JSON store on the volume, daily backup of the JSON file on the same volume (dated copies, the last 30 kept), rate limiting per client IP in the process (IPs are not logged or stored).
+- Selling opens only when the webhook of the chosen merchant has passed a sandbox purchase and refund end to end (Vlad, decision 10). Until then `checkout.txt` stays empty.
 - The secret key is read from the `VALET_LICENSE_SECRET_KEY` environment variable on the server. It is never committed. Tests use a key generated at test time. Committed fixtures are signed with a key labelled TEST whose public half is never shipped.
 
 ## App commands (Tauri, `commands/license.rs` unless noted)
