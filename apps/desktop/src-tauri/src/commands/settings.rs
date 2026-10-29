@@ -3,12 +3,16 @@
 //!
 //! These files are Valet's own; they are the only files Valet overwrites.
 //!
-//! `get_config` returns `{ inbox_paths, invalid_paths: [{ path, code }] }`:
-//! entries of a hand-edited `config.json` that `save_config` would refuse
-//! stay in the file but are not watched or planned (see [`ConfigView`]).
+//! `get_config` returns `{ inbox_paths, invalid_paths: [{ path, code }],
+//! unavailable_paths }`: entries of a hand-edited `config.json` that
+//! `save_config` would refuse stay in the file but are not watched or
+//! planned; folders that do not exist right now (an unplugged drive) are
+//! saved, reported as unavailable and skipped until they exist again (see
+//! [`ConfigView`]).
 //!
-//! Errors are stable codes the UI translates: `config.driveRoot`,
-//! `config.excludedFolder` and `config.missing` (each as `code: <path>`),
+//! Errors are stable codes the UI translates: `config.driveRoot` and
+//! `config.excludedFolder` (each as `code: <path>`), `config.missing` (only
+//! from onboarding, for an unknown folder token, see `presets.rs`),
 //! `config.noFolders` (from `dry_run`), `settings.invalidChannel` (from
 //! `save_app_settings`), `settings.io` and `config.io` (detail in the log).
 
@@ -84,16 +88,15 @@ pub(crate) fn in_excluded_folder(path: &str) -> bool {
 }
 
 /// The problem with one watched-folder entry, if any: a drive or share root
-/// (`config.driveRoot`), inside a default-excluded folder
-/// (`config.excludedFolder`), or not an existing path (`config.missing`),
-/// checked in that order. The user profile folder itself is allowed.
-pub(crate) fn path_problem(path: &str, exists: impl Fn(&Path) -> bool) -> Option<&'static str> {
+/// (`config.driveRoot`) or inside a default-excluded folder
+/// (`config.excludedFolder`), checked in that order. The user profile folder
+/// itself is allowed. Pure string check: a folder that does not exist is not
+/// a problem here (see [`split_config`]).
+pub(crate) fn path_problem(path: &str) -> Option<&'static str> {
     if is_drive_root(path) {
         Some(ERR_DRIVE_ROOT)
     } else if in_excluded_folder(path) {
         Some(ERR_EXCLUDED_FOLDER)
-    } else if !exists(Path::new(path)) {
-        Some(ERR_MISSING)
     } else {
         None
     }
@@ -101,12 +104,9 @@ pub(crate) fn path_problem(path: &str, exists: impl Fn(&Path) -> bool) -> Option
 
 /// Checks each watched folder with [`path_problem`]. Returns `code: <path>`
 /// for the first problem.
-pub(crate) fn validate_config(
-    config: &Config,
-    exists: impl Fn(&Path) -> bool,
-) -> Result<(), String> {
+pub(crate) fn validate_config(config: &Config) -> Result<(), String> {
     for path in &config.inbox_paths {
-        if let Some(code) = path_problem(path, &exists) {
+        if let Some(code) = path_problem(path) {
             return Err(format!("{code}: {path}"));
         }
     }
@@ -120,25 +120,33 @@ pub(crate) struct InvalidPath {
     pub(crate) code: &'static str,
 }
 
-/// Splits the entries of `config` into the folders to watch and plan (in
-/// configuration order) and the entries [`path_problem`] refuses. Applies to
-/// a hand-edited `config.json` the checks `save_config` applies.
-pub(crate) fn split_config(
-    config: &Config,
-    exists: impl Fn(&Path) -> bool,
-) -> (Vec<PathBuf>, Vec<InvalidPath>) {
-    let mut valid = Vec::new();
-    let mut invalid = Vec::new();
+/// The entries of `config` by what Valet does with them, each in
+/// configuration order.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct ConfigSplit {
+    /// Watched and planned.
+    pub(crate) available: Vec<PathBuf>,
+    /// Refused by [`path_problem`] (hand-edited `config.json`).
+    pub(crate) invalid: Vec<InvalidPath>,
+    /// Valid but not existing right now; picked up again once they exist.
+    pub(crate) unavailable: Vec<String>,
+}
+
+/// Splits the entries of `config`: [`path_problem`] first (the checks
+/// `save_config` applies, for a hand-edited `config.json`), then `exists`.
+pub(crate) fn split_config(config: &Config, exists: impl Fn(&Path) -> bool) -> ConfigSplit {
+    let mut split = ConfigSplit::default();
     for path in &config.inbox_paths {
-        match path_problem(path, &exists) {
-            None => valid.push(PathBuf::from(path)),
-            Some(code) => invalid.push(InvalidPath {
+        match path_problem(path) {
+            Some(code) => split.invalid.push(InvalidPath {
                 path: path.clone(),
                 code,
             }),
+            None if exists(Path::new(path)) => split.available.push(PathBuf::from(path)),
+            None => split.unavailable.push(path.clone()),
         }
     }
-    (valid, invalid)
+    split
 }
 
 fn read_config(dir: &Path) -> Result<Config, String> {
@@ -161,41 +169,56 @@ fn io_err(code: &str, e: impl std::fmt::Display) -> String {
     code.to_string()
 }
 
-/// Watched folders from `config.json` that pass [`path_problem`] (exist, no
-/// drive root, not in an excluded folder); the others are ignored and only
-/// counted in the log. `config.noFolders` when none is left.
+/// The available watched folders from `config.json` ([`split_config`] with
+/// the disk as it is now). Invalid and unavailable entries are skipped and
+/// only counted in the log. `config.noFolders` when none is left. Read again
+/// on every call, so a folder that reappears is picked up by the next caller
+/// (manual preview, `save_config`, the auto-apply rescan).
 pub(crate) fn watched_folders(dir: &Path) -> Result<Vec<PathBuf>, String> {
-    let (paths, invalid) = split_config(&read_config(dir)?, Path::exists);
-    if !invalid.is_empty() {
+    watched_folders_in(dir, Path::exists)
+}
+
+fn watched_folders_in(dir: &Path, exists: impl Fn(&Path) -> bool) -> Result<Vec<PathBuf>, String> {
+    let split = split_config(&read_config(dir)?, exists);
+    if !split.invalid.is_empty() {
         log::info!(
-            "{} watched folder entr(ies) in config.json ignored (drive root, excluded or missing folder)",
-            invalid.len()
+            "{} watched folder entr(ies) in config.json ignored (drive root or excluded folder)",
+            split.invalid.len()
         );
     }
-    if paths.is_empty() {
+    if !split.unavailable.is_empty() {
+        log::info!(
+            "{} watched folder(s) unavailable, skipped until they exist again",
+            split.unavailable.len()
+        );
+    }
+    if split.available.is_empty() {
         Err(ERR_NO_FOLDERS.to_string())
     } else {
-        Ok(paths)
+        Ok(split.available)
     }
 }
 
 /// What `get_config` returns: the stored config (`inbox_paths`, unchanged,
-/// invalid entries included) plus `invalid_paths`, the entries Valet does
-/// not watch or plan, each `{ path, code }` with code `config.driveRoot`,
-/// `config.excludedFolder` or `config.missing`.
+/// every entry included) plus `invalid_paths`, the entries Valet refuses,
+/// each `{ path, code }` with code `config.driveRoot` or
+/// `config.excludedFolder`, and `unavailable_paths`, the valid entries that
+/// do not exist right now (not watched or planned until they do).
 #[derive(Serialize, Debug, Clone, PartialEq)]
 pub(crate) struct ConfigView {
     #[serde(flatten)]
     pub(crate) config: Config,
     pub(crate) invalid_paths: Vec<InvalidPath>,
+    pub(crate) unavailable_paths: Vec<String>,
 }
 
 fn config_view(dir: &Path, exists: impl Fn(&Path) -> bool) -> Result<ConfigView, String> {
     let config = read_config(dir)?;
-    let (_, invalid_paths) = split_config(&config, exists);
+    let split = split_config(&config, exists);
     Ok(ConfigView {
         config,
-        invalid_paths,
+        invalid_paths: split.invalid,
+        unavailable_paths: split.unavailable,
     })
 }
 
@@ -204,11 +227,12 @@ pub(crate) async fn get_config(app: tauri::AppHandle) -> Result<ConfigView, Stri
     config_view(&config_dir(&app)?, Path::exists)
 }
 
-/// Validates and writes `config`. Before writing, approvals lose the
-/// folders `config` no longer has (see [`prune_approval_roots`]); if that
-/// fails nothing is written.
+/// Validates and writes `config`. A folder that does not exist is saved
+/// (unavailable, see [`split_config`]). Before writing, approvals lose the
+/// folders `config` no longer has (see [`prune_approval_roots`]), so an
+/// unavailable folder keeps its approvals; if that fails nothing is written.
 fn save_config_in(dir: &Path, config: Config) -> Result<Config, String> {
-    validate_config(&config, Path::exists)?;
+    validate_config(&config)?;
     prune_approval_roots(dir, &config.inbox_paths)?;
     write_json(dir, CONFIG_FILE, &config, ERR_CONFIG_IO)?;
     Ok(config)
@@ -681,28 +705,21 @@ mod tests {
 
     #[test]
     fn validate_config_returns_code_and_path() {
-        let all = |_: &Path| true;
-        assert_eq!(validate_config(&cfg(&["C:\\Users\\Ana"]), all), Ok(()));
+        assert_eq!(validate_config(&cfg(&["C:\\Users\\Ana"])), Ok(()));
         assert_eq!(
-            validate_config(&cfg(&["C:\\Users\\Ana", "D:\\"]), all),
+            validate_config(&cfg(&["C:\\Users\\Ana", "D:\\"])),
             Err("config.driveRoot: D:\\".to_string())
         );
         assert_eq!(
-            validate_config(&cfg(&["\\\\nas\\share"]), all),
+            validate_config(&cfg(&["\\\\nas\\share"])),
             Err("config.driveRoot: \\\\nas\\share".to_string())
         );
         assert_eq!(
-            validate_config(&cfg(&["C:\\Users\\Ana\\AppData\\Local"]), all),
+            validate_config(&cfg(&["C:\\Users\\Ana\\AppData\\Local"])),
             Err("config.excludedFolder: C:\\Users\\Ana\\AppData\\Local".to_string())
         );
-        assert_eq!(
-            validate_config(&cfg(&["C:\\Nope"]), |_| false),
-            Err("config.missing: C:\\Nope".to_string())
-        );
-        // A drive root is reported as such even when it exists.
-        assert!(validate_config(&cfg(&["C:\\"]), all)
-            .unwrap_err()
-            .starts_with(ERR_DRIVE_ROOT));
+        // A folder that does not exist (unplugged drive) is not refused.
+        assert_eq!(validate_config(&cfg(&["E:\\Backup\\in"])), Ok(()));
     }
 
     #[test]
@@ -722,10 +739,26 @@ mod tests {
         assert_eq!(save_config_in(&dir, ok.clone()).unwrap(), ok);
         assert_eq!(read_config(&dir).unwrap(), ok);
 
-        let missing = watched.join("valet-test-missing");
-        let err = save_config_in(&dir, cfg(&[missing.to_str().unwrap()])).unwrap_err();
-        assert!(err.starts_with("config.missing: "), "{err}");
+        let err = save_config_in(&dir, cfg(&[w, "C:\\"])).unwrap_err();
+        assert!(err.starts_with("config.driveRoot: "), "{err}");
         assert_eq!(read_config(&dir).unwrap(), ok, "unchanged after a refusal");
+
+        // A missing folder is saved and reported as unavailable.
+        let missing = watched.join("valet-test-missing");
+        let m = missing.to_str().unwrap();
+        let with_missing = cfg(&[w, m]);
+        assert_eq!(
+            save_config_in(&dir, with_missing.clone()).unwrap(),
+            with_missing
+        );
+        assert_eq!(read_config(&dir).unwrap(), with_missing);
+        let view = config_view(&dir, Path::exists).unwrap();
+        assert!(view.invalid_paths.is_empty());
+        assert_eq!(view.unavailable_paths, [m]);
+        assert_eq!(watched_folders(&dir).unwrap(), vec![watched.to_path_buf()]);
+        // Only missing folders: saved, nothing to watch or plan.
+        save_config_in(&dir, cfg(&[m])).unwrap();
+        assert_eq!(watched_folders(&dir).unwrap_err(), ERR_NO_FOLDERS);
     }
 
     #[test]
@@ -796,24 +829,31 @@ mod tests {
             "C:\\Users\\Ana\\Gone",
             "\\\\nas\\share",
         ]);
-        let (valid, invalid) = split_config(&c, exists);
-        assert_eq!(valid, vec![PathBuf::from("C:\\Users\\Ana\\Downloads")]);
-        let got: Vec<(&str, &str)> = invalid.iter().map(|i| (i.path.as_str(), i.code)).collect();
+        let split = split_config(&c, exists);
+        assert_eq!(
+            split.available,
+            vec![PathBuf::from("C:\\Users\\Ana\\Downloads")]
+        );
+        let got: Vec<(&str, &str)> = split
+            .invalid
+            .iter()
+            .map(|i| (i.path.as_str(), i.code))
+            .collect();
         assert_eq!(
             got,
             [
                 ("D:\\", ERR_DRIVE_ROOT),
                 ("C:\\Users\\Ana\\AppData\\x", ERR_EXCLUDED_FOLDER),
-                ("C:\\Users\\Ana\\Gone", ERR_MISSING),
                 ("\\\\nas\\share", ERR_DRIVE_ROOT),
             ]
         );
+        assert_eq!(split.unavailable, ["C:\\Users\\Ana\\Gone"]);
         // Every entry save_config accepts is valid here, and only those.
         for path in &c.inbox_paths {
             let one = cfg(&[path]);
             assert_eq!(
-                validate_config(&one, exists).is_ok(),
-                split_config(&one, exists).1.is_empty(),
+                validate_config(&one).is_ok(),
+                split_config(&one, exists).invalid.is_empty(),
                 "{path}"
             );
         }
@@ -848,8 +888,8 @@ mod tests {
                     { "path": "/", "code": "config.driveRoot" },
                     { "path": "C:\\", "code": "config.driveRoot" },
                     { "path": excluded.to_str().unwrap(), "code": "config.excludedFolder" },
-                    { "path": gone.to_str().unwrap(), "code": "config.missing" },
                 ],
+                "unavailable_paths": [gone.to_str().unwrap()],
             })
         );
         assert_eq!(
@@ -866,8 +906,38 @@ mod tests {
             ConfigView {
                 config: Config::default(),
                 invalid_paths: vec![],
+                unavailable_paths: vec![],
             }
         );
+    }
+
+    #[test]
+    fn unavailable_folder_is_picked_up_again_when_it_reappears() {
+        let tmp = tempfile::tempdir().unwrap();
+        let usb = "E:\\Photos";
+        let home = "C:\\Users\\Ana\\Downloads";
+        write_json(tmp.path(), CONFIG_FILE, &cfg(&[usb, home]), ERR_CONFIG_IO).unwrap();
+        let plugged = std::cell::Cell::new(false);
+        let exists = |p: &Path| p == Path::new(home) || (plugged.get() && p == Path::new(usb));
+
+        assert_eq!(
+            watched_folders_in(tmp.path(), exists).unwrap(),
+            vec![PathBuf::from(home)]
+        );
+        let view = config_view(tmp.path(), exists).unwrap();
+        assert_eq!(view.unavailable_paths, [usb]);
+        assert!(view.invalid_paths.is_empty());
+
+        plugged.set(true);
+        assert_eq!(
+            watched_folders_in(tmp.path(), exists).unwrap(),
+            vec![PathBuf::from(usb), PathBuf::from(home)],
+            "configuration order, no restart or save needed"
+        );
+        assert!(config_view(tmp.path(), exists)
+            .unwrap()
+            .unavailable_paths
+            .is_empty());
     }
 
     #[test]
@@ -1183,6 +1253,15 @@ mod tests {
         let a = load_approvals(dir);
         assert!(a.allows(&rule(1, 1), &key(w)));
         assert!(!a.allows(&rule(1, 1), &key(IN)));
+
+        // A folder that is unavailable when saving keeps its approvals.
+        let usb = existing_folder().join("valet-test-missing");
+        let u = usb.to_str().unwrap();
+        approve(dir, &[(1, 1)], &[u]);
+        save_config_in(dir, cfg(&[w, u])).unwrap();
+        let a = load_approvals(dir);
+        assert!(a.allows(&rule(1, 1), &key(u)), "kept while unavailable");
+        assert!(a.allows(&rule(1, 1), &key(w)));
 
         // A refused config changes no approval.
         approve(dir, &[(1, 1)], &[IN]);

@@ -1,7 +1,11 @@
 //! Automatic organizing (PLAN 2.3, 2.5, 4.3, 4.4).
 //!
 //! Inputs: batches of changed paths from the file watcher, and a full rescan
-//! of every watched folder every [`RESCAN_INTERVAL`]. A pass plans the
+//! of every watched folder every [`RESCAN_INTERVAL`]. Only available watched
+//! folders (existing now, see `settings::split_config`) are watched and
+//! planned; before each full rescan the set is read again, so a folder that
+//! disappears (unplugged drive) is dropped and one that reappears is watched
+//! and planned again without a restart. A pass plans the
 //! watched folders that changed and executes only the operations of rules
 //! approved at their current version under the watched folder of the file
 //! (see `settings::Approvals`). Other operations (rule edited or never
@@ -23,7 +27,7 @@ use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Emitter, Manager, Runtime};
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use valet_core::{
     executor::{BatchReport, FailCode, OpResult},
     planner::{PlannedOp, SkipReason, RECENT_WRITE_WINDOW},
@@ -35,6 +39,7 @@ use crate::commands::operations::{execute_blocking, plan_blocking};
 use crate::commands::platform::notify_batch_done;
 use crate::commands::settings::{
     load_app_settings, load_approvals, root_key, watched_folders, AppSettings, Approvals,
+    ERR_NO_FOLDERS,
 };
 use crate::state::AppState;
 
@@ -168,6 +173,22 @@ impl Scheduler {
         }
     }
 
+    /// The full rescan is due at `now`.
+    pub(crate) fn full_due(&self, now: Instant) -> bool {
+        now >= self.next_full
+    }
+
+    /// Before a full rescan: `current` (the watched folders available now)
+    /// replaces the roots when it differs, and all of them are planned.
+    /// Returns whether it changed; the caller then restarts the watcher.
+    pub(crate) fn refresh_roots(&mut self, current: Vec<PathBuf>, now: Instant) -> bool {
+        if current == self.roots {
+            return false;
+        }
+        self.set_roots(current, now);
+        true
+    }
+
     /// When [`Scheduler::take`] next has something.
     pub(crate) fn next_wake(&self) -> Instant {
         self.ready_at
@@ -297,9 +318,20 @@ pub(crate) fn approved_ops(
     (run, unapproved)
 }
 
-/// One automatic pass over `roots`. `Ok(None)` when the gate is closed
-/// (checked before and again after taking `file_ops`). Planning and
-/// execution run on blocking threads.
+/// The `roots` that exist; the others (gone since the last rescan) are
+/// skipped and only counted in the log.
+pub(crate) fn available_roots(roots: &[PathBuf], exists: impl Fn(&Path) -> bool) -> Vec<PathBuf> {
+    let available: Vec<PathBuf> = roots.iter().filter(|r| exists(r)).cloned().collect();
+    let gone = roots.len() - available.len();
+    if gone > 0 {
+        log::info!("{gone} watched folder(s) unavailable, skipped in this pass");
+    }
+    available
+}
+
+/// One automatic pass over the `roots` that exist ([`available_roots`]).
+/// `Ok(None)` when the gate is closed (checked before and again after taking
+/// `file_ops`). Planning and execution run on blocking threads.
 pub(crate) async fn run_pass(
     state: &AppState,
     db: &Db,
@@ -322,6 +354,14 @@ pub(crate) async fn run_pass(
         .await
         .map_err(|e| format!("Failed to load rules: {e}"))?;
     let approvals = load_approvals(cfg_dir);
+    let roots = &available_roots(roots, Path::exists)[..];
+    if roots.is_empty() {
+        return Ok(Some(PassOutcome {
+            report: None,
+            being_written: false,
+            unapproved: 0,
+        }));
+    }
     let plan = plan_blocking(roots.to_vec(), rules.clone(), state.platform.clone()).await?;
     let being_written = plan
         .skipped
@@ -362,20 +402,29 @@ pub(crate) fn start<R: Runtime>(app: &AppHandle<R>, cfg_dir: PathBuf) {
     tauri::async_runtime::spawn(run_loop(app, state, cfg_dir, roots, rx));
 }
 
-/// Replaces the running watcher with one on `roots` (none when empty) and
-/// tells the auto-apply loop about the new folders. Does nothing before
-/// [`start`].
-pub(crate) fn restart_watcher(state: &AppState, roots: Vec<PathBuf>) {
-    let Some(tx) = state
+fn auto_tx(state: &AppState) -> Option<UnboundedSender<AutoMsg>> {
+    state
         .auto_tx
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .clone()
-    else {
+}
+
+/// Replaces the running watcher with one on `roots` (none when empty) and
+/// tells the auto-apply loop about the new folders. Does nothing before
+/// [`start`].
+pub(crate) fn restart_watcher(state: &AppState, roots: Vec<PathBuf>) {
+    let Some(tx) = auto_tx(state) else {
         return;
     };
-    state.stop_watcher();
     let _ = tx.send(AutoMsg::Roots(roots.clone()));
+    spawn_watcher(state, tx, roots);
+}
+
+/// Replaces the running watcher with one on `roots` (none when empty); its
+/// events go to `tx`.
+fn spawn_watcher(state: &AppState, tx: UnboundedSender<AutoMsg>, roots: Vec<PathBuf>) {
+    state.stop_watcher();
     if roots.is_empty() {
         log::info!("No watched folders, watcher not started");
         return;
@@ -435,6 +484,10 @@ async fn run_loop<R: Runtime>(
             },
             _ = tokio::time::sleep_until(wake) => {}
         }
+        let now = Instant::now();
+        if sched.full_due(now) {
+            refresh_watched(&state, &cfg_dir, &mut sched, now);
+        }
         while let Some(work) = sched.take(Instant::now()) {
             retries.on_changed(&work.changed);
             let outcome = match run_pass(
@@ -466,6 +519,24 @@ async fn run_loop<R: Runtime>(
             if let Some(report) = outcome.report {
                 finished(&app, &report);
             }
+        }
+    }
+}
+
+/// Reads the available watched folders again; when they changed (a folder
+/// disappeared or reappeared), the scheduler plans the new set and the
+/// watcher is restarted on it. An unreadable `config.json` keeps the current
+/// folders.
+fn refresh_watched(state: &AppState, cfg_dir: &Path, sched: &mut Scheduler, now: Instant) {
+    let current = match watched_folders(cfg_dir) {
+        Ok(roots) => roots,
+        Err(e) if e == ERR_NO_FOLDERS => Vec::new(),
+        Err(_) => return,
+    };
+    if sched.refresh_roots(current.clone(), now) {
+        log::info!("Available watched folders changed: {}", current.len());
+        if let Some(tx) = auto_tx(state) {
+            spawn_watcher(state, tx, current);
         }
     }
 }
@@ -647,6 +718,49 @@ mod tests {
         assert_eq!(s.take(t0 + secs(300) + RESCAN_INTERVAL * 2), None);
     }
 
+    #[test]
+    fn rescan_picks_up_folders_that_reappear_or_disappear() {
+        let t0 = Instant::now();
+        // The drive /usb was unplugged at startup.
+        let mut s = Scheduler::new(vec![p("/a")], t0);
+        assert!(!s.full_due(t0 + secs(1)));
+        let t = t0 + RESCAN_INTERVAL;
+        assert!(s.full_due(t));
+        // Same folders: nothing changes, the timer pass plans them.
+        assert!(!s.refresh_roots(vec![p("/a")], t));
+        assert_eq!(s.take(t).unwrap().roots, vec![p("/a")]);
+        assert_eq!(s.take(t + COALESCE), None);
+
+        // Plugged in again: one full pass over the new set.
+        let t = t + RESCAN_INTERVAL;
+        assert!(s.refresh_roots(vec![p("/usb"), p("/a")], t));
+        assert_eq!(s.take(t).unwrap().roots, vec![p("/usb"), p("/a")]);
+        assert_eq!(s.take(t + COALESCE), None, "one pass, not two");
+        s.on_changed(&[p("/usb/x.jpg")], t + secs(5));
+        assert_eq!(s.take(t + secs(7)).unwrap().roots, vec![p("/usb")]);
+
+        // Unplugged: dropped; its events are ignored.
+        let t = t + RESCAN_INTERVAL;
+        assert!(s.refresh_roots(vec![p("/a")], t));
+        assert_eq!(s.take(t).unwrap().roots, vec![p("/a")]);
+        s.on_changed(&[p("/usb/y.jpg")], t + secs(5));
+        assert_eq!(s.take(t + secs(7)), None);
+
+        // No folder available at all.
+        let t = t + RESCAN_INTERVAL;
+        assert!(s.refresh_roots(vec![], t));
+        assert_eq!(s.take(t), None);
+    }
+
+    #[test]
+    fn passes_skip_roots_that_do_not_exist() {
+        let roots = [p("/usb"), p("/a"), p("/b")];
+        let exists = |r: &Path| r != Path::new("/usb");
+        assert_eq!(available_roots(&roots, exists), vec![p("/a"), p("/b")]);
+        assert!(available_roots(&roots, |_| false).is_empty());
+        assert_eq!(available_roots(&roots, |_| true), roots.to_vec());
+    }
+
     // ------------------------------------------------------------ locked retries
 
     fn locked(path: &Path) -> OpResult {
@@ -814,6 +928,46 @@ mod tests {
             1
         );
         assert_eq!(f.db.journal().list_batches(10).await.unwrap().len(), 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn pass_over_an_unavailable_folder_skips_it() {
+        let f = fixture().await;
+        let rule = move_rule(1, "txt", &f.out, 1);
+        f.db.upsert_rule(&rule).await.unwrap();
+        let usb = f.inbox.parent().unwrap().join("usb");
+        approve(&f.cfg, &[(rule.id, 1)], &[&f.inbox, &usb]);
+        old_file(&f.inbox.join("a.txt"), b"a");
+        let mut retries = LockedRetries::default();
+
+        // Only the unavailable folder: nothing planned, no batch.
+        let r = run_pass(
+            &f.state,
+            &f.db,
+            &f.cfg,
+            std::slice::from_ref(&usb),
+            &mut retries,
+            Instant::now(),
+        );
+        let outcome = r.await.unwrap().unwrap();
+        assert!(outcome.report.is_none() && outcome.unapproved == 0);
+        assert!(f.db.journal().list_batches(10).await.unwrap().is_empty());
+
+        // With an available folder: that one is organized.
+        let roots = vec![usb.clone(), f.inbox.clone()];
+        let r = run_pass(
+            &f.state,
+            &f.db,
+            &f.cfg,
+            &roots,
+            &mut retries,
+            Instant::now(),
+        );
+        let report = r.await.unwrap().unwrap().report.unwrap();
+        assert_eq!(report.done_count(), 1);
+        assert_eq!(std::fs::read(f.out.join("a.txt")).unwrap(), b"a");
+        // The unavailable folder keeps its approval.
+        assert!(load_approvals(&f.cfg).allows(&rule, &root_key(&usb)));
     }
 
     #[tokio::test(flavor = "multi_thread")]

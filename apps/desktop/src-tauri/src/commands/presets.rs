@@ -14,15 +14,16 @@
 //! - `complete_onboarding(folders, presetIds)` -> `{ config, rules }`. Folder
 //!   tokens (`{downloads}`, optionally followed by `/sub`) are expanded to the
 //!   user's folders; the folders are validated and saved exactly like
-//!   `save_config`, then the presets are installed and `onboarding_done` is
+//!   `save_config` (a folder that does not exist is saved as unavailable),
+//!   then the presets are installed and `onboarding_done` is
 //!   set in `app_settings.json`.
 //!
-//! Errors: the `config.*` codes of `save_config` (an unknown or unavailable
-//! folder token is `config.missing: <entry>`), `preset.unknown: <id>`,
+//! Errors: the `config.*` codes of `save_config`, `config.missing: <entry>`
+//! for an unknown folder token or one the system has no folder for, `preset.unknown: <id>`,
 //! `preset.storage` (detail in the log), `settings.io`.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -89,7 +90,8 @@ pub(crate) async fn install_in(db: &Db, ids: &[String], lang: Lang) -> Result<Ve
 }
 
 /// `entry` with a leading folder token replaced by its folder from
-/// `folders`. `config.missing: <entry>` for an unknown or unavailable token.
+/// `folders`. `config.missing: <entry>` for an unknown token or one
+/// `folders` has no folder for.
 fn expand_folder(entry: &str, folders: &HashMap<String, PathBuf>) -> Result<String, String> {
     let e = entry.trim();
     let Some(after) = e.strip_prefix('{') else {
@@ -116,7 +118,6 @@ fn expand_folder(entry: &str, folders: &HashMap<String, PathBuf>) -> Result<Stri
 pub(crate) fn onboarding_config(
     folders: &[String],
     known: &HashMap<String, PathBuf>,
-    exists: impl Fn(&Path) -> bool,
 ) -> Result<Config, String> {
     let mut inbox_paths: Vec<String> = Vec::new();
     for f in folders {
@@ -126,7 +127,7 @@ pub(crate) fn onboarding_config(
         }
     }
     let config = Config { inbox_paths };
-    validate_config(&config, exists)?;
+    validate_config(&config)?;
     Ok(config)
 }
 
@@ -166,7 +167,7 @@ pub(crate) async fn complete_onboarding(
 ) -> Result<Onboarding, String> {
     let dir = config_dir(&app)?;
     // Everything is checked before anything is written.
-    let config = onboarding_config(&folders, &PlanContext::from_system().folders, Path::exists)?;
+    let config = onboarding_config(&folders, &PlanContext::from_system().folders)?;
     check_ids(&preset_ids)?;
     let db = connect(&app).await?;
 
@@ -194,6 +195,7 @@ mod tests {
     use super::*;
     use crate::commands::rules::validate_rule;
     use crate::commands::settings::{ERR_DRIVE_ROOT, ERR_EXCLUDED_FOLDER};
+    use std::path::Path;
 
     #[test]
     fn every_preset_rule_passes_rule_validation_in_both_languages() {
@@ -297,13 +299,11 @@ mod tests {
 
     #[test]
     fn onboarding_expands_tokens_and_validates_like_save_config() {
-        // Folders exist only in `exists`: a real temp dir is under AppData on
-        // Windows, which validation refuses before checking existence.
+        // None of these folders exists; like `save_config`, onboarding does
+        // not refuse a missing folder.
         let home = Path::new(env!("CARGO_MANIFEST_DIR")).join("valet-test-home");
         let downloads = home.join("Downloads");
         let desktop = home.join("Desktop");
-        let present = [downloads.clone(), downloads.join("sub"), desktop.clone()];
-        let exists = |p: &Path| present.iter().any(|q| q == p);
         let known: HashMap<String, PathBuf> = [
             ("downloads".to_string(), downloads.clone()),
             ("desktop".to_string(), desktop.clone()),
@@ -316,7 +316,6 @@ mod tests {
         let c = onboarding_config(
             &ids(&["{downloads}", "{desktop}", "{downloads}/sub", "{downloads}"]),
             &known,
-            exists,
         )
         .unwrap();
         assert_eq!(
@@ -324,7 +323,7 @@ mod tests {
             [s(&downloads), s(&desktop), s(&downloads.join("sub"))]
         );
         // Absolute paths pass through.
-        let c = onboarding_config(&[s(&desktop)], &known, exists).unwrap();
+        let c = onboarding_config(&[s(&desktop)], &known).unwrap();
         assert_eq!(c.inbox_paths, [s(&desktop)]);
 
         for (entry, code) in [
@@ -332,22 +331,16 @@ mod tests {
             ("{music}", "config.missing: {music}"),
             ("{downloads}x", "config.missing: {downloads}x"),
         ] {
-            assert_eq!(
-                onboarding_config(&ids(&[entry]), &known, exists).unwrap_err(),
-                code
-            );
+            assert_eq!(onboarding_config(&ids(&[entry]), &known).unwrap_err(), code);
         }
-        let missing = onboarding_config(&ids(&["{pictures}"]), &known, exists).unwrap_err();
-        assert_eq!(
-            missing,
-            format!("config.missing: {}", s(&home.join("Pictures")))
-        );
-        let all = |_: &Path| true;
-        assert!(onboarding_config(&ids(&["C:\\"]), &known, all)
+        // A known token whose folder does not exist is saved (unavailable).
+        let c = onboarding_config(&ids(&["{pictures}"]), &known).unwrap();
+        assert_eq!(c.inbox_paths, [s(&home.join("Pictures"))]);
+        assert!(onboarding_config(&ids(&["C:\\"]), &known)
             .unwrap_err()
             .starts_with(ERR_DRIVE_ROOT));
         assert!(
-            onboarding_config(&ids(&["C:\\Users\\Ana\\AppData\\Local"]), &known, all)
+            onboarding_config(&ids(&["C:\\Users\\Ana\\AppData\\Local"]), &known)
                 .unwrap_err()
                 .starts_with(ERR_EXCLUDED_FOLDER)
         );
