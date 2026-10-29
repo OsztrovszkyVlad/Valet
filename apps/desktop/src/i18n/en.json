@@ -306,7 +306,10 @@
       "network": "The license server could not be reached. Check the internet connection and try again.",
       "unknown": "The license server does not know this license.",
       "tooMany": "The license is already active on 3 computers. Remove it from one of them in Settings, then try again.",
-      "revoked": "The license was revoked."
+      "revoked": "The license was revoked.",
+      "missing": "No license is stored on this computer.",
+      "machineUnavailable": "This computer's identifier could not be read, so the license can't be activated.",
+      "io": "The license file could not be read or saved. The log has the details."
     },
     "export": {
       "exists": "The file already exists. Choose another name.",
@@ -317,7 +320,8 @@
       "malformed": "The file is not a valid rule export.",
       "unknownFormat": "The file is not a Valet rule export or comes from an unknown version.",
       "tooManyRules": "The file has too many rules.",
-      "invalidRule": "A rule in the file is not valid. No rules were imported."
+      "invalidRule": "A rule in the file is not valid. No rules were imported.",
+      "io": "The rules file could not be read."
     },
     "open": {
       "unavailable": "The page cannot be opened right now."

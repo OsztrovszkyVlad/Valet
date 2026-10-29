@@ -307,7 +307,10 @@
       "network": "Serverul de licențe nu a putut fi contactat. Verifică conexiunea la internet și încearcă din nou.",
       "unknown": "Serverul de licențe nu cunoaște această licență.",
       "tooMany": "Licența e deja activă pe 3 calculatoare. Scoate-o de pe unul dintre ele din Setări, apoi încearcă din nou.",
-      "revoked": "Licența a fost revocată."
+      "revoked": "Licența a fost revocată.",
+      "missing": "Nu există nicio licență salvată pe acest calculator.",
+      "machineUnavailable": "Identificatorul acestui calculator nu a putut fi citit, așa că licența nu poate fi activată.",
+      "io": "Fișierul licenței nu a putut fi citit sau salvat. Detaliile sunt în jurnal."
     },
     "export": {
       "exists": "Fișierul există deja. Alege alt nume.",
@@ -318,7 +321,8 @@
       "malformed": "Fișierul nu e un export de reguli valid.",
       "unknownFormat": "Fișierul nu e un export de reguli Valet sau e dintr-o versiune necunoscută.",
       "tooManyRules": "Fișierul are prea multe reguli.",
-      "invalidRule": "O regulă din fișier nu e validă. Nicio regulă nu a fost importată."
+      "invalidRule": "O regulă din fișier nu e validă. Nicio regulă nu a fost importată.",
+      "io": "Fișierul cu reguli nu a putut fi citit."
     },
     "open": {
       "unavailable": "Pagina nu poate fi deschisă acum."
