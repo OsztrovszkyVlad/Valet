@@ -1,0 +1,15 @@
+{
+  "name": "valet-license-service",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Issues signed Valet Pro license files and activation tokens.",
+  "type": "module",
+  "main": "all-tests.mjs",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test",
+    "start": "node server.mjs"
+  }
+}
