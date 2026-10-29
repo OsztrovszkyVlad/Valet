@@ -71,7 +71,7 @@
         <tr><th scope="row">Reguli proprii active simultan</th><td>3</td><td>nelimitat</td></tr>
         <tr><th scope="row">Foldere urmărite active simultan</th><td>2</td><td>nelimitat</td></tr>
         <tr><th scope="row">Istoric afișat</th><td>loturile din ultimele 7 zile</td><td>tot istoricul</td></tr>
-        <tr><th scope="row">Anulare</th><td>doar ultimul lot</td><td>orice lot din istoric</td></tr>
+        <tr><th scope="row">Anulare</th><td>doar ultimul lot de organizare</td><td>orice lot din istoric</td></tr>
         <tr><th scope="row">Export și import de reguli</th><td>nu</td><td>da</td></tr>
         <tr><th scope="row">Tipuri de condiții și acțiuni</th><td>toate</td><td>toate</td></tr>
       </tbody>
@@ -87,17 +87,17 @@
     <li>Reînnoirea actualizărilor este opțională: 15 €/an. O versiune apărută după cele 12 luni funcționează ca Gratuit până reînnoiești; versiunea pe care o ai deja merge în continuare.</li>
     <li>O licență se poate activa pe cel mult 3 calculatoare.</li>
   </ul>
-  <p>Cumpărarea nu este deschisă încă. Proba de 14 zile de Pro complet nu cere card și nu folosește rețeaua: pornește la prima deschidere a aplicației. După probă, dacă nu ai licență, Valet trece pe Gratuit și nu șterge nimic (vezi întrebările de mai jos).</p>
+  <p>Cumpărarea nu este deschisă încă, iar activarea unei licențe nu funcționează încă în versiunile de acum: nu e configurat un server de licențe. Proba de 14 zile de Pro complet nu cere card și nu folosește rețeaua: pornește la prima deschidere a aplicației. După probă, dacă nu ai licență, Valet trece pe Gratuit și nu șterge nimic (vezi întrebările de mai jos). Cum se importă și cum se scoate o licență, ce se întâmplă fără internet și ce se schimbă în varianta din Microsoft Store: <a href="https://github.com/OsztrovszkyVlad/Valet/blob/main/docs/USER_GUIDE.ro.md">ghidul de utilizare</a>, secțiunea 18.</p>
 </section>
 
 <section id="descarca">
   <h2>Descarcă</h2>
-  <p><a class="button" href="https://github.com/OsztrovszkyVlad/Valet/releases/latest">Descarcă de pe GitHub Releases</a></p>
+  <p><a class="button" href="https://github.com/OsztrovszkyVlad/Valet/releases">Descarcă de pe GitHub Releases</a></p>
   <p>Fișierul este <code>Valet_&lt;versiune&gt;_x64-setup.exe</code>. Se instalează doar pentru utilizatorul curent, fără drepturi de administrator. Aplicația are interfață în română și engleză; româna e limba implicită.</p>
   <div class="note">
     <p><strong>Avertisment SmartScreen.</strong> Instalatorul nu este semnat digital încă. Windows SmartScreen va arăta „Windows protected your PC” (în Windows cu limba română textul poate fi tradus). Ca să continui, apasă <strong>More info</strong>, apoi <strong>Run anyway</strong>. Avertismentul apare pentru programe nesemnate și puțin descărcate; nu este rezultatul unei analize a lui Valet. Un certificat de semnare nu a fost obținut încă. Dacă vrei să verifici fișierul descărcat, poți compara suma lui SHA-256 (<code>Get-FileHash</code> în PowerShell) cu cea listată de rularea „Release” din GitHub Actions.</p>
   </div>
-  <p>Un pachet în Microsoft Store este în pregătire și nu este disponibil încă.</p>
+  <p>Un pachet în Microsoft Store este în pregătire și nu este disponibil încă. În varianta din Store, actualizările vin prin Store, iar pornirea cu Windows se setează din setările Windows. Dezinstalarea aplicației din Store șterge datele ei, inclusiv istoricul și anularea.</p>
 </section>
 
 <section id="intrebari">
@@ -107,8 +107,8 @@
     <summary>Ce trimite Valet prin rețea?</summary>
     <p>Două lucruri, și niciunul nu conține nume de fișiere, căi sau conținut.</p>
     <ul>
-      <li><strong>Verificarea versiunii noi.</strong> Valet cere de la GitHub un fișier JSON static (adresa canalului tău, Stabil sau Beta), la 30 de secunde după pornire și apoi o dată la 24 de ore. Cererea nu are corp și nu trimite versiunea instalată; GitHub vede ce vede orice server web, de exemplu adresa ta IP. Valet instalează o versiune nouă doar după ce apeși și confirmi. Din Setări nu se poate opri această verificare.</li>
-      <li><strong>Verificarea licenței.</strong> Doar dacă ai importat o licență Pro: la activare, apoi cel mult o dată la 30 de zile. Se trimit identificatorul licenței (un cod aleatoriu), un identificator al calculatorului care este un hash într-un singur sens și versiunea aplicației. Nu se trimit numele calculatorului, adresa de email, căi, nume de fișiere, reguli sau numere de reguli. Proba de 14 zile și planul Gratuit nu fac nicio cerere de licență.</li>
+      <li><strong>Verificarea versiunii noi.</strong> Valet cere de la GitHub un fișier JSON static (adresa canalului tău, Stabil sau Beta), la 30 de secunde după pornire și apoi o dată la 24 de ore. Cererea nu are corp și nu trimite versiunea instalată; GitHub vede ce vede orice server web, de exemplu adresa ta IP. Valet instalează o versiune nouă doar după ce apeși și confirmi. Verificarea automată se poate opri din Setări, Actualizări, cu caseta „Verifică automat actualizările”; butonul „Verifică acum” merge oricum.</li>
+      <li><strong>Verificarea licenței.</strong> Doar dacă ai importat o licență Pro, într-o versiune cu server de licențe configurat (cele de acum nu au): la activare, apoi cel mult o dată la 30 de zile, la scoaterea licenței din Setări și când apeși „Verifică licența acum”. Se trimit identificatorul licenței (un cod aleatoriu), un identificator al calculatorului care este un hash într-un singur sens și versiunea aplicației. Nu se trimit numele calculatorului, adresa de email, căi, nume de fișiere, reguli sau numere de reguli. Proba de 14 zile și planul Gratuit nu fac nicio cerere de licență.</li>
     </ul>
     <p>Fără telemetrie, fără rapoarte de erori (nu există încă), fără cont, fără reclame. Detalii: <a href="privacy.html">pagina de confidențialitate</a>.</p>
   </details>
@@ -121,7 +121,7 @@
 
   <details>
     <summary>Ce se întâmplă după cele 14 zile de probă?</summary>
-    <p>Dacă nu ai o licență Pro, Valet trece pe Gratuit. Nu se șterge nimic. Regulile proprii peste cele 3 permise rămân salvate, dar dezactivate, iar tu alegi care 3 rămân active. Folderele urmărite peste 2 rămân în configurare, dar nu sunt urmărite cât timp ești pe Gratuit; primele 2 din listă rămân active. Istoricul nu se șterge; pe Gratuit se arată loturile din ultimele 7 zile. Dacă treci mai târziu la Pro, regulile dezactivate de limită se reactivează.</p>
+    <p>Dacă nu ai o licență Pro, Valet trece pe Gratuit. Nu se șterge nimic. Regulile proprii peste cele 3 permise rămân salvate, dar dezactivate, iar tu alegi care 3 rămân active. Folderele urmărite peste 2 rămân în configurare, dar nu sunt urmărite cât timp ești pe Gratuit; tu alegi care 2 foldere rămân active, în aceeași fereastră ca la reguli, iar până alegi rămân active primele 2 din listă. Istoricul nu se șterge; pe Gratuit se arată loturile din ultimele 7 zile. Dacă treci mai târziu la Pro, regulile dezactivate de limită se reactivează.</p>
   </details>
 
   <details>

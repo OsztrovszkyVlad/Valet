@@ -34,21 +34,22 @@
     <li>Valet makes an HTTPS GET to GitHub for a static JSON file. The address depends on the channel you choose in Settings, Updates: Stable or Beta.</li>
     <li>The request has no body and no cookie. The installed version, the Windows version and the processor type are not sent. Versions are compared on your computer.</li>
     <li>GitHub sees what any web server sees: your public IP address, the time and the connection data. What GitHub keeps is GitHub's.</li>
-    <li>When: 30 seconds after Valet starts, then once every 24 hours while Valet keeps running, and when you press "Check now".</li>
+    <li>When: 30 seconds after Valet starts, then once every 24 hours while Valet keeps running, and when you press "Check now". The automatic check runs only while "Check for updates automatically" (Settings, Updates) is checked.</li>
     <li>An automatic check installs nothing. Installing needs a click and a confirmation.</li>
-    <li>The automatic check cannot be switched off in Settings; you can only choose the channel.</li>
+    <li>You can switch the automatic check off in Settings, Updates, by unchecking "Check for updates automatically" (checked by default); "Check now" still works.</li>
+    <li>The Microsoft Store version makes no version check: updates come through the Store.</li>
   </ul>
 
   <h3>The license check</h3>
-  <p>This part describes how the check is designed; its code is being added in this phase.</p>
+  <p>This part was checked against the code in the repository (<code>license_client.rs</code>, <code>licensing.rs</code>). No license server exists yet, so the check has never run against a real server, only against a local test one.</p>
   <ul>
-    <li><strong>When:</strong> only if you have imported a Pro license. At activation, then at most once every 30 days (the app looks at startup and every 24 hours). The 14-day trial and the Free plan make no license request.</li>
-    <li><strong>What is sent:</strong> the license id (a random code from the license file), a machine identifier that is a one-way hash (the first 32 characters of the blake3 hash of a fixed text and the Windows <code>MachineGuid</code>), and the app version. The server also sees your IP address and the time, like any web server, and remembers which machines activated a license so that it can count activations (3 at most).</li>
+    <li><strong>When:</strong> only if you have imported a Pro license. At activation, then at most once every 30 days (the app looks at startup and every hour, and a request goes out at most once every 24 hours, only when the last successful check is 30 days old or older), at "Check license now" and when you remove the license. The 14-day trial and the Free plan make no license request.</li>
+    <li><strong>What is sent:</strong> exactly three fields: the license id (a random code from the license file), a machine identifier that is a one-way hash (the first 32 characters of the blake3 hash of a fixed text and the Windows <code>MachineGuid</code>), and the app version. The deactivate request has only the first two. The server also sees your IP address and the time, like any web server, and remembers which machines activated a license so that it can count activations (3 at most).</li>
     <li><strong>What is never sent:</strong> file names, paths, rules or counts of rules or files, the raw <code>MachineGuid</code>, the computer name, the Windows version, the email address in the license.</li>
-    <li><strong>Where the license is:</strong> in the app data folder, as <code>license.valet-license</code>, plus <code>activation.valet-token</code>, the server's last answer.</li>
-    <li><strong>Removing the license</strong> in Settings sends a deactivate request, which frees that computer's activation. Uninstalling does not.</li>
+    <li><strong>Where the license is:</strong> in the app data folder (the one with the database), as <code>license.valet-license</code>, plus <code>activation.valet-token</code>, the server's last answer. Files that are removed or replaced are moved to the subfolder <code>license-removed</code>; Valet does not delete them.</li>
+    <li><strong>Removing the license</strong> in Settings sends a deactivate request, which frees that computer's activation, then moves the two files to <code>license-removed</code>. The request is best effort: without a connection the license is still removed from the computer, but the activation on the server stays taken until support frees it. Uninstalling does not do this.</li>
     <li><strong>Offline:</strong> Valet keeps the token; the license stays Pro for up to 60 days after the last successful check, then the app works as Free, losing nothing, until the next successful check.</li>
-    <li><strong>When it is not active:</strong> in a build without a configured license server, the app makes no license request and a Pro license cannot be activated.</li>
+    <li><strong>When it is not active:</strong> in a build without a configured license server, the app makes no license request and a Pro license cannot be activated. The configuration files in the repository are empty (0 bytes), so the current builds make no license request.</li>
   </ul>
 
   <h3>Other connections</h3>
@@ -60,7 +61,7 @@
 
   <h2>What Valet stores on your computer</h2>
   <ul>
-    <li>In <code>%APPDATA%\ro.valetapp.desktop</code>: the database with the rules and the operation journal (the full source and destination path of every operation, sizes, content hashes of the files moved, the state of each operation), the watched folders, settings, approvals and, if you imported a license, its files. The journal is never trimmed for plan reasons.</li>
+    <li>In <code>%APPDATA%\ro.valetapp.desktop</code>: the database with the rules and the operation journal (the full source and destination path of every operation, sizes, content hashes of the files moved, the state of each operation) and the date the trial started, the watched folders, settings, approvals and, if you imported a license, its files. In the Microsoft Store version Windows keeps them in a folder of the package, and uninstalling the Store app deletes it. The journal is never trimmed for plan reasons.</li>
     <li>In <code>%LOCALAPPDATA%\ro.valetapp.desktop\logs</code>: the file <code>valet.log</code>, at most 5 files of 2 MB. The normal log lines of Valet carry no file paths (read from the code, not tested; some operating system error texts were not checked). "Detailed log (for troubleshooting)" in Settings, off by default, can write paths. Valet never sends the logs anywhere; if you send one to someone for support, read it first.</li>
     <li>Start with Windows, if you turn it on, writes a value under <code>HKCU\Software\Microsoft\Windows\CurrentVersion\Run</code>.</li>
   </ul>
@@ -78,6 +79,7 @@
     <li>Your data is kept by default. The uninstaller has a checkbox "Delete the application data", unticked at the start; ticked, it removes the two folders above (so History, undo and the license files are gone).</li>
     <li>Uninstalling undoes nothing: moved files stay where they are, and files in the Recycle Bin stay in the Bin.</li>
     <li>The uninstaller does not contact the license server. To free the activation, remove the license in Settings first.</li>
+    <li>The Microsoft Store version has no "Delete the application data" checkbox: uninstalling the app deletes its data, including History and undo.</li>
   </ul>
 
   <h2>This site</h2>

@@ -71,7 +71,7 @@
         <tr><th scope="row">Own rules enabled at once</th><td>3</td><td>unlimited</td></tr>
         <tr><th scope="row">Watched folders active at once</th><td>2</td><td>unlimited</td></tr>
         <tr><th scope="row">History shown</th><td>batches from the last 7 days</td><td>all</td></tr>
-        <tr><th scope="row">Undo</th><td>the most recent batch only</td><td>any batch in history</td></tr>
+        <tr><th scope="row">Undo</th><td>the most recent organize batch only</td><td>any batch in history</td></tr>
         <tr><th scope="row">Export and import of rules</th><td>no</td><td>yes</td></tr>
         <tr><th scope="row">Condition and action types</th><td>all</td><td>all</td></tr>
       </tbody>
@@ -87,17 +87,17 @@
     <li>Renewing updates is optional: €15 per year. A version released after the 12 months works as Free until you renew; the version you already have keeps working.</li>
     <li>One license can be activated on at most 3 computers.</li>
   </ul>
-  <p>Buying is not open yet. The 14-day trial of full Pro needs no card and uses no network: it starts the first time the app opens. After the trial, if you have no license, Valet falls back to Free and deletes nothing (see the questions below).</p>
+  <p>Buying is not open yet, and activating a license does not work yet in the current builds: no license server is configured. The 14-day trial of full Pro needs no card and uses no network: it starts the first time the app opens. After the trial, if you have no license, Valet falls back to Free and deletes nothing (see the questions below). How a license is imported and removed, what happens without internet, and what changes in the Microsoft Store version: <a href="https://github.com/OsztrovszkyVlad/Valet/blob/main/docs/USER_GUIDE.en.md">the user guide</a>, section 18.</p>
 </section>
 
 <section id="download">
   <h2>Download</h2>
-  <p><a class="button" href="https://github.com/OsztrovszkyVlad/Valet/releases/latest">Download from GitHub Releases</a></p>
+  <p><a class="button" href="https://github.com/OsztrovszkyVlad/Valet/releases">Download from GitHub Releases</a></p>
   <p>The file is <code>Valet_&lt;version&gt;_x64-setup.exe</code>. It installs for the current user only, with no administrator rights. The app has Romanian and English interfaces; Romanian is the default.</p>
   <div class="note">
     <p><strong>SmartScreen warning.</strong> The installer is not code-signed yet. Windows SmartScreen will show "Windows protected your PC". To go on, select <strong>More info</strong>, then <strong>Run anyway</strong>. Windows shows this for programs that are unsigned and not widely downloaded; it is not the result of an analysis of Valet. A signing certificate has not been obtained yet. If you want to check the downloaded file, compare its SHA-256 (<code>Get-FileHash</code> in PowerShell) with the one listed by the "Release" run in GitHub Actions.</p>
   </div>
-  <p>A Microsoft Store package is being prepared and is not available yet.</p>
+  <p>A Microsoft Store package is being prepared and is not available yet. In the Store version, updates come through the Store, and starting with Windows is set in the Windows settings. Uninstalling the Store app deletes its data, including history and undo.</p>
 </section>
 
 <section id="faq">
@@ -107,8 +107,8 @@
     <summary>What does Valet send over the network?</summary>
     <p>Two things, and neither contains file names, paths or file contents.</p>
     <ul>
-      <li><strong>The check for a new version.</strong> Valet asks GitHub for a static JSON file (the address of your channel, Stable or Beta), 30 seconds after it starts and then once every 24 hours. The request has no body and does not send the installed version; GitHub sees what any web server sees, for example your IP address. Valet installs a new version only after you press a button and confirm. This check cannot be switched off in Settings.</li>
-      <li><strong>The license check.</strong> Only if you have imported a Pro license: at activation, then at most once every 30 days. What is sent is the license id (a random code), a machine identifier that is a one-way hash, and the app version. The computer name, your email address, paths, file names, rules and rule counts are not sent. The 14-day trial and the Free plan make no license request.</li>
+      <li><strong>The check for a new version.</strong> Valet asks GitHub for a static JSON file (the address of your channel, Stable or Beta), 30 seconds after it starts and then once every 24 hours. The request has no body and does not send the installed version; GitHub sees what any web server sees, for example your IP address. Valet installs a new version only after you press a button and confirm. You can switch the automatic check off in Settings, Updates, with the checkbox "Check for updates automatically"; the button "Check now" still works.</li>
+      <li><strong>The license check.</strong> Only if you have imported a Pro license, in a build with a license server configured (the current builds have none): at activation, then at most once every 30 days, when you remove the license in Settings, and when you press "Check license now". What is sent is the license id (a random code), a machine identifier that is a one-way hash, and the app version. The computer name, your email address, paths, file names, rules and rule counts are not sent. The 14-day trial and the Free plan make no license request.</li>
     </ul>
     <p>No telemetry, no crash reports (there are none yet), no account, no ads. Details: the <a href="privacy.html">privacy page</a>.</p>
   </details>
@@ -121,7 +121,7 @@
 
   <details>
     <summary>What happens after the 14-day trial?</summary>
-    <p>If you have no Pro license, Valet falls back to Free. Nothing is deleted. Own rules beyond the 3 allowed stay saved but disabled, and you choose which 3 stay active. Watched folders beyond 2 stay in the configuration but are not watched while you are on Free; the first 2 in the list stay active. History is not deleted; on Free it shows the batches from the last 7 days. If you move to Pro later, the rules that the limit disabled are enabled again.</p>
+    <p>If you have no Pro license, Valet falls back to Free. Nothing is deleted. Own rules beyond the 3 allowed stay saved but disabled, and you choose which 3 stay active. Watched folders beyond 2 stay in the configuration but are not watched while you are on Free; you choose which 2 folders stay active, in the same window as for the rules, and until you choose, the first 2 in the list stay active. History is not deleted; on Free it shows the batches from the last 7 days. If you move to Pro later, the rules that the limit disabled are enabled again.</p>
   </details>
 
   <details>

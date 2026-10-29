@@ -34,21 +34,22 @@
     <li>Valet face un GET HTTPS către GitHub pentru un fișier JSON static. Adresa depinde de canalul ales în Setări, Actualizări: Stabil sau Beta.</li>
     <li>Cererea nu are corp și nici cookie. Versiunea instalată, versiunea de Windows și tipul de procesor nu sunt trimise. Versiunile se compară pe calculatorul tău.</li>
     <li>GitHub vede ce vede orice server web: adresa ta IP publică, ora și datele conexiunii. Ce păstrează GitHub ține de GitHub.</li>
-    <li>Când: la 30 de secunde după pornire, apoi o dată la 24 de ore cât timp Valet rămâne pornit, și când apeși „Verifică acum”.</li>
+    <li>Când: la 30 de secunde după pornire, apoi o dată la 24 de ore cât timp Valet rămâne pornit, și când apeși „Verifică acum”. Verificarea automată se face doar cât caseta „Verifică automat actualizările” (Setări, Actualizări) e bifată.</li>
     <li>O verificare automată nu instalează nimic. Instalarea cere un click și o confirmare.</li>
-    <li>Verificarea automată nu se poate opri din Setări; se poate alege doar canalul.</li>
+    <li>Verificarea automată se poate opri din Setări, Actualizări, debifând „Verifică automat actualizările” (bifată din oficiu); „Verifică acum” merge oricum.</li>
+    <li>Versiunea din Microsoft Store nu face nicio verificare: actualizările vin prin Store.</li>
   </ul>
 
   <h3>Verificarea licenței</h3>
-  <p>Această parte descrie cum este proiectată verificarea; codul ei se adaugă în această fază.</p>
+  <p>Această parte a fost verificată cu codul din depozit (<code>license_client.rs</code>, <code>licensing.rs</code>); nu există încă un server de licențe, deci verificarea nu a rulat niciodată cu un server real, doar cu unul de probă local.</p>
   <ul>
-    <li><strong>Când:</strong> doar dacă ai importat o licență Pro. La activare, apoi cel mult o dată la 30 de zile (aplicația se uită la pornire și din 24 în 24 de ore). Proba de 14 zile și planul Gratuit nu fac nicio cerere de licență.</li>
-    <li><strong>Ce se trimite:</strong> identificatorul licenței (un cod aleatoriu din fișierul de licență), un identificator al calculatorului care este un hash într-un singur sens (primele 32 de caractere din hash-ul blake3 al unui text fix și al <code>MachineGuid</code> din Windows) și versiunea aplicației. Serverul vede și adresa IP și ora, ca orice server web, și reține ce calculatoare au activat o licență, ca să numere activările (cel mult 3).</li>
+    <li><strong>Când:</strong> doar dacă ai importat o licență Pro. La activare, apoi cel mult o dată la 30 de zile (aplicația se uită la pornire și din oră în oră, iar o cerere pleacă cel mult o dată la 24 de ore, doar când ultima verificare reușită are 30 de zile sau mai mult), la „Verifică licența acum” și la scoaterea licenței. Proba de 14 zile și planul Gratuit nu fac nicio cerere de licență.</li>
+    <li><strong>Ce se trimite:</strong> exact trei câmpuri: identificatorul licenței (un cod aleatoriu din fișierul de licență), un identificator al calculatorului care este un hash într-un singur sens (primele 32 de caractere din hash-ul blake3 al unui text fix și al <code>MachineGuid</code> din Windows) și versiunea aplicației. Cererea de dezactivare are doar primele două. Serverul vede și adresa IP și ora, ca orice server web, și reține ce calculatoare au activat o licență, ca să numere activările (cel mult 3).</li>
     <li><strong>Ce nu se trimite niciodată:</strong> nume de fișiere, căi, reguli sau numere de reguli sau de fișiere, <code>MachineGuid</code> în forma brută, numele calculatorului, versiunea de Windows, adresa de email din licență.</li>
-    <li><strong>Unde e licența:</strong> în folderul de date al aplicației, ca <code>license.valet-license</code>, plus <code>activation.valet-token</code>, ultimul răspuns al serverului.</li>
-    <li><strong>Ștergerea licenței</strong> din Setări trimite o cerere de dezactivare, care eliberează activarea acelui calculator. Dezinstalarea nu face asta.</li>
+    <li><strong>Unde e licența:</strong> în folderul de date al aplicației (cel cu baza de date), ca <code>license.valet-license</code>, plus <code>activation.valet-token</code>, ultimul răspuns al serverului. Fișierele scoase sau înlocuite se mută în subfolderul <code>license-removed</code>; Valet nu le șterge.</li>
+    <li><strong>Scoaterea licenței</strong> din Setări trimite o cerere de dezactivare, care eliberează activarea acelui calculator, apoi mută cele două fișiere în <code>license-removed</code>. Cererea e făcută în limita posibilului: fără conexiune licența se scoate oricum de pe calculator, dar activarea de pe server rămâne ocupată până o eliberează asistența. Dezinstalarea nu face asta.</li>
     <li><strong>Fără conexiune:</strong> Valet păstrează tokenul; licența rămâne Pro până la 60 de zile de la ultima verificare reușită, apoi aplicația merge ca Gratuit, fără să piardă nimic, până la următoarea verificare reușită.</li>
-    <li><strong>Când nu e activă:</strong> într-un build fără server de licențe configurat, aplicația nu face nicio cerere de licență și o licență Pro nu se poate activa.</li>
+    <li><strong>Când nu e activă:</strong> într-un build fără server de licențe configurat, aplicația nu face nicio cerere de licență și o licență Pro nu se poate activa. Fișierele de configurare din depozit sunt goale (0 octeți), deci versiunile de acum nu fac nicio cerere de licență.</li>
   </ul>
 
   <h3>Alte conexiuni</h3>
@@ -60,7 +61,7 @@
 
   <h2>Ce păstrează Valet pe calculatorul tău</h2>
   <ul>
-    <li>În <code>%APPDATA%\ro.valetapp.desktop</code>: baza de date cu regulile și jurnalul de operații (calea completă a sursei și a destinației fiecărei operații, mărimi, sume de control ale fișierelor mutate, starea operației), folderele urmărite, setările, aprobările și, dacă ai importat o licență, fișierele ei. Jurnalul nu se curăță niciodată din motive de plan.</li>
+    <li>În <code>%APPDATA%\ro.valetapp.desktop</code>: baza de date cu regulile și jurnalul de operații (calea completă a sursei și a destinației fiecărei operații, mărimi, sume de control ale fișierelor mutate, starea operației) și data începutului probei, folderele urmărite, setările, aprobările și, dacă ai importat o licență, fișierele ei. În versiunea din Microsoft Store, Windows le ține într-un folder al pachetului, iar dezinstalarea aplicației din Store îl șterge. Jurnalul nu se curăță niciodată din motive de plan.</li>
     <li>În <code>%LOCALAPPDATA%\ro.valetapp.desktop\logs</code>: fișierul <code>valet.log</code>, cel mult 5 fișiere de câte 2 MB. Liniile normale ale Valet nu conțin căi de fișiere (citit din cod, netestat; unele texte de eroare de sistem nu au fost verificate). „Jurnal detaliat (pentru depanare)” din Setări, oprit din oficiu, poate scrie căi. Valet nu trimite jurnalele nicăieri; dacă trimiți unul cuiva pentru asistență, citește-l mai întâi.</li>
     <li>Pornirea cu Windows, dacă o activezi, scrie o valoare sub <code>HKCU\Software\Microsoft\Windows\CurrentVersion\Run</code>.</li>
   </ul>
@@ -77,7 +78,8 @@
   <ul>
     <li>Datele se păstrează din oficiu. Dezinstalatorul are o casetă „Șterge datele aplicației”, nebifată la început; bifată, șterge cele două foldere de mai sus (deci Istoricul, anularea și fișierele de licență dispar).</li>
     <li>Dezinstalarea nu anulează nimic: fișierele mutate rămân unde sunt, iar cele din Coșul de reciclare rămân în Coș.</li>
-    <li>Dezinstalatorul nu contactează serverul de licențe. Ca să eliberezi activarea, șterge licența din Setări înainte.</li>
+    <li>Dezinstalatorul nu contactează serverul de licențe. Ca să eliberezi activarea, scoate licența din Setări înainte.</li>
+    <li>Versiunea din Microsoft Store nu are caseta „Șterge datele aplicației”: dezinstalarea aplicației șterge datele ei, inclusiv Istoricul și anularea.</li>
   </ul>
 
   <h2>Acest site</h2>
