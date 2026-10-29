@@ -1218,3 +1218,7 @@ pub(crate) mod tests {
 /// End-to-end license matrix against the real license service (Node).
 #[cfg(test)]
 mod service_tests;
+
+/// Plan transitions and Free undo with real files.
+#[cfg(test)]
+mod transition_tests;
