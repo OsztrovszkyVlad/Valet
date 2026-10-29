@@ -1214,3 +1214,7 @@ pub(crate) mod tests {
         assert!(validation_due(true, Some(t0), t0 - Duration::from_secs(1)));
     }
 }
+
+/// End-to-end license matrix against the real license service (Node).
+#[cfg(test)]
+mod service_tests;
