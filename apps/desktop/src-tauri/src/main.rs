@@ -1,5 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::time::Instant;
+
 use tauri::menu::Menu;
 use tauri::WindowEvent;
 
@@ -14,6 +16,9 @@ mod state;
 mod updater;
 
 fn main() {
+    // Startup timings in the log ("Database ready N ms after start") count
+    // from here.
+    let started = Instant::now();
     logging::install_panic_hook();
 
     let context = tauri::generate_context!();
@@ -23,8 +28,9 @@ fn main() {
 
     let mut builder = tauri::Builder::default()
         // Must stay the first plugin: its setup takes the instance lock while
-        // `Builder::build` initializes plugins, before `setup::setup` (and with
-        // it journal recovery) runs. A second process exits inside that call.
+        // `Builder::build` initializes plugins, before `setup::start_db_init`
+        // (and with it journal recovery) runs. A second process exits inside
+        // that call.
         // A second launch shows the running instance, unless it is the
         // auto-start entry (`--minimized`).
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
@@ -42,7 +48,7 @@ fn main() {
             .manage(updater::UpdateSlot::default());
     }
 
-    builder
+    let app = builder
         .invoke_handler(tauri::generate_handler![
             commands::rules::get_rules,
             commands::rules::upsert_rule,
@@ -80,6 +86,11 @@ fn main() {
             }
         })
         .setup(setup::setup)
-        .run(context)
-        .expect("error while running tauri application");
+        .build(context)
+        .expect("error while building tauri application");
+    // The instance lock is held now. Open the database and run recovery on
+    // the async runtime while `run` creates the main window; `setup::setup`
+    // waits for both before the watcher starts.
+    setup::start_db_init(&app, started);
+    app.run(|_, _| {});
 }

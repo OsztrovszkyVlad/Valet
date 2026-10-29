@@ -2,9 +2,13 @@
 //! watcher with the auto-apply loop, update checks, tray, main window
 //! visibility.
 
+use std::path::PathBuf;
 use std::sync::atomic::Ordering;
+use std::sync::Mutex;
+use std::time::Instant;
 
 use tauri::{
+    async_runtime::JoinHandle,
     menu::{Menu, MenuItemBuilder, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Manager, Runtime,
@@ -16,30 +20,84 @@ use crate::commands::settings::load_app_settings;
 use crate::i18n;
 use crate::state::{config_dir, AppState};
 
-pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
-    // --- DB init (no rules: onboarding installs presets) ---
+/// The database open and journal recovery that [`start_db_init`] started.
+/// [`setup`] waits for it before it manages [`AppState`] and starts the
+/// watcher.
+pub(crate) struct DbInit {
+    started: Instant,
+    cfg_dir: PathBuf,
+    /// Managed by [`setup`] once the task has finished, so no command runs
+    /// before recovery.
+    state: AppState,
+    task: Mutex<Option<JoinHandle<Result<(), String>>>>,
+}
+
+/// Sets the log level from the settings, then opens the database (creating
+/// it on first start) and recovers interrupted operations on the async
+/// runtime. `started` is taken at the top of `main`.
+///
+/// Call between `Builder::build` and `App::run`: `build` initializes the
+/// single-instance plugin, so a second process has exited before this runs,
+/// and `run` creates the main window (on Windows the WebView2 start takes
+/// seconds on a first launch) while the task works. [`setup`] joins it.
+pub(crate) fn start_db_init(app: &tauri::App, started: Instant) {
     let cfg_dir = config_dir(app).expect("config dir");
     // --- Log level from the settings (DEBUG may contain paths) ---
     let debug_logging = load_app_settings(&cfg_dir).debug_logging;
     crate::logging::set_debug_logging(debug_logging);
     log::info!(
-        "Valet {} starting, debug logging {}",
+        "Valet {} starting, debug logging {} ({} ms after start)",
         app.package_info().version,
-        if debug_logging { "on" } else { "off" }
+        if debug_logging { "on" } else { "off" },
+        started.elapsed().as_millis()
     );
 
+    // --- DB init (no rules: onboarding installs presets) ---
     let db_path = cfg_dir.join("valet.sqlite3");
     let state = AppState::new(db_path.clone());
-    tauri::async_runtime::block_on(async {
-        let db = Db::connect(&db_path).await.expect("db connect");
+    let platform = state.platform.clone();
+    let task = tauri::async_runtime::spawn(async move {
+        let db = Db::connect(&db_path)
+            .await
+            .map_err(|e| format!("db connect: {e:#}"))?;
+        log::info!(
+            "Database ready {} ms after start",
+            started.elapsed().as_millis()
+        );
         // Finish or roll back operations a crash interrupted, before the
         // watcher can start new ones.
-        match executor::recover(&db.journal(), state.platform.as_ref()).await {
+        match executor::recover(&db.journal(), platform.as_ref()).await {
             Ok(report) if report.batch_id.is_some() => log::info!("{}", report.log_line()),
             Ok(_) => {}
             Err(e) => log::error!("Recovery of interrupted operations failed: {:#}", e),
         }
+        Ok(())
     });
+    app.manage(DbInit {
+        started,
+        cfg_dir,
+        state,
+        task: Mutex::new(Some(task)),
+    });
+}
+
+pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    // Tauri created the main window (hidden) just before this call.
+    let init = app.state::<DbInit>();
+    log::info!(
+        "Main window created {} ms after start",
+        init.started.elapsed().as_millis()
+    );
+    let task = init
+        .task
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .take()
+        .ok_or("database init already joined")?;
+    // Recovery has finished when this returns.
+    tauri::async_runtime::block_on(task)??;
+    let state = init.state.clone();
+    let cfg_dir = init.cfg_dir.clone();
 
     // --- App state (before the watcher, which stores its handle here) ---
     app.manage(state);
