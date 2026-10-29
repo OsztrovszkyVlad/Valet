@@ -1,0 +1,4 @@
+{
+  "payload": "{\"v\":1,\"kind\":\"activation\",\"license_id\":\"3e9a5c1d-7b2f-4c8e-9a6d-1f0e2d3c4b5a\",\"machine\":\"a1b2c3d4e5f60718293a4b5c6d7e8f90\",\"checked_at\":1795100000}",
+  "signature": "untrusted comment: signature from valet license service\nRUS1bELBiJVCEvuhuwZJE+xXSLiVkoztIIxbPi9qoomlCAIWIQ/d0bolPLDB1cGYV8Wr+nAjnqMn9w92pKXrZe90CZKCMwO5hQM=\ntrusted comment: timestamp:1795100000\tfile:valet-activation\thashed\nTbQ9xRB+NlKD4SFWw6to1/hZtFtA4n7+Br957LrPDTk5qN1jkyuceJS89TySBjr91camikixwDw+7oWwLN6OBA==\n"
+}
