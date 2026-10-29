@@ -14,25 +14,60 @@
       {
         "title": "Valet",
         "visible": false,
-        "width": 800,
-        "height": 600,
+        "width": 1100,
+        "height": 750,
+        "minWidth": 900,
+        "minHeight": 600,
         "resizable": true,
         "fullscreen": false
       }
     ],
     "security": {
-      "csp": null
+      "csp": {
+        "default-src": "'self'",
+        "script-src": "'self'",
+        "style-src": "'self'",
+        "img-src": "'self'",
+        "font-src": "'self'",
+        "connect-src": "'self' ipc: http://ipc.localhost",
+        "object-src": "'none'",
+        "base-uri": "'self'",
+        "form-action": "'none'",
+        "frame-ancestors": "'none'"
+      }
     }
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis"],
+    "publisher": "Osztrovszky Vlad",
+    "copyright": "Copyright (c) 2026 Osztrovszky Vlad",
+    "homepage": "https://github.com/OsztrovszkyVlad/Valet",
+    "license": "MIT",
+    "category": "Utility",
+    "shortDescription": "Rules-based file organizer for Windows",
+    "longDescription": "Valet sorts the files in the folders you choose by the rules you set: it moves or copies them to other folders, or sends them to the Recycle Bin. It lists what each rule would do before anything runs, journals every operation, and every batch can be undone. Valet never deletes a file permanently.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      },
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["English", "Romanian"],
+        "customLanguageFiles": {
+          "Romanian": "../../../packaging/nsis/Romanian.nsh"
+        },
+        "displayLanguageSelector": true,
+        "startMenuFolder": "Valet"
+      }
+    }
   }
 }
