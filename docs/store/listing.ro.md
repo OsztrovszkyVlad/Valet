@@ -87,7 +87,7 @@ Store o cere pentru că aplicația folosește internetul. Pagina există în dep
 
 https://github.com/OsztrovszkyVlad/Valet/issues
 
-Deocamdată asistența e doar GitHub Issues (decizia din 2026-10-29); nu există o adresă de email de asistență. Pentru licențe, aplicația arată în Setări, Valet Pro un „Cod licență (pentru asistență)”.
+Deocamdată asistența e doar GitHub Issues (decizia din 2026-10-29); nu există o adresă de email de asistență. Pentru licențe, asistența identifică licența după numărul comenzii din emailul de la comerciant, nu după codul din aplicație.
 
 ## Capturi de ecran
 

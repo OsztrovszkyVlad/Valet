@@ -87,7 +87,7 @@ The Store needs one because the app uses the internet. The page is in the reposi
 
 https://github.com/OsztrovszkyVlad/Valet/issues
 
-For now support is GitHub Issues only (decision of 2026-10-29); there is no support email address. For licenses, the app shows a "License code (for support)" in Settings, Valet Pro.
+For now support is GitHub Issues only (decision of 2026-10-29); there is no support email address. For licenses, support identifies a license by the order number in the merchant's email, not by the code shown in the app.
 
 ## Screenshots
 

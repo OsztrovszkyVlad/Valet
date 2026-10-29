@@ -686,13 +686,13 @@ Pro include actualizările timp de 12 luni de la cumpărare. Data apare ca „Ac
 
 Dezinstalarea lui Valet nu eliberează locul. Scoate licența din Setări înainte de dezinstalare.
 
-**Dacă vechiul calculator nu mai există** (stricat, formatat) și nu poți scoate licența de pe el, cere asistenței resetarea activărilor. Asistența poate goli de pe server lista calculatoarelor active ale licenței (o unealtă a serviciului de licențe, `services/license/reset.mjs`); apoi imporți licența pe calculatorul nou. Istoricul activărilor se păstrează pe server. Asistența se cere pe [GitHub Issues](https://github.com/OsztrovszkyVlad/Valet/issues) (vezi „Rambursare și asistență” mai jos).
+**Dacă vechiul calculator nu mai există** (stricat, formatat) și nu poți scoate licența de pe el, cere asistenței resetarea activărilor, cu numărul comenzii din emailul de la comerciant. Asistența poate goli de pe server lista calculatoarelor active ale licenței (o unealtă a serviciului de licențe, `services/license/reset.mjs`); apoi imporți licența pe calculatorul nou. Istoricul activărilor se păstrează pe server. Asistența se cere pe [GitHub Issues](https://github.com/OsztrovszkyVlad/Valet/issues) (vezi „Rambursare și asistență” mai jos).
 
 ### Rambursare și asistență
 
 - **Rambursare:** în 14 zile de la cumpărare, prin comerciantul care a procesat plata (numărul comenzii e în emailul de confirmare de la el). La rambursare licența este revocată. Valet află la următoarea verificare a licenței (cel mult o dată la 30 de zile; „Verifică licența acum” o face pe loc) și trece pe proba de 14 zile, dacă încă n-a trecut, sau pe planul Gratuit. Nu se pierde nimic: regulile, folderele, istoricul și setările rămân, iar ce depășește limitele planului Gratuit se dezactivează, nu se șterge. Fișierul licenței rămâne pe calculator, ca Setări să poată spune de ce nu mai e activă (mesajul „Licența a fost revocată.”).
 - **Cumpărarea nu e deschisă încă.** Se deschide abia după ce plata și rambursarea au fost încercate cap-coadă în modul de probă al comerciantului. Până atunci nu există nimic de rambursat.
-- **Asistență:** [GitHub Issues](https://github.com/OsztrovszkyVlad/Valet/issues). Deocamdată nu există altă cale de contact și nici o adresă de email. Paginile sunt publice: nu pune în ele adresa ta de email, fișierul licenței sau fișiere de-ale tale, iar jurnalul citește-l înainte să-l lipești. Pentru o problemă de licență, Setări, Valet Pro arată „Cod licență (pentru asistență)”; scrie primele 8 caractere, nu tot codul.
+- **Asistență:** [GitHub Issues](https://github.com/OsztrovszkyVlad/Valet/issues). Deocamdată nu există altă cale de contact și nici o adresă de email. Paginile sunt publice: nu pune în ele adresa ta de email, fișierul licenței sau fișiere de-ale tale, iar jurnalul citește-l înainte să-l lipești. Pentru o problemă de licență, scrie numărul comenzii din emailul primit de la comerciant. Nu posta codul licenței din Setări, Valet Pro și nici fișierul licenței: oricine are codul poate ocupa una dintre cele 3 activări.
 
 ### Versiunea din Microsoft Store
 

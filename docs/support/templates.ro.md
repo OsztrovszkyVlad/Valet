@@ -10,13 +10,14 @@ Reguli pentru orice răspuns:
 - Jurnalul poate conține căi de fișiere dacă jurnalul detaliat a fost pornit. Spune asta de fiecare dată când îl ceri.
 - Nu promite o dată pentru o remediere.
 - Canalul de asistență este GitHub Issues (https://github.com/OsztrovszkyVlad/Valet/issues). Nu există o adresă de email de asistență. Paginile sunt publice: nu cere și nu lăsa în ele adrese de email, fișiere de licență, jurnale necitite sau fișiere ale omului. Dacă cineva le lipește, roagă-l să editeze mesajul.
+- Nu cere niciodată codul licenței și nu cere fișierul `.valet-license`. Oricine are codul poate ocupa una dintre cele 3 activări. Cere numărul comenzii din emailul de la comerciant. Spune omului, oricând apare un cod sau un fișier de licență într-o pagină publică, să șteargă mesajul sau să-l editeze și să nu-l mai posteze.
 
 Unde sunt lucrurile (ca în `docs/PRIVACY.ro.md`):
 
 - Fișierul de jurnal: `%LOCALAPPDATA%\ro.valetapp.desktop\logs\valet.log` (cele mai vechi sunt `valet_<data și ora>.log` în același folder, cel mult 5 fișiere).
 - Jurnal detaliat: Setări, Asistență, „Jurnal detaliat (pentru depanare)”. Se aplică pe loc, fără repornire. E oprit din oficiu.
 - Folderul de date: `%APPDATA%\ro.valetapp.desktop` (baza de date cu jurnalul de operații, setările, fișierele de licență; licențele scoase sunt în subfolderul `license-removed`). În versiunea din Microsoft Store datele sunt într-un folder al pachetului, sub `%LOCALAPPDATA%\Packages\`, iar jurnalul e în `%LOCALAPPDATA%\ro.valetapp.desktop\logs` doar în varianta obișnuită (neverificat în Store).
-- Planul și licența: Setări, Valet Pro. Acolo se vede și „Cod licență (pentru asistență)”. Cu acest cod, plus căutarea comenzii în contul comerciantului (numărul comenzii e în emailul de confirmare al comerciantului), asistența găsește o licență. Nu se păstrează nicio legătură între email și licență.
+- Planul și licența: Setări, Valet Pro. Acolo se vede și „Cod licență”, cu avertismentul să nu-l publici. Asistența nu cere niciodată acest cod: identifică licența după numărul comenzii din emailul de la comerciant (Paddle: id-ul tranzacției; Stripe: numărul comenzii sau al sesiunii). Nu se păstrează nicio legătură între email și licență.
 - Versiunea: Setări, Despre.
 
 ---
@@ -122,7 +123,7 @@ Ce se întâmplă după rambursare:
   se dezactivează, nu se șterge, și revine dacă treci din nou pe Pro.
 - Fișierul licenței rămâne pe calculator, ca Setări să poată arăta de ce nu mai e activă.
 
-Te rog să nu pui în această pagină adresa de email, fișierul licenței sau numărul comenzii: GitHub Issues e public.
+Dacă mai scrii aici, pune numărul comenzii, dar nu adresa de email, nu fișierul licenței și nu codul licenței din Setări: GitHub Issues e public.
 
 Vlad
 ```
@@ -130,7 +131,7 @@ Vlad
 Note interne:
 
 - Serviciul de licențe retrage o licență cu `services/license/revoke.mjs` și, când webhook-ul comerciantului e gata, la evenimentul de rambursare (`docs/LICENSING.md`, „License service”). După revocare, Valet o refuză cu „Licența a fost revocată.”
-- Cum găsești licența: omul îți dă primele 8 caractere din „Cod licență” (Setări, Valet Pro); serverul păstrează identificatorii comenzilor la comerciant, nu emailul.
+- Cum găsești licența: după numărul comenzii din emailul de la comerciant. Serverul păstrează legătura număr de comandă – identificator de licență, nu emailul. Cu `node services/license/lookup.mjs --order <număr>` vezi licența, apoi `revoke.mjs --order <număr>` (comenzile exacte, după ce uneltele sunt gata). Nu cere codul licenței din Setări.
 - [VLAD: după ce alegi comerciantul, adaugă pașii exacți pentru cumpărător (un link sau un buton la comerciant) sau spune dacă rambursarea o declanșezi tu din contul comerciantului. Nu e hotărât, pentru că depinde de comerciant.]
 
 ---
@@ -147,8 +148,8 @@ Cauze frecvente:
   deschide Valet pe acel calculator, mergi la Setări, Valet Pro, apasă „Scoate licența de pe acest calculator”
   și importă licența din nou aici. Scoaterea eliberează locul acelui calculator. Dezinstalarea Valet nu îl eliberează.
   Dacă vechiul calculator nu mai există (stricat, formatat), sau licența a fost scoasă fără internet,
-  răspunde aici cu primele 8 caractere din „Cod licență (pentru asistență)” (Setări, Valet Pro). Nu pune în pagină
-  adresa de email sau fișierul licenței: GitHub Issues e public. Pot goli de pe server lista calculatoarelor active
+  răspunde aici cu numărul comenzii din emailul primit de la comerciant. Nu pune în pagină codul licenței
+  din Setări, fișierul licenței sau adresa de email: GitHub Issues e public. Pot goli de pe server lista calculatoarelor active
   ale licenței. După aceea imporți licența pe calculatorul nou (Setări, Valet Pro, „Am o licență”).
   Resetarea golește doar lista calculatoarelor active; licența rămâne la fel.
 - Fără internet în momentul importului. Importul are nevoie de o conexiune la serverul de licențe.
@@ -171,8 +172,8 @@ Vlad
 
 Note interne pentru acest caz:
 
-- Resetarea o face Vlad, pe server: `node services/license/reset.mjs --license <identificator> --store <fișier>` (sau cu variabila `VALET_LICENSE_STORE`). Comanda golește calculatoarele active ale licenței; istoricul calculatoarelor și înregistrarea licenței rămân (`services/license/reset.mjs`, `docs/LICENSING.md`, „License service”). Ea nu poate fi făcută de utilizator.
-- Comanda cere identificatorul licenței (un UUID), pe care omul îl vede în Setări → Valet Pro („Cod licență (pentru asistență)”). Nu se păstrează nicio legătură între email și licență (decizia lui Vlad, 2026-10-29). Licența se găsește după codul din Setări sau după numărul comenzii din contul comerciantului: serverul păstrează identificatorii comenzii și identificatorul licenței, nu emailul. Codul întreg nu trebuie pus într-o pagină publică: oricine îl are poate ocupa un loc de activare (cererea de activare cere doar identificatorul licenței și al calculatorului). Cere primele 8 caractere și caută identificatorul întreg în stocarea serverului. [VLAD: confirmă că 8 caractere ajung ca să găsești licența în stocare; neverificat.]
+- Resetarea o face Vlad, pe server: întâi `node services/license/lookup.mjs --order <număr>` (arată licența și calculatoarele active), apoi `node services/license/reset.mjs --order <număr> --store <fișier>` (sau cu variabila `VALET_LICENSE_STORE`). Comanda golește calculatoarele active ale licenței; istoricul calculatoarelor și înregistrarea licenței rămân. Utilizatorul nu o poate face. [VLAD: `lookup.mjs` și opțiunea `--order` nu existau în depozit când am scris asta (sunt în lucru); verifică numele și opțiunile exacte înainte de prima vânzare. Fără `--order`, `reset.mjs` cere `--license <identificator>`.]
+- Nu se păstrează nicio legătură între email și licență (decizia lui Vlad, 2026-10-29). Licența se găsește după numărul comenzii din emailul de la comerciant (Paddle: id-ul tranzacției; Stripe: comanda sau sesiunea de plată); serverul păstrează identificatorii comenzii și identificatorul licenței, nu emailul. Nu cere codul licenței din Setări: oricine îl are poate ocupa una dintre cele 3 activări (cererea de activare cere doar identificatorul licenței și al calculatorului).
 - Nu cere fișierul `.valet-license` dacă ajunge emailul. Fișierul are identificatorul, emailul și datele licenței, nu fișierele omului.
 - Spune omului să nu folosească licența pe calculatorul vechi dacă îl repară mai târziu: ar ocupa din nou un loc.
 
